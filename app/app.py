@@ -111,6 +111,24 @@ def create_app():
             return redirect(url_for('view_tournament', tid=t.id))
         return render_template('admin/new_tournament.html')
 
+    @app.route('/admin/register-player', methods=['GET', 'POST'])
+    def admin_register_player():
+        require_admin()
+        if request.method == 'POST':
+            email = request.form['email'].strip().lower()
+            name = request.form['name'].strip()
+            password = request.form['password']
+            if db.session.query(User).filter_by(email=email).first():
+                flash("Email already registered", "error")
+            else:
+                u = User(email=email, name=name)
+                u.set_password(password)
+                db.session.add(u)
+                db.session.commit()
+                flash("Player registered.", "success")
+                return redirect(url_for('admin_register_player'))
+        return render_template('admin/register_player.html')
+
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
         require_admin()
