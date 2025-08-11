@@ -57,7 +57,8 @@ def create_app():
 
     @app.route('/register', methods=['GET','POST'])
     def register():
-        from .models import User
+        from .models import User, Tournament, TournamentPlayer
+        tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
             name = request.form['name'].strip()
@@ -69,9 +70,14 @@ def create_app():
             u.set_password(password)
             db.session.add(u)
             db.session.commit()
+            tournament_id = request.form.get('tournament_id')
+            if tournament_id:
+                tp = TournamentPlayer(tournament_id=int(tournament_id), user_id=u.id)
+                db.session.add(tp)
+                db.session.commit()
             flash("Registered. Please login.", "success")
             return redirect(url_for('login'))
-        return render_template('register.html')
+        return render_template('register.html', tournaments=tournaments)
 
     @app.route('/login', methods=['GET','POST'])
     def login():
@@ -114,6 +120,8 @@ def create_app():
     @app.route('/admin/register-player', methods=['GET', 'POST'])
     def admin_register_player():
         require_admin()
+        from .models import User, Tournament, TournamentPlayer
+        tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
             name = request.form['name'].strip()
@@ -125,9 +133,14 @@ def create_app():
                 u.set_password(password)
                 db.session.add(u)
                 db.session.commit()
+                tournament_id = request.form.get('tournament_id')
+                if tournament_id:
+                    tp = TournamentPlayer(tournament_id=int(tournament_id), user_id=u.id)
+                    db.session.add(tp)
+                    db.session.commit()
                 flash("Player registered.", "success")
                 return redirect(url_for('admin_register_player'))
-        return render_template('admin/register_player.html')
+        return render_template('admin/register_player.html', tournaments=tournaments)
 
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
