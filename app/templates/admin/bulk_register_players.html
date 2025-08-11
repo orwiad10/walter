@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Bulk Register Players</h2>
+<form method="post">
+  <label for="tournament_id">Tournament:</label>
+  <select name="tournament_id" required>
+    {% for t in tournaments %}
+      <option value="{{ t.id }}">{{ t.name }}</option>
+    {% endfor %}
+  </select>
+  <div>
+    <label for="names">Player Names (one per line):</label><br>
+    <textarea name="names" rows="10" cols="30"></textarea>
+  </div>
+  <button type="submit">Register Players</button>
+</form>
+{% endblock %}

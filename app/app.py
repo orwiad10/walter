@@ -142,6 +142,30 @@ def create_app():
                 return redirect(url_for('admin_register_player'))
         return render_template('admin/register_player.html', tournaments=tournaments)
 
+    @app.route('/admin/bulk-register', methods=['GET', 'POST'])
+    def admin_bulk_register():
+        require_admin()
+        from .models import User, Tournament, TournamentPlayer
+        tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
+        if request.method == 'POST':
+            tournament_id = int(request.form.get('tournament_id'))
+            names_raw = request.form['names']
+            count = 0
+            for line in names_raw.splitlines():
+                name = line.strip()
+                if not name:
+                    continue
+                u = User(name=name)
+                db.session.add(u)
+                db.session.flush()
+                tp = TournamentPlayer(tournament_id=tournament_id, user_id=u.id)
+                db.session.add(tp)
+                count += 1
+            db.session.commit()
+            flash(f"Registered {count} players.", "success")
+            return redirect(url_for('admin_bulk_register'))
+        return render_template('admin/bulk_register_players.html', tournaments=tournaments)
+
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
         require_admin()
