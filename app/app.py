@@ -194,12 +194,48 @@ def create_app():
         require_admin()
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
-        next_round_num = (db.session.query(Round).filter_by(tournament_id=tid).count()) + 1
+        current_rounds = db.session.query(Round).filter_by(tournament_id=tid).count()
+        player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).count()
+        round_limit = t.rounds_override or recommended_rounds(player_count)
+        if current_rounds >= round_limit:
+            flash("Round limit reached.", "error")
+            return redirect(url_for('view_tournament', tid=tid))
+        next_round_num = current_rounds + 1
         r = Round(tournament_id=tid, number=next_round_num)
         db.session.add(r)
         db.session.commit()
         swiss_pair_round(t, r, db.session)
         flash(f"Paired round {next_round_num}.", "success")
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/cut-to-top', methods=['POST'])
+    def cut_to_top(tid):
+        require_admin()
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        if t.cut not in ('top8', 'top4'):
+            flash('Cut not configured.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        top_n = 8 if t.cut == 'top8' else 4
+        standings = compute_standings(t, db.session)
+        if len(standings) < top_n:
+            flash('Not enough players for cut.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        next_round_num = db.session.query(Round).filter_by(tournament_id=tid).count() + 1
+        r = Round(tournament_id=tid, number=next_round_num)
+        db.session.add(r)
+        db.session.commit()
+        seeds = [row['tp'] for row in standings[:top_n]]
+        table = 1
+        for i in range(top_n // 2):
+            p1 = seeds[i]
+            p2 = seeds[top_n - 1 - i]
+            m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
+            db.session.add(m)
+            table += 1
+        db.session.commit()
+        flash(f'Cut to top {top_n} paired.', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/match/<int:mid>', methods=['GET','POST'])

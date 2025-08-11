@@ -23,9 +23,19 @@
     <label>Rounds (recommended {{ rec_rounds }}): <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}"></label>
     <button class="btn" type="submit">Set</button>
   </form>
-  <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
-    <button class="btn" type="submit">Pair Next Round</button>
-  </form>
+  {% set round_limit = t.rounds_override or rec_rounds %}
+  {% set current_rounds = rounds|length %}
+  {% if current_rounds < round_limit %}
+    <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
+      <button class="btn" type="submit">Pair Next Round</button>
+    </form>
+  {% elif t.cut in ('top8','top4') %}
+    <form method="post" action="{{ url_for('cut_to_top', tid=t.id) }}">
+      <button class="btn" type="submit">Cut to Top {{ 8 if t.cut=='top8' else 4 }}</button>
+    </form>
+  {% else %}
+    <p>Round limit reached.</p>
+  {% endif %}
 {% endif %}
 
 <ol>
