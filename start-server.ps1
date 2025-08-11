@@ -2,6 +2,7 @@
 # Installs dependencies, initializes the database, creates an admin user,
 # and starts the Flask development server.
 
+
 # Ensure the script runs from its own directory so relative paths work
 Set-Location -Path $PSScriptRoot
 
