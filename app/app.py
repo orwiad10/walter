@@ -4,6 +4,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import os
+import click
 
 db = SQLAlchemy()
 login_manager = LoginManager()
@@ -32,10 +33,13 @@ def create_app():
         print("Database initialized.")
 
     @app.cli.command('create-admin')
-    def create_admin():
-        import click
-        email = click.prompt("Admin email", default="admin@example.com")
-        password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
+    @click.option('--email', help='Email for the admin user')
+    @click.option('--password', help='Password for the admin user')
+    def create_admin(email, password):
+        if not email:
+            email = click.prompt("Admin email", default="admin@example.com")
+        if not password:
+            password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
         if db.session.query(User).filter_by(email=email).first():
             print("User exists")
             return
