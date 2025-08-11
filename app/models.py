@@ -6,9 +6,11 @@ from sqlalchemy import UniqueConstraint
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(255), unique=True, nullable=False)
+    # Email and password are optional to allow admin bulk registration without
+    # requiring login credentials.
+    email = db.Column(db.String(255), unique=True, nullable=True)
     name = db.Column(db.String(120), nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -16,6 +18,8 @@ class User(db.Model, UserMixin):
         self.password_hash = generate_password_hash(pw)
 
     def check_password(self, pw):
+        if not self.password_hash:
+            return False
         return check_password_hash(self.password_hash, pw)
 
 class Tournament(db.Model):

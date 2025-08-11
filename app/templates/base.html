@@ -15,6 +15,7 @@
         {% if current_user.is_admin %}
         <a href="{{ url_for('new_tournament') }}">New Tournament</a>
         <a href="{{ url_for('admin_register_player') }}">Register Player</a>
+        <a href="{{ url_for('admin_bulk_register') }}">Bulk Register Players</a>
         {% endif %}
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
