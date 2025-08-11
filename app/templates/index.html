@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Tournaments</h2>
+<p><a class="btn" href="{{ url_for('new_tournament') }}" {% if not current_user.is_authenticated or not current_user.is_admin %}style="display:none"{% endif %}>Create Tournament</a></p>
+<ul class="cards">
+  {% for t in tournaments %}
+    <li class="card">
+      <h3><a href="{{ url_for('view_tournament', tid=t.id) }}">{{ t.name }}</a></h3>
+      <div>Format: {{ t.format }}</div>
+      <div>Cut: {{ t.cut|upper }}</div>
+    </li>
+  {% else %}
+    <li>No tournaments yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

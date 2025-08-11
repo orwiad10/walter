@@ -1,0 +1,71 @@
+from .app import db
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
+from sqlalchemy import UniqueConstraint
+
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def set_password(self, pw):
+        self.password_hash = generate_password_hash(pw)
+
+    def check_password(self, pw):
+        return check_password_hash(self.password_hash, pw)
+
+class Tournament(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    format = db.Column(db.String(50), nullable=False)  # Commander, Draft, Constructed
+    cut = db.Column(db.String(10), default='none')     # none, top8, top4
+    rounds_override = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class TournamentPlayer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Cached totals for speed (recomputed in standings anyway)
+    points = db.Column(db.Integer, default=0)  # 3 for win, 1 for draw, 0 for loss
+    game_wins = db.Column(db.Integer, default=0)
+    game_losses = db.Column(db.Integer, default=0)
+    game_draws = db.Column(db.Integer, default=0)
+
+    tournament = db.relationship('Tournament', backref=db.backref('players', lazy='dynamic'))
+    user = db.relationship('User', backref='tournament_entries')
+
+    __table_args__ = (UniqueConstraint('tournament_id', 'user_id', name='_tournament_user_uc'),)
+
+class Round(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    number = db.Column(db.Integer, nullable=False)
+
+    tournament = db.relationship('Tournament', backref=db.backref('rounds', lazy='dynamic'))
+
+class MatchResult(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    player1_wins = db.Column(db.Integer, default=0)
+    player2_wins = db.Column(db.Integer, default=0)
+    draws = db.Column(db.Integer, default=0)
+
+class Match(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    round_id = db.Column(db.Integer, db.ForeignKey('round.id'), nullable=False)
+    player1_id = db.Column(db.Integer, db.ForeignKey('tournament_player.id'), nullable=False)
+    player2_id = db.Column(db.Integer, db.ForeignKey('tournament_player.id'), nullable=True)  # None means BYE
+    table_number = db.Column(db.Integer, nullable=False)
+    completed = db.Column(db.Boolean, default=False)
+    result_id = db.Column(db.Integer, db.ForeignKey('match_result.id'), nullable=True)
+
+    round = db.relationship('Round', backref=db.backref('matches', lazy='dynamic'))
+    player1 = db.relationship('TournamentPlayer', foreign_keys=[player1_id])
+    player2 = db.relationship('TournamentPlayer', foreign_keys=[player2_id])
+    result = db.relationship('MatchResult', backref='match', uselist=False)
+
+    __table_args__ = (UniqueConstraint('round_id', 'table_number', name='_round_table_uc'),)

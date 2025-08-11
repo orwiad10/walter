@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>{{ t.name }}</h2>
+<p>Format: {{ t.format }} | Cut: {{ t.cut|upper }}</p>
+<form method="post" action="{{ url_for('join_tournament', tid=t.id) }}">
+  {% if current_user.is_authenticated %}
+    <button class="btn" type="submit">Join Tournament</button>
+  {% else %}
+    <a class="btn" href="{{ url_for('login') }}">Login to Join</a>
+  {% endif %}
+</form>
+
+<h3>Players ({{ players|length }})</h3>
+<ul>
+  {% for p in players %}
+    <li>{{ p.user.name }}</li>
+  {% endfor %}
+</ul>
+
+<h3>Rounds</h3>
+{% if current_user.is_authenticated and current_user.is_admin %}
+  <form method="post" action="{{ url_for('set_rounds', tid=t.id) }}">
+    <label>Rounds (recommended {{ rec_rounds }}): <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}"></label>
+    <button class="btn" type="submit">Set</button>
+  </form>
+  <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
+    <button class="btn" type="submit">Pair Next Round</button>
+  </form>
+{% endif %}
+
+<ol>
+  {% for r in rounds %}
+    <li>
+      Round {{ r.number }}
+      <ul>
+        {% for m in r.matches.order_by('table_number') %}
+          <li>
+            Table {{ m.table_number }}:
+            {% if m.player2_id %}
+              {{ m.player1.user.name }} vs {{ m.player2.user.name }}
+            {% else %}
+              {{ m.player1.user.name }} has a BYE
+            {% endif %}
+            {% if m.completed %}
+              - Result:
+              {% if m.player2_id %}
+                {{ m.result.player1_wins }}-{{ m.result.player2_wins }} (Draws {{ m.result.draws }})
+              {% else %}
+                Win by BYE
+              {% endif %}
+            {% else %}
+              {% if current_user.is_authenticated and (current_user.is_admin or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
+                <a href="{{ url_for('report_match', mid=m.id) }}">Report</a>
+              {% endif %}
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </li>
+  {% endfor %}
+</ol>
+
+<h3>Standings</h3>
+<p><a class="btn" href="{{ url_for('standings', tid=t.id) }}">Open Standings</a></p>
+
+{% endblock %}

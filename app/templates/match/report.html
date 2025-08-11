@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Report Match</h2>
+<p>Round {{ m.round.number }} — Table {{ m.table_number }}</p>
+<p>
+  {% if m.player2_id %}
+    {{ m.player1.user.name }} vs {{ m.player2.user.name }}
+  {% else %}
+    {{ m.player1.user.name }} has a BYE
+  {% endif %}
+</p>
+{% if m.player2_id %}
+<form method="post">
+  <label>{{ m.player1.user.name }} game wins: <input type="number" name="p1_wins" min="0" required></label><br>
+  <label>{{ m.player2.user.name }} game wins: <input type="number" name="p2_wins" min="0" required></label><br>
+  <label>Draws: <input type="number" name="draws" min="0" value="0"></label><br>
+  <button class="btn" type="submit">Submit Result</button>
+</form>
+{% else %}
+<p>BYE — no reporting needed.</p>
+{% endif %}
+{% endblock %}

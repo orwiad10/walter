@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>New Tournament</h2>
+<form method="post">
+  <label>Name <input name="name" required></label><br>
+  <label>Format
+    <select name="format" required>
+      <option>Commander</option>
+      <option>Draft</option>
+      <option>Constructed</option>
+    </select>
+  </label><br>
+  <label>Cut
+    <select name="cut">
+      <option value="none">None</option>
+      <option value="top8">Top 8</option>
+      <option value="top4">Top 4</option>
+    </select>
+  </label><br>
+  <button class="btn" type="submit">Create</button>
+</form>
+{% endblock %}
