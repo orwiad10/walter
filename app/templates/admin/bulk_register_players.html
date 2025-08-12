@@ -3,7 +3,8 @@
 <h2>Bulk Register Players</h2>
 <form method="post">
   <label for="tournament_id">Tournament:</label>
-  <select name="tournament_id" required>
+  <select name="tournament_id">
+    <option value="">-- None --</option>
     {% for t in tournaments %}
       <option value="{{ t.id }}">{{ t.name }}</option>
     {% endfor %}

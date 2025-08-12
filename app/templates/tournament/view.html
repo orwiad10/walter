@@ -37,11 +37,6 @@
   {% else %}
     <p>Round limit reached.</p>
   {% endif %}
-  {% if t.cut.startswith('top') %}
-    <form method="post" action="{{ url_for('cut_to_top', tid=t.id) }}">
-      <button class="btn" type="submit">Cut to Top {{ t.cut[3:] }}</button>
-    </form>
-  {% endif %}
   {% endif %}
 
 <ol>
