@@ -13,6 +13,7 @@ class User(db.Model, UserMixin):
     password_hash = db.Column(db.String(255), nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    notes = db.Column(db.Text, nullable=True)
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
@@ -45,7 +46,10 @@ class TournamentPlayer(db.Model):
         'Tournament',
         backref=db.backref('players', cascade='all, delete-orphan')
     )
-    user = db.relationship('User', backref='tournament_entries')
+    user = db.relationship(
+        'User',
+        backref=db.backref('tournament_entries', cascade='all, delete-orphan')
+    )
 
     __table_args__ = (UniqueConstraint('tournament_id', 'user_id', name='_tournament_user_uc'),)
 

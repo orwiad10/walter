@@ -2,11 +2,17 @@
 {% block content %}
 <h2>Users</h2>
 <table class="table">
-  <tr><th>Name</th><th>Email</th><th>Tournaments</th><th>Add to Tournament</th></tr>
+  <tr><th>Name</th><th>Email & Notes</th><th>Tournaments</th><th>Add to Tournament</th><th>Delete</th></tr>
   {% for u in users %}
   <tr>
     <td>{{ u.name }}</td>
-    <td>{{ u.email or '' }}</td>
+    <td>
+      <form method="post" action="{{ url_for('admin_update_user', uid=u.id) }}">
+        <input type="email" name="email" value="{{ u.email or '' }}"><br>
+        <textarea name="notes" rows="2" cols="20">{{ u.notes or '' }}</textarea><br>
+        <button class="btn" type="submit">Save</button>
+      </form>
+    </td>
     <td>
       <ul>
         {% for tp in u.tournament_entries %}
@@ -26,6 +32,11 @@
           {% endfor %}
         </select>
         <button class="btn" type="submit">Add</button>
+      </form>
+    </td>
+    <td>
+      <form method="post" action="{{ url_for('admin_delete_user', uid=u.id) }}" onsubmit="return confirm('Delete user?');">
+        <button class="btn" type="submit">Delete</button>
       </form>
     </td>
   </tr>

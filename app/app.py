@@ -148,7 +148,7 @@ def create_app():
         from .models import User, Tournament, TournamentPlayer
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         if request.method == 'POST':
-            tournament_id = int(request.form.get('tournament_id'))
+            tournament_id = request.form.get('tournament_id')
             names_raw = request.form['names']
             count = 0
             for line in names_raw.splitlines():
@@ -158,8 +158,9 @@ def create_app():
                 u = User(name=name)
                 db.session.add(u)
                 db.session.flush()
-                tp = TournamentPlayer(tournament_id=tournament_id, user_id=u.id)
-                db.session.add(tp)
+                if tournament_id:
+                    tp = TournamentPlayer(tournament_id=int(tournament_id), user_id=u.id)
+                    db.session.add(tp)
                 count += 1
             db.session.commit()
             flash(f"Registered {count} players.", "success")
@@ -237,6 +238,27 @@ def create_app():
         if not t.cut.startswith('top'):
             flash('Cut not configured.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
+        next_round_num = current_rounds + 1
+        if current_rounds == round_limit:
+            top_n = int(t.cut[3:])
+            standings = [row for row in compute_standings(t, db.session) if not row['tp'].dropped]
+            if len(standings) < top_n:
+                flash('Not enough players for cut.', 'error')
+                return redirect(url_for('view_tournament', tid=tid))
+            seeds = [row['tp'] for row in standings[:top_n]]
+            r = Round(tournament_id=tid, number=next_round_num)
+            db.session.add(r)
+            db.session.commit()
+            table = 1
+            for i in range(top_n // 2):
+                p1 = seeds[i]
+                p2 = seeds[top_n - 1 - i]
+                m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
+                db.session.add(m)
+                table += 1
+            db.session.commit()
+            flash(f"Paired round {next_round_num}.", "success")
+            return redirect(url_for('view_tournament', tid=tid))
         winners = []
         for m in prev_round.matches.order_by('table_number'):
             if m.result.player1_wins > m.result.player2_wins:
@@ -250,7 +272,6 @@ def create_app():
         if len(winners) <= 1:
             flash('Tournament complete.', 'success')
             return redirect(url_for('view_tournament', tid=tid))
-        next_round_num = current_rounds + 1
         r = Round(tournament_id=tid, number=next_round_num)
         db.session.add(r)
         db.session.commit()
@@ -261,40 +282,6 @@ def create_app():
             table += 1
         db.session.commit()
         flash(f"Paired round {next_round_num}.", "success")
-        return redirect(url_for('view_tournament', tid=tid))
-
-    @app.route('/t/<int:tid>/cut-to-top', methods=['POST'])
-    def cut_to_top(tid):
-        require_admin()
-        t = db.session.get(Tournament, tid)
-        if not t:
-            abort(404)
-        if not t.cut.startswith('top'):
-            flash('Cut not configured.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
-        prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
-        if prev_round and any(not m.completed for m in prev_round.matches):
-            flash('Previous round not completed.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
-        top_n = int(t.cut[3:])
-        standings = [row for row in compute_standings(t, db.session) if not row['tp'].dropped]
-        if len(standings) < top_n:
-            flash('Not enough players for cut.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
-        next_round_num = db.session.query(Round).filter_by(tournament_id=tid).count() + 1
-        r = Round(tournament_id=tid, number=next_round_num)
-        db.session.add(r)
-        db.session.commit()
-        seeds = [row['tp'] for row in standings[:top_n]]
-        table = 1
-        for i in range(top_n // 2):
-            p1 = seeds[i]
-            p2 = seeds[top_n - 1 - i]
-            m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
-            db.session.add(m)
-            table += 1
-        db.session.commit()
-        flash(f'Cut to top {top_n} paired.', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/round/<int:rid>/repair', methods=['POST'])
@@ -370,7 +357,7 @@ def create_app():
                     m.player1.dropped = True
             db.session.commit()
             flash("Result submitted.", "success")
-            return redirect(url_for('view_tournament', tid=m.round.tournament_id))
+            return redirect(url_for('view_round', tid=m.round.tournament_id, rid=m.round_id))
         return render_template('match/report.html', m=m)
 
     @app.route('/t/<int:tid>/standings')
@@ -419,6 +406,37 @@ def create_app():
             db.session.delete(tp)
             db.session.commit()
         flash('User removed from tournament.', 'success')
+        return redirect(url_for('admin_users'))
+
+    @app.route('/admin/users/<int:uid>/update', methods=['POST'])
+    def admin_update_user(uid):
+        require_admin()
+        from .models import User
+        u = db.session.get(User, uid)
+        if not u:
+            abort(404)
+        email = request.form.get('email', '').strip().lower() or None
+        if email and db.session.query(User).filter(User.email == email, User.id != uid).first():
+            flash('Email already registered.', 'error')
+        else:
+            u.email = email
+            u.notes = request.form.get('notes', '').strip() or None
+            db.session.commit()
+            flash('User updated.', 'success')
+        return redirect(url_for('admin_users'))
+
+    @app.route('/admin/users/<int:uid>/delete', methods=['POST'])
+    def admin_delete_user(uid):
+        require_admin()
+        from .models import User
+        u = db.session.get(User, uid)
+        if not u:
+            abort(404)
+        for tp in list(u.tournament_entries):
+            db.session.delete(tp)
+        db.session.delete(u)
+        db.session.commit()
+        flash('User deleted.', 'success')
         return redirect(url_for('admin_users'))
 
     return app
