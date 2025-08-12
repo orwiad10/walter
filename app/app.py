@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import os
 import click
+import random
 
 db = SQLAlchemy()
 login_manager = LoginManager()
@@ -109,8 +110,9 @@ def create_app():
         if request.method == 'POST':
             name = request.form['name'].strip()
             fmt = request.form['format']
-            cut = request.form.get('cut', 'none')
-            t = Tournament(name=name, format=fmt, cut=cut)
+            structure = request.form.get('structure', 'swiss')
+            cut = request.form.get('cut', 'none') if structure == 'swiss' else 'none'
+            t = Tournament(name=name, format=fmt, cut=cut, structure=structure)
             db.session.add(t)
             db.session.commit()
             flash("Tournament created.", "success")
@@ -226,6 +228,8 @@ def create_app():
         current_rounds = prev_round.number if prev_round else 0
         player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
         round_limit = t.rounds_override or recommended_rounds(player_count)
+        if t.structure == 'single_elim':
+            round_limit = 0
         if current_rounds < round_limit:
             next_round_num = current_rounds + 1
             r = Round(tournament_id=tid, number=next_round_num)
@@ -235,54 +239,101 @@ def create_app():
             flash(f"Paired round {next_round_num}.", "success")
             return redirect(url_for('view_tournament', tid=tid))
         # Elimination rounds
-        if not t.cut.startswith('top'):
-            flash('Cut not configured.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
         next_round_num = current_rounds + 1
-        if current_rounds == round_limit:
-            top_n = int(t.cut[3:])
-            standings = [row for row in compute_standings(t, db.session) if not row['tp'].dropped]
-            if len(standings) < top_n:
-                flash('Not enough players for cut.', 'error')
+        if t.structure == 'single_elim':
+            if current_rounds == 0:
+                players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).all()
+                random.shuffle(players)
+                r = Round(tournament_id=tid, number=next_round_num)
+                db.session.add(r)
+                db.session.commit()
+                table = 1
+                for i in range(0, len(players), 2):
+                    p1 = players[i]
+                    p2 = players[i+1] if i+1 < len(players) else None
+                    m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id if p2 else None, table_number=table)
+                    if p2 is None:
+                        m.completed = True
+                        m.result = MatchResult(player1_wins=2, player2_wins=0, draws=0)
+                    db.session.add(m)
+                    table += 1
+                db.session.commit()
+                flash(f"Paired round {next_round_num}.", "success")
                 return redirect(url_for('view_tournament', tid=tid))
-            seeds = [row['tp'] for row in standings[:top_n]]
+            winners = []
+            for m in sorted(prev_round.matches, key=lambda m: m.table_number):
+                if m.result.player1_wins > m.result.player2_wins:
+                    winners.append(m.player1)
+                    if m.player2_id:
+                        m.player2.dropped = True
+                else:
+                    winners.append(m.player2)
+                    m.player1.dropped = True
+            db.session.commit()
+            if len(winners) <= 1:
+                flash('Tournament complete.', 'success')
+                return redirect(url_for('view_tournament', tid=tid))
             r = Round(tournament_id=tid, number=next_round_num)
             db.session.add(r)
             db.session.commit()
             table = 1
-            for i in range(top_n // 2):
-                p1 = seeds[i]
-                p2 = seeds[top_n - 1 - i]
+            for i in range(0, len(winners), 2):
+                p1 = winners[i]
+                p2 = winners[i+1]
                 m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
                 db.session.add(m)
                 table += 1
             db.session.commit()
             flash(f"Paired round {next_round_num}.", "success")
             return redirect(url_for('view_tournament', tid=tid))
-        winners = []
-        for m in prev_round.matches.order_by('table_number'):
-            if m.result.player1_wins > m.result.player2_wins:
-                winners.append(m.player1)
-                if m.player2_id:
-                    m.player2.dropped = True
-            else:
-                winners.append(m.player2)
-                m.player1.dropped = True
-        db.session.commit()
-        if len(winners) <= 1:
-            flash('Tournament complete.', 'success')
+        else:
+            if not t.cut.startswith('top'):
+                flash('Cut not configured.', 'error')
+                return redirect(url_for('view_tournament', tid=tid))
+            if current_rounds == round_limit:
+                top_n = int(t.cut[3:])
+                standings = [row for row in compute_standings(t, db.session) if not row['tp'].dropped]
+                if len(standings) < top_n:
+                    flash('Not enough players for cut.', 'error')
+                    return redirect(url_for('view_tournament', tid=tid))
+                seeds = [row['tp'] for row in standings[:top_n]]
+                r = Round(tournament_id=tid, number=next_round_num)
+                db.session.add(r)
+                db.session.commit()
+                table = 1
+                for i in range(top_n // 2):
+                    p1 = seeds[i]
+                    p2 = seeds[top_n - 1 - i]
+                    m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
+                    db.session.add(m)
+                    table += 1
+                db.session.commit()
+                flash(f"Paired round {next_round_num}.", "success")
+                return redirect(url_for('view_tournament', tid=tid))
+            winners = []
+            for m in sorted(prev_round.matches, key=lambda m: m.table_number):
+                if m.result.player1_wins > m.result.player2_wins:
+                    winners.append(m.player1)
+                    if m.player2_id:
+                        m.player2.dropped = True
+                else:
+                    winners.append(m.player2)
+                    m.player1.dropped = True
+            db.session.commit()
+            if len(winners) <= 1:
+                flash('Tournament complete.', 'success')
+                return redirect(url_for('view_tournament', tid=tid))
+            r = Round(tournament_id=tid, number=next_round_num)
+            db.session.add(r)
+            db.session.commit()
+            table = 1
+            for i in range(0, len(winners), 2):
+                m = Match(round_id=r.id, player1_id=winners[i].id, player2_id=winners[i+1].id, table_number=table)
+                db.session.add(m)
+                table += 1
+            db.session.commit()
+            flash(f"Paired round {next_round_num}.", "success")
             return redirect(url_for('view_tournament', tid=tid))
-        r = Round(tournament_id=tid, number=next_round_num)
-        db.session.add(r)
-        db.session.commit()
-        table = 1
-        for i in range(0, len(winners), 2):
-            m = Match(round_id=r.id, player1_id=winners[i].id, player2_id=winners[i+1].id, table_number=table)
-            db.session.add(m)
-            table += 1
-        db.session.commit()
-        flash(f"Paired round {next_round_num}.", "success")
-        return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/round/<int:rid>/repair', methods=['POST'])
     def repair_round(tid, rid):
@@ -350,6 +401,8 @@ def create_app():
                 tournament_id=t.id, dropped=False
             ).count()
             round_limit = t.rounds_override or recommended_rounds(active)
+            if t.structure == 'single_elim':
+                round_limit = 0
             if m.round.number > round_limit and m.player2_id:
                 if p1_wins > p2_wins:
                     m.player2.dropped = True
@@ -374,6 +427,8 @@ def create_app():
         rounds = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number).all()
         players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).all()
         round_limit = t.rounds_override or recommended_rounds(len(players))
+        if t.structure == 'single_elim':
+            round_limit = 0
         elim_rounds = [r for r in rounds if r.number > round_limit]
         return render_template('tournament/bracket.html', t=t, rounds=elim_rounds)
 

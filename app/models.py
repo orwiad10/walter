@@ -27,6 +27,7 @@ class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     format = db.Column(db.String(50), nullable=False)  # Commander, Draft, Constructed
+    structure = db.Column(db.String(20), default='swiss')  # swiss or single_elim
     cut = db.Column(db.String(10), default='none')     # none, top8, top4
     rounds_override = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

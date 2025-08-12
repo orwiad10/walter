@@ -13,7 +13,7 @@
 {% endif %}
 {% endif %}
 <ul>
-{% for m in r.matches.order_by('table_number') %}
+{% for m in r.matches|sort(attribute='table_number') %}
   <li>
     Table {{ m.table_number }}:
     {% if m.player2_id %}

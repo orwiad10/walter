@@ -6,7 +6,7 @@
 <div class="bracket">
   {% for r in rounds %}
   <div class="round">
-    {% for m in r.matches.order_by('table_number') %}
+    {% for m in r.matches|sort(attribute='table_number') %}
     <div class="match">
       <div class="player">
         {{ m.player1.user.name }} ({{ m.player1.points }})
