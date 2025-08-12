@@ -12,3 +12,6 @@ main { padding: 16px; }
 .flashes li { margin:8px 0; padding:8px; border-radius:8px; }
 .flashes li.success { background:#e8f8ee; border:1px solid #bfe5cb; }
 .flashes li.error { background:#fde8e8; border:1px solid #f3c2c2; }
+.bracket { display:flex; gap:20px; }
+.round { flex:1; }
+.match { margin:8px 0; }

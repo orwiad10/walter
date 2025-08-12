@@ -1,4 +1,5 @@
 from collections import defaultdict
+import random
 from .models import Tournament, TournamentPlayer, Match, MatchResult, Round
 from .app import db
 
@@ -47,8 +48,27 @@ def have_played(a_id, b_id, session):
     return session.query(q.exists()).scalar()
 
 def swiss_pair_round(t: Tournament, r: Round, session):
+    players = session.query(TournamentPlayer).filter_by(tournament_id=t.id, dropped=False).all()
+    if r.number == 1:
+        random.shuffle(players)
+        table = 1
+        created = []
+        i = 0
+        while i + 1 < len(players):
+            a = players[i]; b = players[i+1]
+            m = Match(round_id=r.id, player1_id=a.id, player2_id=b.id, table_number=table)
+            session.add(m)
+            created.append(m)
+            table += 1; i += 2
+        if i < len(players):
+            floater = players[i]
+            m = Match(round_id=r.id, player1_id=floater.id, player2_id=None, table_number=table, completed=True)
+            m.result = MatchResult(player1_wins=2, player2_wins=0, draws=0)
+            session.add(m)
+            created.append(m)
+        session.commit()
+        return created
     # Build score groups
-    players = session.query(TournamentPlayer).filter_by(tournament_id=t.id).all()
     scored = [(tp, player_points(tp, session)) for tp in players]
     scored.sort(key=lambda x: (-x[1], x[0].id))  # by points desc
 
