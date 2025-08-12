@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+<p><a href="{{ url_for('view_tournament', tid=m.round.tournament_id) }}">Back to Tournament</a></p>
 <h2>Report Match</h2>
 <p>Round {{ m.round.number }} — Table {{ m.table_number }}</p>
 <p>

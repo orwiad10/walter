@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+<p><a href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a></p>
 <h2>{{ t.name }} — Standings</h2>
 <button class="btn" onclick="window.print()">Print</button>
 <table class="table">

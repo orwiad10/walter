@@ -3,19 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title or 'MTG Tournament' }}</title>
+  <title>{{ title or 'WaLTER' }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <header>
-    <h1><a href="{{ url_for('index') }}">MTG Tournament</a></h1>
+    <h1><a href="{{ url_for('index') }}">WaLTER</a></h1>
     <nav>
+      <a href="{{ url_for('index') }}">All Tournaments</a>
       {% if current_user.is_authenticated %}
         <span>Hi, {{ current_user.name }}</span>
         {% if current_user.is_admin %}
         <a href="{{ url_for('new_tournament') }}">New Tournament</a>
         <a href="{{ url_for('admin_register_player') }}">Register Player</a>
         <a href="{{ url_for('admin_bulk_register') }}">Bulk Register Players</a>
+        <a href="{{ url_for('admin_users') }}">Manage Users</a>
         {% endif %}
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
