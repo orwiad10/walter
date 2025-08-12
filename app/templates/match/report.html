@@ -14,6 +14,8 @@
   <label>{{ m.player1.user.name }} game wins: <input type="number" name="p1_wins" min="0" required></label><br>
   <label>{{ m.player2.user.name }} game wins: <input type="number" name="p2_wins" min="0" required></label><br>
   <label>Draws: <input type="number" name="draws" min="0" value="0"></label><br>
+  <label><input type="checkbox" name="drop_p1"> Drop {{ m.player1.user.name }}</label><br>
+  <label><input type="checkbox" name="drop_p2"> Drop {{ m.player2.user.name }}</label><br>
   <button class="btn" type="submit">Submit Result</button>
 </form>
 {% else %}

@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>{{ t.name }} — Standings</h2>
+<button class="btn" onclick="window.print()">Print</button>
 <table class="table">
   <thead>
     <tr>
@@ -21,9 +22,9 @@
   </tbody>
 </table>
 
-{% if t.cut in ('top8','top4') %}
+{% if t.cut.startswith('top') %}
   <p>Cut: {{ t.cut|upper }}</p>
-  {% set cutn = 8 if t.cut=='top8' else 4 %}
+  {% set cutn = t.cut[3:]|int %}
   <h3>Projected Cut</h3>
   <ol>
     {% for row in standings[:cutn] %}

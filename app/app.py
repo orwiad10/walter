@@ -219,7 +219,7 @@ def create_app():
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         current_rounds = db.session.query(Round).filter_by(tournament_id=tid).count()
-        player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).count()
+        player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
         round_limit = t.rounds_override or recommended_rounds(player_count)
         if current_rounds >= round_limit:
             flash("Round limit reached.", "error")
@@ -238,11 +238,11 @@ def create_app():
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
-        if t.cut not in ('top8', 'top4'):
+        if not t.cut.startswith('top'):
             flash('Cut not configured.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
-        top_n = 8 if t.cut == 'top8' else 4
-        standings = compute_standings(t, db.session)
+        top_n = int(t.cut[3:])
+        standings = [row for row in compute_standings(t, db.session) if not row['tp'].dropped]
         if len(standings) < top_n:
             flash('Not enough players for cut.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
@@ -262,6 +262,23 @@ def create_app():
         flash(f'Cut to top {top_n} paired.', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
+    @app.route('/t/<int:tid>/round/<int:rid>/repair', methods=['POST'])
+    def repair_round(tid, rid):
+        require_admin()
+        r = db.session.get(Round, rid)
+        if not r or r.tournament_id != tid:
+            abort(404)
+        if any(m.completed for m in r.matches):
+            flash('Cannot re-pair, results already entered.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        for m in r.matches:
+            db.session.delete(m)
+        db.session.commit()
+        t = db.session.get(Tournament, tid)
+        swiss_pair_round(t, r, db.session)
+        flash('Round re-paired.', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
     @app.route('/match/<int:mid>', methods=['GET','POST'])
     @login_required
     def report_match(mid):
@@ -277,6 +294,10 @@ def create_app():
             draws   = int(request.form.get('draws', 0))
             m.result = MatchResult(player1_wins=p1_wins, player2_wins=p2_wins, draws=draws)
             m.completed = True
+            if request.form.get('drop_p1'):
+                m.player1.dropped = True
+            if m.player2_id and request.form.get('drop_p2'):
+                m.player2.dropped = True
             db.session.commit()
             flash("Result submitted.", "success")
             return redirect(url_for('view_tournament', tid=m.round.tournament_id))
@@ -288,6 +309,16 @@ def create_app():
         if not t: abort(404)
         standings = compute_standings(t, db.session)
         return render_template('tournament/standings.html', t=t, standings=standings)
+
+    @app.route('/t/<int:tid>/bracket')
+    def bracket(tid):
+        t = db.session.get(Tournament, tid)
+        if not t: abort(404)
+        rounds = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number).all()
+        players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).all()
+        round_limit = t.rounds_override or recommended_rounds(len(players))
+        elim_rounds = [r for r in rounds if r.number > round_limit]
+        return render_template('tournament/bracket.html', t=t, rounds=elim_rounds)
 
     return app
 

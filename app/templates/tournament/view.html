@@ -2,6 +2,7 @@
 {% block content %}
 <h2>{{ t.name }}</h2>
 <p>Format: {{ t.format }} | Cut: {{ t.cut|upper }}</p>
+<button class="btn" onclick="window.print()">Print</button>
 <form method="post" action="{{ url_for('join_tournament', tid=t.id) }}">
   {% if current_user.is_authenticated %}
     <button class="btn" type="submit">Join Tournament</button>
@@ -18,7 +19,7 @@
 </ul>
 
 <h3>Rounds</h3>
-{% if current_user.is_authenticated and current_user.is_admin %}
+  {% if current_user.is_authenticated and current_user.is_admin %}
   <form method="post" action="{{ url_for('set_rounds', tid=t.id) }}">
     <label>Rounds (recommended {{ rec_rounds }}): <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}"></label>
     <button class="btn" type="submit">Set</button>
@@ -32,17 +33,22 @@
   {% else %}
     <p>Round limit reached.</p>
   {% endif %}
-  {% if t.cut in ('top8','top4') %}
+  {% if t.cut.startswith('top') %}
     <form method="post" action="{{ url_for('cut_to_top', tid=t.id) }}">
-      <button class="btn" type="submit">Cut to Top {{ 8 if t.cut=='top8' else 4 }}</button>
+      <button class="btn" type="submit">Cut to Top {{ t.cut[3:] }}</button>
     </form>
   {% endif %}
-{% endif %}
+  {% endif %}
 
 <ol>
   {% for r in rounds %}
     <li>
       Round {{ r.number }}
+      {% if current_user.is_authenticated and current_user.is_admin %}
+      <form method="post" action="{{ url_for('repair_round', tid=t.id, rid=r.id) }}" style="display:inline;">
+        <button class="btn" type="submit">Re-pair</button>
+      </form>
+      {% endif %}
       <ul>
         {% for m in r.matches.order_by('table_number') %}
           <li>
@@ -73,5 +79,8 @@
 
 <h3>Standings</h3>
 <p><a class="btn" href="{{ url_for('standings', tid=t.id) }}">Open Standings</a></p>
+{% if t.cut.startswith('top') %}
+<p><a class="btn" href="{{ url_for('bracket', tid=t.id) }}">View Bracket</a></p>
+{% endif %}
 
 {% endblock %}

@@ -39,6 +39,7 @@ class TournamentPlayer(db.Model):
     game_wins = db.Column(db.Integer, default=0)
     game_losses = db.Column(db.Integer, default=0)
     game_draws = db.Column(db.Integer, default=0)
+    dropped = db.Column(db.Boolean, default=False)
 
     tournament = db.relationship('Tournament', backref=db.backref('players', lazy='dynamic'))
     user = db.relationship('User', backref='tournament_entries')

@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>{{ t.name }} Bracket</h2>
+<button class="btn" onclick="window.print()">Print</button>
+<div class="bracket">
+  {% for r in rounds %}
+  <div class="round">
+    <h3>Round {{ r.number }}</h3>
+    {% for m in r.matches.order_by('table_number') %}
+    <div class="match">
+      {{ m.player1.user.name }}{% if m.player2_id %} vs {{ m.player2.user.name }}{% endif %}
+      {% if m.completed %}- {{ m.result.player1_wins }}-{{ m.result.player2_wins }}{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
