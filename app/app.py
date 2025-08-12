@@ -221,14 +221,45 @@ def create_app():
         current_rounds = db.session.query(Round).filter_by(tournament_id=tid).count()
         player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
         round_limit = t.rounds_override or recommended_rounds(player_count)
-        if current_rounds >= round_limit:
-            flash("Round limit reached.", "error")
+        if current_rounds < round_limit:
+            next_round_num = current_rounds + 1
+            r = Round(tournament_id=tid, number=next_round_num)
+            db.session.add(r)
+            db.session.commit()
+            swiss_pair_round(t, r, db.session)
+            flash(f"Paired round {next_round_num}.", "success")
+            return redirect(url_for('view_tournament', tid=tid))
+        # Elimination rounds
+        if not t.cut.startswith('top'):
+            flash('Cut not configured.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
+        if not prev_round or not all(m.completed for m in prev_round.matches):
+            flash('Previous round not completed.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        winners = []
+        for m in prev_round.matches.order_by('table_number'):
+            if m.result.player1_wins > m.result.player2_wins:
+                winners.append(m.player1)
+                if m.player2_id:
+                    m.player2.dropped = True
+            else:
+                winners.append(m.player2)
+                m.player1.dropped = True
+        db.session.commit()
+        if len(winners) <= 1:
+            flash('Tournament complete.', 'success')
             return redirect(url_for('view_tournament', tid=tid))
         next_round_num = current_rounds + 1
         r = Round(tournament_id=tid, number=next_round_num)
         db.session.add(r)
         db.session.commit()
-        swiss_pair_round(t, r, db.session)
+        table = 1
+        for i in range(0, len(winners), 2):
+            m = Match(round_id=r.id, player1_id=winners[i].id, player2_id=winners[i+1].id, table_number=table)
+            db.session.add(m)
+            table += 1
+        db.session.commit()
         flash(f"Paired round {next_round_num}.", "success")
         return redirect(url_for('view_tournament', tid=tid))
 
@@ -298,6 +329,15 @@ def create_app():
                 m.player1.dropped = True
             if m.player2_id and request.form.get('drop_p2'):
                 m.player2.dropped = True
+            # Auto-drop losers in elimination rounds
+            t = m.round.tournament
+            active = t.players.filter_by(dropped=False).count()
+            round_limit = t.rounds_override or recommended_rounds(active)
+            if m.round.number > round_limit and m.player2_id:
+                if p1_wins > p2_wins:
+                    m.player2.dropped = True
+                elif p2_wins > p1_wins:
+                    m.player1.dropped = True
             db.session.commit()
             flash("Result submitted.", "success")
             return redirect(url_for('view_tournament', tid=m.round.tournament_id))

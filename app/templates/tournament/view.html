@@ -30,6 +30,10 @@
     <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
       <button class="btn" type="submit">Pair Next Round</button>
     </form>
+  {% elif t.cut.startswith('top') %}
+    <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
+      <button class="btn" type="submit">Pair Next Round</button>
+    </form>
   {% else %}
     <p>Round limit reached.</p>
   {% endif %}
