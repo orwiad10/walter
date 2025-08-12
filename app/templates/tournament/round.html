@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block content %}
+<p><a href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a></p>
+<h2>{{ t.name }} — Round {{ r.number }}</h2>
+{% if current_user.is_authenticated and current_user.is_admin %}
+<form method="post" action="{{ url_for('repair_round', tid=t.id, rid=r.id) }}" style="display:inline;">
+  <button class="btn" type="submit">Re-pair</button>
+</form>
+{% if not has_results %}
+<form method="post" action="{{ url_for('delete_round', tid=t.id, rid=r.id) }}" style="display:inline;" onsubmit="return confirm('Delete this round?');">
+  <button class="btn" type="submit">Delete Round</button>
+</form>
+{% endif %}
+{% endif %}
+<ul>
+{% for m in r.matches.order_by('table_number') %}
+  <li>
+    Table {{ m.table_number }}:
+    {% if m.player2_id %}
+      {{ m.player1.user.name }} vs {{ m.player2.user.name }}
+    {% else %}
+      {{ m.player1.user.name }} has a BYE
+    {% endif %}
+    {% if m.completed %}
+      - Result:
+      {% if m.player2_id %}
+        {{ m.result.player1_wins }}-{{ m.result.player2_wins }} (Draws {{ m.result.draws }})
+      {% else %}
+        Win by BYE
+      {% endif %}
+    {% else %}
+      {% if current_user.is_authenticated and (current_user.is_admin or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
+        <a href="{{ url_for('report_match', mid=m.id) }}">Report</a>
+      {% endif %}
+    {% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}

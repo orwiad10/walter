@@ -218,7 +218,11 @@ def create_app():
         require_admin()
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
-        current_rounds = db.session.query(Round).filter_by(tournament_id=tid).count()
+        prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
+        if prev_round and any(not m.completed for m in prev_round.matches):
+            flash('Previous round not completed.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        current_rounds = prev_round.number if prev_round else 0
         player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
         round_limit = t.rounds_override or recommended_rounds(player_count)
         if current_rounds < round_limit:
@@ -232,10 +236,6 @@ def create_app():
         # Elimination rounds
         if not t.cut.startswith('top'):
             flash('Cut not configured.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
-        prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
-        if not prev_round or not all(m.completed for m in prev_round.matches):
-            flash('Previous round not completed.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
         winners = []
         for m in prev_round.matches.order_by('table_number'):
@@ -271,6 +271,10 @@ def create_app():
             abort(404)
         if not t.cut.startswith('top'):
             flash('Cut not configured.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
+        if prev_round and any(not m.completed for m in prev_round.matches):
+            flash('Previous round not completed.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
         top_n = int(t.cut[3:])
         standings = [row for row in compute_standings(t, db.session) if not row['tp'].dropped]
@@ -309,6 +313,30 @@ def create_app():
         swiss_pair_round(t, r, db.session)
         flash('Round re-paired.', 'success')
         return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/round/<int:rid>/delete', methods=['POST'])
+    def delete_round(tid, rid):
+        require_admin()
+        r = db.session.get(Round, rid)
+        if not r or r.tournament_id != tid:
+            abort(404)
+        if any(m.completed for m in r.matches):
+            flash('Cannot delete, results already entered.', 'error')
+            return redirect(url_for('view_round', tid=tid, rid=rid))
+        for m in r.matches:
+            db.session.delete(m)
+        db.session.delete(r)
+        db.session.commit()
+        flash('Round deleted.', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/round/<int:rid>')
+    def view_round(tid, rid):
+        r = db.session.get(Round, rid)
+        if not r or r.tournament_id != tid:
+            abort(404)
+        has_results = any(m.completed for m in r.matches)
+        return render_template('tournament/round.html', t=r.tournament, r=r, has_results=has_results)
 
     @app.route('/match/<int:mid>', methods=['GET','POST'])
     @login_required
@@ -359,6 +387,37 @@ def create_app():
         round_limit = t.rounds_override or recommended_rounds(len(players))
         elim_rounds = [r for r in rounds if r.number > round_limit]
         return render_template('tournament/bracket.html', t=t, rounds=elim_rounds)
+
+    @app.route('/admin/users')
+    def admin_users():
+        require_admin()
+        from .models import User, Tournament, TournamentPlayer
+        users = db.session.query(User).order_by(User.name).all()
+        tournaments = db.session.query(Tournament).order_by(Tournament.name).all()
+        return render_template('admin/users.html', users=users, tournaments=tournaments)
+
+    @app.route('/admin/users/<int:uid>/add', methods=['POST'])
+    def admin_add_user_to_tournament(uid):
+        require_admin()
+        from .models import TournamentPlayer
+        tid = int(request.form['tournament_id'])
+        if not db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first():
+            tp = TournamentPlayer(user_id=uid, tournament_id=tid)
+            db.session.add(tp)
+            db.session.commit()
+        flash('User added to tournament.', 'success')
+        return redirect(url_for('admin_users'))
+
+    @app.route('/admin/users/<int:uid>/remove/<int:tid>', methods=['POST'])
+    def admin_remove_user_from_tournament(uid, tid):
+        require_admin()
+        from .models import TournamentPlayer
+        tp = db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first()
+        if tp:
+            db.session.delete(tp)
+            db.session.commit()
+        flash('User removed from tournament.', 'success')
+        return redirect(url_for('admin_users'))
 
     return app
 

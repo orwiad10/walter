@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Users</h2>
+<table class="table">
+  <tr><th>Name</th><th>Email</th><th>Tournaments</th><th>Add to Tournament</th></tr>
+  {% for u in users %}
+  <tr>
+    <td>{{ u.name }}</td>
+    <td>{{ u.email or '' }}</td>
+    <td>
+      <ul>
+        {% for tp in u.tournament_entries %}
+        <li>{{ tp.tournament.name }}
+          <form method="post" action="{{ url_for('admin_remove_user_from_tournament', uid=u.id, tid=tp.tournament_id) }}" style="display:inline;">
+            <button class="btn" type="submit">Remove</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </td>
+    <td>
+      <form method="post" action="{{ url_for('admin_add_user_to_tournament', uid=u.id) }}">
+        <select name="tournament_id">
+          {% for t in tournaments %}
+          <option value="{{ t.id }}">{{ t.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn" type="submit">Add</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}
