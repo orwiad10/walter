@@ -41,7 +41,10 @@ class TournamentPlayer(db.Model):
     game_draws = db.Column(db.Integer, default=0)
     dropped = db.Column(db.Boolean, default=False)
 
-    tournament = db.relationship('Tournament', backref=db.backref('players', lazy='dynamic'))
+    tournament = db.relationship(
+        'Tournament',
+        backref=db.backref('players', cascade='all, delete-orphan')
+    )
     user = db.relationship('User', backref='tournament_entries')
 
     __table_args__ = (UniqueConstraint('tournament_id', 'user_id', name='_tournament_user_uc'),)
@@ -51,7 +54,10 @@ class Round(db.Model):
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
     number = db.Column(db.Integer, nullable=False)
 
-    tournament = db.relationship('Tournament', backref=db.backref('rounds', lazy='dynamic'))
+    tournament = db.relationship(
+        'Tournament',
+        backref=db.backref('rounds', cascade='all, delete-orphan')
+    )
 
 class MatchResult(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -68,9 +74,16 @@ class Match(db.Model):
     completed = db.Column(db.Boolean, default=False)
     result_id = db.Column(db.Integer, db.ForeignKey('match_result.id'), nullable=True)
 
-    round = db.relationship('Round', backref=db.backref('matches', lazy='dynamic'))
+    round = db.relationship(
+        'Round',
+        backref=db.backref('matches', cascade='all, delete-orphan')
+    )
     player1 = db.relationship('TournamentPlayer', foreign_keys=[player1_id])
     player2 = db.relationship('TournamentPlayer', foreign_keys=[player2_id])
-    result = db.relationship('MatchResult', backref='match', uselist=False)
+    result = db.relationship(
+        'MatchResult',
+        backref=db.backref('match', cascade='all, delete-orphan'),
+        uselist=False
+    )
 
     __table_args__ = (UniqueConstraint('round_id', 'table_number', name='_round_table_uc'),)

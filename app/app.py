@@ -359,7 +359,9 @@ def create_app():
                 m.player2.dropped = True
             # Auto-drop losers in elimination rounds
             t = m.round.tournament
-            active = t.players.filter_by(dropped=False).count()
+            active = db.session.query(TournamentPlayer).filter_by(
+                tournament_id=t.id, dropped=False
+            ).count()
             round_limit = t.rounds_override or recommended_rounds(active)
             if m.round.number > round_limit and m.player2_id:
                 if p1_wins > p2_wins:
