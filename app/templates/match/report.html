@@ -12,19 +12,19 @@
 </p>
 {% if t.format == 'Commander' %}
 <form method="post">
-  <label>{{ m.player1.user.name }} place: <input type="number" name="p1_place" min="1" max="4"></label><br>
-  {% if m.player2_id %}<label>{{ m.player2.user.name }} place: <input type="number" name="p2_place" min="1" max="4"></label><br>{% endif %}
-  {% if m.player3_id %}<label>{{ m.player3.user.name }} place: <input type="number" name="p3_place" min="1" max="4"></label><br>{% endif %}
-  {% if m.player4_id %}<label>{{ m.player4.user.name }} place: <input type="number" name="p4_place" min="1" max="4"></label><br>{% endif %}
-  <label><input type="checkbox" name="is_draw"> Draw (all players)</label><br>
+  <label>{{ m.player1.user.name }} place: <input type="number" name="p1_place" min="1" max="4" value="{{ m.result.p1_place if m.result else '' }}"></label><br>
+  {% if m.player2_id %}<label>{{ m.player2.user.name }} place: <input type="number" name="p2_place" min="1" max="4" value="{{ m.result.p2_place if m.result else '' }}"></label><br>{% endif %}
+  {% if m.player3_id %}<label>{{ m.player3.user.name }} place: <input type="number" name="p3_place" min="1" max="4" value="{{ m.result.p3_place if m.result else '' }}"></label><br>{% endif %}
+  {% if m.player4_id %}<label>{{ m.player4.user.name }} place: <input type="number" name="p4_place" min="1" max="4" value="{{ m.result.p4_place if m.result else '' }}"></label><br>{% endif %}
+  <label><input type="checkbox" name="is_draw" {% if m.result and m.result.is_draw %}checked{% endif %}> Draw (all players)</label><br>
   <button class="btn" type="submit">Submit Result</button>
 </form>
 {% else %}
   {% if m.player2_id %}
   <form method="post">
-    <label>{{ m.player1.user.name }} game wins: <input type="number" name="p1_wins" min="0" required></label><br>
-    <label>{{ m.player2.user.name }} game wins: <input type="number" name="p2_wins" min="0" required></label><br>
-    <label>Draws: <input type="number" name="draws" min="0" value="0"></label><br>
+    <label>{{ m.player1.user.name }} game wins: <input type="number" name="p1_wins" min="0" required value="{{ m.result.player1_wins if m.result else '' }}"></label><br>
+    <label>{{ m.player2.user.name }} game wins: <input type="number" name="p2_wins" min="0" required value="{{ m.result.player2_wins if m.result else '' }}"></label><br>
+    <label>Draws: <input type="number" name="draws" min="0" value="{{ m.result.draws if m.result else 0 }}"></label><br>
     <label><input type="checkbox" name="drop_p1"> Drop {{ m.player1.user.name }}</label><br>
     <label><input type="checkbox" name="drop_p2"> Drop {{ m.player2.user.name }}</label><br>
     <button class="btn" type="submit">Submit Result</button>

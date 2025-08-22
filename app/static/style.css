@@ -7,7 +7,7 @@ main { padding: 16px; }
 .cards { list-style:none; display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); padding:0; }
 .card { padding:12px; border:1px solid #ddd; border-radius:12px; background:#fafafa; }
 .table { width:100%; border-collapse: collapse; }
-.table th, .table td { border:1px solid #ddd; padding:6px 8px; text-align:left; }
+.table th, .table td { border:1px solid #ddd; padding:6px 8px; text-align:center; }
 .flashes { list-style:none; padding:0; }
 .flashes li { margin:8px 0; padding:8px; border-radius:8px; }
 .flashes li.success { background:#e8f8ee; border:1px solid #bfe5cb; }

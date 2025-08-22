@@ -231,17 +231,27 @@ def compute_standings(t: Tournament, session):
 def _compute_commander_standings(t: Tournament, session):
     tps = session.query(TournamentPlayer).filter_by(tournament_id=t.id).all()
     cfg = [int(x) for x in t.commander_points.split(',')]
+    opps = {tp.id: [] for tp in tps}
     match_points = {tp.id: 0 for tp in tps}
+    wins = {tp.id: 0 for tp in tps}
+    draws = {tp.id: 0 for tp in tps}
+    total = {tp.id: 0 for tp in tps}
+
     matches = session.query(Match).join(Round).filter(Round.tournament_id==t.id).all()
     for m in matches:
+        players = [m.player1_id, m.player2_id, m.player3_id, m.player4_id]
+        players = [pid for pid in players if pid]
+        for pid in players:
+            opps[pid].extend([o for o in players if o != pid])
+            total[pid] += 1
         if not m.completed or not m.result:
             continue
         r = m.result
         if r.is_draw:
             pts = cfg[4] if len(cfg) > 4 else 1
-            for pid in [m.player1_id, m.player2_id, m.player3_id, m.player4_id]:
-                if pid:
-                    match_points[pid] += pts
+            for pid in players:
+                match_points[pid] += pts
+                draws[pid] += 1
             continue
         placements = [
             (m.player1_id, r.p1_place),
@@ -252,14 +262,41 @@ def _compute_commander_standings(t: Tournament, session):
         for pid, place in placements:
             if pid and place and 1 <= place <= 4:
                 match_points[pid] += cfg[place-1]
+                if place == 1:
+                    wins[pid] += 1
+
+    def floor33(x):
+        return max(x, 0.33)
+
+    mw_cache = {}
+    for pid in match_points.keys():
+        if total[pid] == 0:
+            mw_cache[pid] = 0.0
+        else:
+            mw_cache[pid] = (wins[pid] + draws[pid] * 0.5) / total[pid]
+    gw_cache = mw_cache.copy()
+
+    omw = {}
+    ogw = {}
+    for pid in match_points.keys():
+        opp_list = opps[pid]
+        if not opp_list:
+            omw[pid] = 0.33
+            ogw[pid] = 0.33
+        else:
+            omw_vals = [floor33(mw_cache[o]) for o in opp_list]
+            ogw_vals = [floor33(gw_cache[o]) for o in opp_list]
+            omw[pid] = sum(omw_vals) / len(omw_vals)
+            ogw[pid] = sum(ogw_vals) / len(ogw_vals)
+
     rows = [{
         'tp': tp,
         'player': tp.user.name,
         'points': match_points[tp.id],
-        'mw': 0,
-        'gw': 0,
-        'omw': 0,
-        'ogw': 0,
+        'mw': mw_cache[tp.id],
+        'gw': gw_cache[tp.id],
+        'omw': omw[tp.id],
+        'ogw': ogw[tp.id],
     } for tp in tps]
-    rows.sort(key=lambda r: (-r['points'], r['player'].lower()))
+    rows.sort(key=lambda r: (-r['points'], -r['omw'], -r['gw'], -r['ogw'], r['player'].lower()))
     return rows
