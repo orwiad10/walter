@@ -23,7 +23,8 @@ PASSWORD_SEED = None
 
 def create_app():
     app = Flask(__name__)
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mtg_tournament.db'
+    db_file = os.environ.get('MTG_DB_PATH', 'mtg_tournament.db')
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_file}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
@@ -105,6 +106,11 @@ def create_app():
             db.session.commit()
             tournament_id = request.form.get('tournament_id')
             if tournament_id:
+                t = db.session.get(Tournament, int(tournament_id))
+                code = request.form.get('passcode', '')
+                if not t or code != t.passcode:
+                    flash("Invalid tournament passcode", "error")
+                    return redirect(url_for('register'))
                 tp = TournamentPlayer(tournament_id=int(tournament_id), user_id=u.id)
                 db.session.add(tp)
                 db.session.commit()
@@ -240,9 +246,9 @@ def create_app():
             if current_user.check_password(request.form.get('password', '')):
                 password_seed = PASSWORD_SEED
         process = psutil.Process(os.getpid())
-        db_path = os.path.join(os.path.dirname(app.root_path), 'mtg_tournament.db')
-        db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
-        cpu_usage = process.cpu_percent(interval=0.1)
+        db_path = db.engine.url.database
+        db_size = os.path.getsize(db_path) if db_path and os.path.exists(db_path) else 0
+        cpu_usage = psutil.cpu_percent(interval=0.1)
         mem_usage = process.memory_info().rss
         connections = len([c for c in psutil.net_connections() if c.status == psutil.CONN_ESTABLISHED])
         uptime_seconds = int((datetime.utcnow() - datetime.fromtimestamp(psutil.boot_time())).total_seconds())
@@ -256,7 +262,7 @@ def create_app():
 
         return render_template(
             'admin/panel.html',
-            encryption_type='AES-256-CBC',
+            encryption_type='SHA256+salt',
             db_size=fmt_bytes(db_size),
             ram_usage=fmt_bytes(mem_usage),
             cpu_usage=cpu_usage,
@@ -285,6 +291,11 @@ def create_app():
         rounds = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number).all()
         standings = compute_standings(t, db.session)
         rec_rounds = recommended_rounds(len(players))
+        is_player = False
+        show_passcode = False
+        if current_user.is_authenticated:
+            is_player = any(p.user_id == current_user.id for p in players)
+            show_passcode = current_user.is_admin or is_player
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -309,7 +320,8 @@ def create_app():
         return render_template('tournament/view.html', t=t, players=players, rounds=rounds,
                                standings=standings, rec_rounds=rec_rounds,
                                timer_end=timer_end, timer_type=timer_type,
-                               timer_remaining=timer_remaining)
+                               timer_remaining=timer_remaining,
+                               is_player=is_player, show_passcode=show_passcode)
 
     @app.route('/t/<int:tid>/join', methods=['POST'])
     @login_required
@@ -320,6 +332,10 @@ def create_app():
         if tp:
             flash("Already joined", "info")
         else:
+            code = request.form.get('passcode', '')
+            if t.passcode and code != t.passcode:
+                flash("Invalid passcode", "error")
+                return redirect(url_for('view_tournament', tid=tid))
             tp = TournamentPlayer(tournament_id=tid, user_id=current_user.id)
             db.session.add(tp)
             db.session.commit()
@@ -477,6 +493,9 @@ def create_app():
             return redirect(url_for('view_tournament', tid=tid))
         current_rounds = prev_round.number if prev_round else 0
         player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
+        if player_count == 0:
+            flash('No players registered.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
         round_limit = t.rounds_override or recommended_rounds(player_count)
         if t.structure == 'single_elim':
             round_limit = 0
@@ -642,6 +661,10 @@ def create_app():
             db.session.delete(m)
         db.session.commit()
         t = db.session.get(Tournament, tid)
+        player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
+        if player_count == 0:
+            flash('No players registered.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
         swiss_pair_round(t, r, db.session)
         flash('Round re-paired.', 'success')
         return redirect(url_for('view_tournament', tid=tid))
