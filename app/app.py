@@ -21,7 +21,7 @@ def create_app():
     login_manager.login_view = 'login'
 
     from .models import User, Tournament, TournamentPlayer, Round, Match, MatchResult
-    from .pairing import swiss_pair_round, recommended_rounds, compute_standings
+    from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -430,7 +430,8 @@ def create_app():
         if t.structure == 'single_elim':
             round_limit = 0
         elim_rounds = [r for r in rounds if r.number > round_limit]
-        return render_template('tournament/bracket.html', t=t, rounds=elim_rounds)
+        points = {tp.id: player_points(tp, db.session) for tp in players}
+        return render_template('tournament/bracket.html', t=t, rounds=elim_rounds, points=points)
 
     @app.route('/admin/users')
     def admin_users():

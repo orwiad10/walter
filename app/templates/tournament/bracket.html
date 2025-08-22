@@ -8,15 +8,15 @@
   <div class="round">
     {% for m in r.matches|sort(attribute='table_number') %}
     <div class="match">
-      <div class="player">
-        {{ m.player1.user.name }} ({{ m.player1.points }})
-        {% if m.completed %}- {{ m.result.player1_wins }}{% endif %}
-      </div>
+        <div class="player">
+          {{ m.player1.user.name }} ({{ points[m.player1_id] }})
+          {% if m.completed %}- {{ m.result.player1_wins }}{% endif %}
+        </div>
       {% if m.player2_id %}
-      <div class="player">
-        {{ m.player2.user.name }} ({{ m.player2.points }})
-        {% if m.completed %}- {{ m.result.player2_wins }}{% endif %}
-      </div>
+        <div class="player">
+          {{ m.player2.user.name }} ({{ points[m.player2_id] }})
+          {% if m.completed %}- {{ m.result.player2_wins }}{% endif %}
+        </div>
       {% else %}
       <div class="player bye">BYE</div>
       {% endif %}
