@@ -1,7 +1,6 @@
 # PowerShell script to set up and run the MTG Tournament Swiss App.
 # Installs dependencies, initializes the database, creates an admin user,
 # and starts the Flask development server.
-
 param(
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]    
