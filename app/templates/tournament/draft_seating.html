@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<p><a href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a></p>
+<h2>{{ t.name }} Draft Seating</h2>
+{% for table in tables %}
+<h3>Table {{ loop.index }}</h3>
+<ol>
+{% for p in table %}
+<li>{{ p.user.name }}</li>
+{% endfor %}
+</ol>
+{% endfor %}
+{% endblock %}
