@@ -8,9 +8,38 @@ if(!(Test-Path $configPath)){
     exit 1
 }
 
-try{
-    $cfg = Get-Content $configPath | ConvertFrom-Yaml
-}catch{
+function ConvertTo-Hashtable {
+    param([Parameter(ValueFromPipeline = $true)][object]$InputObject)
+    if ($null -eq $InputObject) { return $null }
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        $hash = @{}
+        foreach ($key in $InputObject.Keys) {
+            $hash[$key] = ConvertTo-Hashtable $InputObject[$key]
+        }
+        return $hash
+    }
+    if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -notis [string]) {
+        return @($InputObject | ForEach-Object { ConvertTo-Hashtable $_ })
+    }
+    return $InputObject
+}
+
+try {
+    $pythonScript = @"
+import sys, json
+try:
+    import yaml
+except ModuleNotFoundError:
+    import subprocess
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'PyYAML'])
+    import yaml
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    data = yaml.safe_load(f)
+print(json.dumps(data))
+"@
+    $cfgJson = & python -c $pythonScript $configPath
+    $cfg = $cfgJson | ConvertFrom-Json | ConvertTo-Hashtable
+} catch {
     Write-Error "Failed to parse config.yaml"
     exit 1
 }
