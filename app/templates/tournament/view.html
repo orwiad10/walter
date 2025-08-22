@@ -2,53 +2,47 @@
 {% block content %}
 <h2>{{ t.name }}</h2>
 <p>Format: {{ t.format }} | Cut: {{ t.cut|upper }}</p>
-<button class="btn" onclick="window.print()">Print</button>
-<form method="post" action="{{ url_for('join_tournament', tid=t.id) }}">
-  {% if current_user.is_authenticated %}
-    <button class="btn" type="submit">Join Tournament</button>
-  {% else %}
-    <a class="btn" href="{{ url_for('login') }}">Login to Join</a>
+{% set round_limit = t.rounds_override or rec_rounds %}
+{% set current_rounds = rounds|length %}
+<div class="toolbar">
+  <button class="btn" onclick="window.print()">Print</button>
+  <form method="post" action="{{ url_for('join_tournament', tid=t.id) }}">
+    {% if current_user.is_authenticated %}
+      <button class="btn" type="submit">Join</button>
+    {% else %}
+      <a class="btn" href="{{ url_for('login') }}">Login to Join</a>
+    {% endif %}
+  </form>
+  <a class="btn" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
+  {% if t.cut.startswith('top') %}
+  <a class="btn" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>
   {% endif %}
-</form>
+  {% if current_user.is_authenticated and current_user.is_admin %}
+    {% if current_rounds < round_limit or t.cut.startswith('top') %}
+    <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
+      <button class="btn" type="submit">Pair</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('set_rounds', tid=t.id) }}">
+      <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}">
+      <button class="btn" type="submit">Set Rounds</button>
+    </form>
+  {% endif %}
+</div>
 
 <h3>Players ({{ players|length }})</h3>
-<ul>
+<table class="players-table">
+  <tbody>
   {% for p in players %}
-    <li>{{ p.user.name }}</li>
+    <tr><td>{{ p.user.name }}</td></tr>
   {% endfor %}
-</ul>
+  </tbody>
+</table>
 
 <h3>Rounds</h3>
-  {% if current_user.is_authenticated and current_user.is_admin %}
-  <form method="post" action="{{ url_for('set_rounds', tid=t.id) }}">
-    <label>Rounds (recommended {{ rec_rounds }}): <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}"></label>
-    <button class="btn" type="submit">Set</button>
-  </form>
-  {% set round_limit = t.rounds_override or rec_rounds %}
-  {% set current_rounds = rounds|length %}
-  {% if current_rounds < round_limit %}
-    <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
-      <button class="btn" type="submit">Pair Next Round</button>
-    </form>
-  {% elif t.cut.startswith('top') %}
-    <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
-      <button class="btn" type="submit">Pair Next Round</button>
-    </form>
-  {% else %}
-    <p>Round limit reached.</p>
-  {% endif %}
-  {% endif %}
-
 <ol>
   {% for r in rounds %}
     <li><a href="{{ url_for('view_round', tid=t.id, rid=r.id) }}">Round {{ r.number }}</a></li>
   {% endfor %}
 </ol>
-
-<h3>Standings</h3>
-<p><a class="btn" href="{{ url_for('standings', tid=t.id) }}">Open Standings</a></p>
-{% if t.cut.startswith('top') %}
-<p><a class="btn" href="{{ url_for('bracket', tid=t.id) }}">View Bracket</a></p>
-{% endif %}
-
 {% endblock %}
