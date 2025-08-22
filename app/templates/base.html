@@ -25,7 +25,6 @@
         <a href="{{ url_for('login') }}">Login</a>
         <a href="{{ url_for('register') }}">Register</a>
       {% endif %}
-      {% if timer_end %}<span id="header-timer" data-timer-end="{{ timer_end.isoformat() }}Z"></span>{% endif %}
     </nav>
   </header>
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -41,21 +40,33 @@
     {% block content %}{% endblock %}
   </main>
   <script>
-  document.querySelectorAll('[data-timer-end]').forEach(function(el){
-    const end = new Date(el.dataset.timerEnd);
+  function formatTime(seconds){
+    const m = Math.floor(seconds/60);
+    const s = seconds%60;
+    return m.toString().padStart(2,'0') + ':' + s.toString().padStart(2,'0');
+  }
+  const typeLabels = {round:'round', draft:'draft', deck:'deck building'};
+  document.querySelectorAll('.timer').forEach(function(el){
     function update(){
-      const diff = end - new Date();
-      if (diff <= 0){
-        el.textContent = '00:00';
-        if(!el.dataset.alerted){
-          alert('Time has elapsed');
-          el.dataset.alerted = '1';
+      if(el.dataset.timerEnd){
+        const end = new Date(el.dataset.timerEnd);
+        const diff = end - new Date();
+        if(diff <= 0){
+          el.textContent = '00:00';
+          const key = 'alerted_' + (el.dataset.tournamentId||'') + '_' + (el.dataset.timerType||'') + '_' + el.dataset.timerEnd;
+          if(!localStorage.getItem(key)){
+            const label = typeLabels[el.dataset.timerType] || '';
+            alert('Time has elapsed for ' + (el.dataset.tournamentName||'') + ' ' + label + ' timer');
+            localStorage.setItem(key, '1');
+          }
+        }else{
+          el.textContent = formatTime(Math.floor(diff/1000));
+          setTimeout(update,1000);
         }
+      }else if(el.dataset.timerRemaining){
+        el.textContent = formatTime(parseInt(el.dataset.timerRemaining));
       }else{
-        const m = Math.floor(diff/60000);
-        const s = Math.floor((diff%60000)/1000);
-        el.textContent = m.toString().padStart(2,'0') + ':' + s.toString().padStart(2,'0');
-        setTimeout(update,1000);
+        el.textContent = '00:00';
       }
     }
     update();
