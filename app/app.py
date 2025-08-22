@@ -37,6 +37,15 @@ def create_app():
     @app.cli.command('db-init')
     def db_init():
         db.create_all()
+        # Ensure a default admin account exists for first-time login
+        if not db.session.query(User).filter_by(
+            email="admin@example.com"
+        ).first():
+            u = User(email="admin@example.com", name="Admin", is_admin=True)
+            u.set_password("admin123")
+            db.session.add(u)
+            db.session.commit()
+            print("Created default admin: admin@example.com / admin123")
         print("Database initialized.")
 
     @app.cli.command('create-admin')
