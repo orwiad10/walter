@@ -1,9 +1,13 @@
-from .app import db
+from .app import db, PASSWORD_KEY
 from flask_login import UserMixin
 from datetime import datetime
 from sqlalchemy import UniqueConstraint
-from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
+import os
+import base64
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.backends import default_backend
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
@@ -11,18 +15,36 @@ class User(db.Model, UserMixin):
     # requiring login credentials.
     email = db.Column(db.String(255), unique=True, nullable=True)
     name = db.Column(db.String(120), nullable=False)
-    password_hash = db.Column(db.String(255), nullable=True)
+    password_hash = db.Column(db.Text, nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text, nullable=True)
 
+    def _encrypt(self, plaintext):
+        iv = os.urandom(16)
+        cipher = Cipher(algorithms.AES(PASSWORD_KEY), modes.CBC(iv), backend=default_backend())
+        encryptor = cipher.encryptor()
+        padder = padding.PKCS7(128).padder()
+        padded = padder.update(plaintext.encode()) + padder.finalize()
+        ct = encryptor.update(padded) + encryptor.finalize()
+        return base64.b64encode(iv + ct).decode()
+
+    def _decrypt(self, ciphertext):
+        data = base64.b64decode(ciphertext)
+        iv, ct = data[:16], data[16:]
+        cipher = Cipher(algorithms.AES(PASSWORD_KEY), modes.CBC(iv), backend=default_backend())
+        decryptor = cipher.decryptor()
+        padded = decryptor.update(ct) + decryptor.finalize()
+        unpadder = padding.PKCS7(128).unpadder()
+        return (unpadder.update(padded) + unpadder.finalize()).decode()
+
     def set_password(self, pw):
-        self.password_hash = generate_password_hash(pw)
+        self.password_hash = self._encrypt(pw)
 
     def check_password(self, pw):
         if not self.password_hash:
             return False
-        return check_password_hash(self.password_hash, pw)
+        return self._decrypt(self.password_hash) == pw
 
 class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)

@@ -10,6 +10,9 @@
 2) Set the Flask env vars (dev):
    set FLASK_APP=app.app:app     (Windows)
    export FLASK_APP=app.app:app  (macOS/Linux)
+   # Optional: set a seed for AES password encryption
+   set PASSWORD_SEED=some-random-string     (Windows)
+   export PASSWORD_SEED=some-random-string  (macOS/Linux)
 
 3) Initialize the DB (creates a default admin user `admin@example.com` / `admin123`):
    flask --app app.app db-init
@@ -30,4 +33,5 @@
 
 ## Notes
 - Default secret key is set for dev; change FLASK_SECRET in production.
+- Passwords are stored encrypted with AES-256 using a seed specified via `PASSWORD_SEED`.
 - This is an MVP. You can extend forms, validation, and UI as needed.
