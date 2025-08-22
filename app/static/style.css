@@ -35,6 +35,8 @@ main { padding: 16px; }
   border-left:1px solid #000;
 }
 
+.round + .round { align-self: center; }
+
 .center-table { margin: 0 auto; width:auto; }
 .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:16px; }
 .toolbar form { display:inline-flex; gap:4px; align-items:center; }

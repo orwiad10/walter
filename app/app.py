@@ -54,7 +54,8 @@ def create_app():
     @app.route('/')
     def index():
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
-        return render_template('index.html', tournaments=tournaments)
+        player_counts = {t.id: len(t.players) for t in tournaments}
+        return render_template('index.html', tournaments=tournaments, player_counts=player_counts)
 
     @app.route('/register', methods=['GET','POST'])
     def register():
