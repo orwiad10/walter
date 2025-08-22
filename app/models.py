@@ -1,14 +1,11 @@
-from .app import db, PASSWORD_KEY
+from .app import db
 from flask_login import UserMixin
 from datetime import datetime
 from sqlalchemy import UniqueConstraint
 import uuid
 import os
-import base64
-import binascii
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.backends import default_backend
+import random
+import hashlib
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
@@ -17,38 +14,19 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(255), unique=True, nullable=True)
     name = db.Column(db.String(120), nullable=False)
     password_hash = db.Column(db.Text, nullable=True)
+    salt = db.Column(db.String(32), nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text, nullable=True)
 
-    def _encrypt(self, plaintext):
-        iv = os.urandom(16)
-        cipher = Cipher(algorithms.AES(PASSWORD_KEY), modes.CBC(iv), backend=default_backend())
-        encryptor = cipher.encryptor()
-        padder = padding.PKCS7(128).padder()
-        padded = padder.update(plaintext.encode()) + padder.finalize()
-        ct = encryptor.update(padded) + encryptor.finalize()
-        return base64.b64encode(iv + ct).decode()
-
-    def _decrypt(self, ciphertext):
-        data = base64.b64decode(ciphertext)
-        iv, ct = data[:16], data[16:]
-        cipher = Cipher(algorithms.AES(PASSWORD_KEY), modes.CBC(iv), backend=default_backend())
-        decryptor = cipher.decryptor()
-        padded = decryptor.update(ct) + decryptor.finalize()
-        unpadder = padding.PKCS7(128).unpadder()
-        return (unpadder.update(padded) + unpadder.finalize()).decode()
-
     def set_password(self, pw):
-        self.password_hash = self._encrypt(pw)
+        self.salt = os.urandom(16).hex()
+        self.password_hash = hashlib.sha256((self.salt + pw).encode()).hexdigest()
 
     def check_password(self, pw):
-        if not self.password_hash:
+        if not self.password_hash or not self.salt:
             return False
-        try:
-            return self._decrypt(self.password_hash) == pw
-        except (ValueError, binascii.Error):
-            return False
+        return self.password_hash == hashlib.sha256((self.salt + pw).encode()).hexdigest()
 
 class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -70,6 +48,7 @@ class Tournament(db.Model):
     round_timer_remaining = db.Column(db.Integer, nullable=True)
     draft_timer_remaining = db.Column(db.Integer, nullable=True)
     deck_timer_remaining = db.Column(db.Integer, nullable=True)
+    passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
 
 class TournamentPlayer(db.Model):
     id = db.Column(db.Integer, primary_key=True)

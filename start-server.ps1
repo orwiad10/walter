@@ -2,8 +2,9 @@
 # Installs dependencies, initializes the database, creates an admin user,
 # and starts the Flask development server.
 param(
+        [string]$DatabasePath,
         [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]    
+        [System.Management.Automation.Credential()]
         $PasswordSeed
 )
 
@@ -30,6 +31,13 @@ if($null -eq $PasswordSeed){
 
 # Configure password seed for AES encryption
 $env:PASSWORD_SEED = $PasswordSeed.UserName
+
+# Determine database path
+if([string]::IsNullOrEmpty($DatabasePath)){
+    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+    $DatabasePath = "mtg_tournament_$timestamp.db"
+}
+$env:MTG_DB_PATH = $DatabasePath
 
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null

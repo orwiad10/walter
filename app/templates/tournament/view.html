@@ -2,18 +2,24 @@
 {% block content %}
 <h2>{{ t.name }}</h2>
 <p>Format: {{ t.format }} | Cut: {{ t.cut|upper }}</p>
+{% if show_passcode %}
+<p>Tournament Passcode: {{ t.passcode }}</p>
+{% endif %}
 {% include 'tournament/_timer_bar.html' %}
 {% set round_limit = t.rounds_override or rec_rounds %}
 {% set current_rounds = rounds|length %}
 <div class="toolbar">
   <button class="btn" onclick="window.print()">Print</button>
+  {% if not is_player %}
   <form method="post" action="{{ url_for('join_tournament', tid=t.id) }}">
     {% if current_user.is_authenticated %}
+      <input type="text" name="passcode" maxlength="4" pattern="\d{4}" placeholder="Passcode" required>
       <button class="btn" type="submit">Join</button>
     {% else %}
       <a class="btn" href="{{ url_for('login') }}">Login to Join</a>
     {% endif %}
   </form>
+  {% endif %}
   <a class="btn" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
   {% if t.cut.startswith('top') %}
   <a class="btn" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>
