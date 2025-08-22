@@ -5,6 +5,7 @@ from sqlalchemy import UniqueConstraint
 import uuid
 import os
 import base64
+import binascii
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.backends import default_backend
@@ -44,7 +45,10 @@ class User(db.Model, UserMixin):
     def check_password(self, pw):
         if not self.password_hash:
             return False
-        return self._decrypt(self.password_hash) == pw
+        try:
+            return self._decrypt(self.password_hash) == pw
+        except (ValueError, binascii.Error):
+            return False
 
 class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
