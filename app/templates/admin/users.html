@@ -10,6 +10,11 @@
       <form method="post" action="{{ url_for('admin_update_user', uid=u.id) }}">
         <input type="email" name="email" value="{{ u.email or '' }}"><br>
         <textarea name="notes" rows="2" cols="20">{{ u.notes or '' }}</textarea><br>
+        <select name="role_id">
+          {% for r in roles %}
+          <option value="{{ r.id }}" {% if u.role_id == r.id %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select><br>
         <button class="btn" type="submit">Save</button>
       </form>
     </td>

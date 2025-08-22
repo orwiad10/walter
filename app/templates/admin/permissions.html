@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Permissions</h2>
+<table class="table">
+  <tr><th>Role</th><th>Granted Permissions</th></tr>
+  {% for role in roles %}
+  <tr>
+    <td>{{ role.name }}</td>
+    <td>
+      {% for key, val in role.permissions_dict().items() %}
+        {% if val %}<div>{{ key }}</div>{% endif %}
+      {% endfor %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<h3>Create Role</h3>
+<form method="post">
+  <input type="text" name="name" placeholder="Role name" required><br>
+  {% for cat, perms in permission_groups.items() %}
+  <fieldset>
+    <legend>{{ cat|capitalize }}</legend>
+    {% for perm, desc in perms.items() %}
+    <label><input type="checkbox" name="{{ cat }}.{{ perm }}"> {{ desc }}</label><br>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+  <button class="btn" type="submit">Create</button>
+</form>
+{% endblock %}

@@ -6,6 +6,50 @@ import uuid
 import os
 import random
 import hashlib
+import json
+
+# Permission groups and default role permissions
+PERMISSION_GROUPS = {
+    'tournaments': {
+        'manage': 'Create and manage tournaments',
+    },
+    'users': {
+        'manage': 'Manage users',
+        'manage_admins': 'Manage admin level users',
+    },
+    'admin': {
+        'panel': 'Access admin panel',
+        'permissions': 'Manage roles and permissions',
+    },
+}
+
+
+def all_permission_keys():
+    keys = []
+    for cat, perms in PERMISSION_GROUPS.items():
+        for perm in perms:
+            keys.append(f"{cat}.{perm}")
+    return keys
+
+
+DEFAULT_ROLE_PERMISSIONS = {
+    'admin': {key: True for key in all_permission_keys()},
+    'manager': {
+        'tournaments.manage': True,
+        'users.manage': True,
+    },
+    'user': {},
+}
+
+
+class Role(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), unique=True, nullable=False)
+    permissions = db.Column(db.Text, nullable=False, default='{}')
+
+    def permissions_dict(self):
+        return json.loads(self.permissions or '{}')
+
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
@@ -18,6 +62,8 @@ class User(db.Model, UserMixin):
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text, nullable=True)
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id'))
+    role = db.relationship('Role')
 
     def set_password(self, pw):
         self.salt = os.urandom(16).hex()
@@ -27,6 +73,13 @@ class User(db.Model, UserMixin):
         if not self.password_hash or not self.salt:
             return False
         return self.password_hash == hashlib.sha256((self.salt + pw).encode()).hexdigest()
+
+    def has_permission(self, key):
+        if self.is_admin:
+            return True
+        if not self.role:
+            return False
+        return self.role.permissions_dict().get(key, False)
 
 class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
