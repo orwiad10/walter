@@ -11,9 +11,10 @@
    set FLASK_APP=app.app:app     (Windows)
    export FLASK_APP=app.app:app  (macOS/Linux)
 
-3) Initialize the DB and create an admin:
+3) Initialize the DB (creates a default admin user `admin@example.com` / `admin123`):
    flask --app app.app db-init
-   flask --app app.app create-admin --email admin@example.com --password admin123
+   # Optionally create additional admins
+   flask --app app.app create-admin --email admin2@example.com --password secret
 
 4) Run:
    flask --app app.app run --debug
