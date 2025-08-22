@@ -25,7 +25,9 @@ PASSWORD_SEED = None
 def create_app():
     app = Flask(__name__)
     db_file = os.environ.get('MTG_DB_PATH', 'mtg_tournament.db')
+    log_db_file = os.environ.get('MTG_LOG_DB_PATH', 'mtg_logs.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_file}'
+    app.config['SQLALCHEMY_BINDS'] = {'logs': f'sqlite:///{log_db_file}'}
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
@@ -167,6 +169,7 @@ def create_app():
     # ---------- Admin ----------
     def require_permission(perm):
         if not current_user.is_authenticated or not current_user.has_permission(perm):
+            log_site('unauthorized_access', 'failure', perm)
             abort(403)
 
     def require_admin():
@@ -234,6 +237,8 @@ def create_app():
             t.deck_build_time = int(deck_build_time) if deck_build_time else None
             db.session.commit()
             flash('Tournament updated.', 'success')
+            log_site('edit_tournament', 'success', t.name)
+            log_tournament(tid, 'edit', 'success')
             return redirect(url_for('view_tournament', tid=tid))
         return render_template('admin/edit_tournament.html', t=t)
 
@@ -248,6 +253,7 @@ def create_app():
             password = request.form['password']
             if db.session.query(User).filter_by(email=email).first():
                 flash("Email already registered", "error")
+                log_site('admin_register_player', 'failure', 'email exists')
             else:
                 role_user = db.session.query(Role).filter_by(name='user').first()
                 u = User(email=email, name=name, role=role_user)
@@ -259,6 +265,8 @@ def create_app():
                     tp = TournamentPlayer(tournament_id=int(tournament_id), user_id=u.id)
                     db.session.add(tp)
                     db.session.commit()
+                    log_tournament(int(tournament_id), 'add_player', 'success')
+                log_site('admin_register_player', 'success')
                 flash("Player registered.", "success")
                 return redirect(url_for('admin_register_player'))
         return render_template('admin/register_player.html', tournaments=tournaments)
@@ -285,6 +293,9 @@ def create_app():
                     db.session.add(tp)
                 count += 1
             db.session.commit()
+            if tournament_id:
+                log_tournament(int(tournament_id), 'add_player', 'bulk', f'count={count}')
+            log_site('bulk_register', 'success', f'count={count}')
             flash(f"Registered {count} players.", "success")
             return redirect(url_for('admin_bulk_register'))
         return render_template('admin/bulk_register_players.html', tournaments=tournaments)
@@ -292,10 +303,14 @@ def create_app():
     @app.route('/admin/panel', methods=['GET', 'POST'])
     def admin_panel():
         require_admin()
+        log_site('view_admin_panel', 'success')
         password_seed = None
         if request.method == 'POST':
             if current_user.check_password(request.form.get('password', '')):
                 password_seed = PASSWORD_SEED
+                log_site('reveal_password_seed', 'success')
+            else:
+                log_site('reveal_password_seed', 'failure')
         process = psutil.Process(os.getpid())
         db_path = db.engine.url.database
         db_size = os.path.getsize(db_path) if db_path and os.path.exists(db_path) else 0
@@ -325,6 +340,7 @@ def create_app():
     @app.route('/admin/permissions', methods=['GET', 'POST'])
     def permissions():
         require_permission('admin.permissions')
+        log_site('view_permissions', 'success')
         if request.method == 'POST':
             name = request.form['name'].strip()
             perms = {}
@@ -336,6 +352,7 @@ def create_app():
             db.session.add(role)
             db.session.commit()
             flash('Role created.', 'success')
+            log_site('role_create', 'success', name)
             return redirect(url_for('permissions'))
         roles = db.session.query(Role).order_by(Role.name).all()
         return render_template('admin/permissions.html', roles=roles, permission_groups=PERMISSION_GROUPS)
@@ -343,7 +360,10 @@ def create_app():
     @app.route('/admin/logs')
     def site_logs():
         require_admin()
+        log_site('view_site_logs', 'success')
         logs = db.session.query(SiteLog).order_by(SiteLog.timestamp.desc()).all()
+        for l in logs:
+            l.user = db.session.get(User, l.user_id) if l.user_id else None
         return render_template('admin/site_logs.html', logs=logs)
 
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
@@ -355,6 +375,8 @@ def create_app():
         db.session.delete(t)
         db.session.commit()
         flash("Tournament deleted.", "success")
+        log_site('delete_tournament', 'success', t.name)
+        log_tournament(tid, 'delete', 'success')
         return redirect(url_for('index'))
 
     # ---------- Tournament ----------
@@ -431,7 +453,10 @@ def create_app():
         require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
+        log_tournament(tid, 'view_logs', 'success')
         logs = db.session.query(TournamentLog).filter_by(tournament_id=tid).order_by(TournamentLog.timestamp.desc()).all()
+        for l in logs:
+            l.user = db.session.get(User, l.user_id) if l.user_id else None
         return render_template('tournament/logs.html', t=t, logs=logs)
 
     @app.route('/t/<int:tid>/start-timer/<string:timer>', methods=['POST'])
@@ -470,6 +495,7 @@ def create_app():
         else:
             abort(400)
         db.session.commit()
+        log_tournament(tid, f'start_timer_{timer}', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/pause-timer/<string:timer>', methods=['POST'])
@@ -490,6 +516,7 @@ def create_app():
         else:
             abort(400)
         db.session.commit()
+        log_tournament(tid, f'pause_timer_{timer}', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/stop-timer/<string:timer>', methods=['POST'])
@@ -509,6 +536,7 @@ def create_app():
         else:
             abort(400)
         db.session.commit()
+        log_tournament(tid, f'stop_timer_{timer}', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/restart-timer/<string:timer>', methods=['POST'])
@@ -529,6 +557,7 @@ def create_app():
         else:
             abort(400)
         db.session.commit()
+        log_tournament(tid, f'restart_timer_{timer}', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/draft-seating')
@@ -569,9 +598,11 @@ def create_app():
         require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
-        t.rounds_override = int(request.form['rounds'])
+        rounds = int(request.form['rounds'])
+        t.rounds_override = rounds
         db.session.commit()
         flash("Round count set.", "success")
+        log_tournament(tid, 'set_rounds', 'success', str(rounds))
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/pair-next-round', methods=['POST'])
@@ -598,6 +629,7 @@ def create_app():
             db.session.commit()
             swiss_pair_round(t, r, db.session)
             flash(f"Paired round {next_round_num}.", "success")
+            log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
             return redirect(url_for('view_tournament', tid=tid))
         # Elimination rounds
         next_round_num = current_rounds + 1
@@ -620,6 +652,7 @@ def create_app():
                     table += 1
                 db.session.commit()
                 flash(f"Paired round {next_round_num}.", "success")
+                log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
                 return redirect(url_for('view_tournament', tid=tid))
             winners = []
             for m in sorted(prev_round.matches, key=lambda m: m.table_number):
@@ -646,6 +679,7 @@ def create_app():
                 table += 1
             db.session.commit()
             flash(f"Paired round {next_round_num}.", "success")
+            log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
             return redirect(url_for('view_tournament', tid=tid))
         else:
             if not t.cut.startswith('top'):
@@ -684,6 +718,7 @@ def create_app():
                         table += 1
                 db.session.commit()
                 flash(f"Paired round {next_round_num}.", "success")
+                log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
                 return redirect(url_for('view_tournament', tid=tid))
             winners = []
             for m in sorted(prev_round.matches, key=lambda m: m.table_number):
@@ -738,6 +773,7 @@ def create_app():
                     table += 1
             db.session.commit()
             flash(f"Paired round {next_round_num}.", "success")
+            log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
             return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/round/<int:rid>/repair', methods=['POST'])
@@ -759,6 +795,7 @@ def create_app():
             return redirect(url_for('view_tournament', tid=tid))
         swiss_pair_round(t, r, db.session)
         flash('Round re-paired.', 'success')
+        log_tournament(tid, 'repair_round', 'success', f'round={r.number}')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/round/<int:rid>/delete', methods=['POST'])
@@ -831,6 +868,7 @@ def create_app():
             flash('Cannot modify result after next round has been paired.', 'error')
             return redirect(url_for('view_round', tid=t.id, rid=m.round_id))
         if request.method == 'POST':
+            dropped_ids = []
             if t.format.lower() == 'commander':
                 drop_p1 = bool(request.form.get('drop_p1'))
                 drop_p2 = bool(request.form.get('drop_p2'))
@@ -850,10 +888,18 @@ def create_app():
                     m.result = MatchResult(p1_place=p1_place, p2_place=p2_place,
                                            p3_place=p3_place, p4_place=p4_place)
                 m.completed = True
-                if drop_p1: m.player1.dropped = True
-                if m.player2_id and drop_p2: m.player2.dropped = True
-                if m.player3_id and drop_p3: m.player3.dropped = True
-                if m.player4_id and drop_p4: m.player4.dropped = True
+                if drop_p1:
+                    m.player1.dropped = True
+                    dropped_ids.append(m.player1.user_id)
+                if m.player2_id and drop_p2:
+                    m.player2.dropped = True
+                    dropped_ids.append(m.player2.user_id)
+                if m.player3_id and drop_p3:
+                    m.player3.dropped = True
+                    dropped_ids.append(m.player3.user_id)
+                if m.player4_id and drop_p4:
+                    m.player4.dropped = True
+                    dropped_ids.append(m.player4.user_id)
             else:
                 p1_wins = int(request.form['p1_wins'])
                 p2_wins = int(request.form['p2_wins'])
@@ -862,8 +908,10 @@ def create_app():
                 m.completed = True
                 if request.form.get('drop_p1'):
                     m.player1.dropped = True
+                    dropped_ids.append(m.player1.user_id)
                 if m.player2_id and request.form.get('drop_p2'):
                     m.player2.dropped = True
+                    dropped_ids.append(m.player2.user_id)
                 # Auto-drop losers in elimination rounds
                 active = db.session.query(TournamentPlayer).filter_by(
                     tournament_id=t.id, dropped=False
@@ -874,10 +922,15 @@ def create_app():
                 if m.round.number > round_limit and m.player2_id:
                     if p1_wins > p2_wins:
                         m.player2.dropped = True
+                        dropped_ids.append(m.player2.user_id)
                     elif p2_wins > p1_wins:
                         m.player1.dropped = True
+                        dropped_ids.append(m.player1.user_id)
             db.session.commit()
             flash("Result submitted.", "success")
+            log_tournament(t.id, 'report', 'success')
+            for uid in dropped_ids:
+                log_tournament(t.id, 'drop', 'success', f'user_id={uid}')
             return redirect(url_for('view_round', tid=m.round.tournament_id, rid=m.round_id))
         return render_template('match/report.html', m=m, t=t)
 
