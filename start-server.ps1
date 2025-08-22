@@ -3,8 +3,9 @@
 # and starts the Flask development server.
 param(
         [string]$DatabasePath,
-        [string]$AdminEmail = "admin@example.com",
-        [string]$AdminPassword = "admin123",
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]
+        [string]$newadmin,
         [string]$FlaskSecret = "dev-secret-change-me",
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
@@ -32,6 +33,10 @@ if($null -eq $PasswordSeed){
     $PasswordSeed = New-Object System.Management.Automation.PSCredential("dev-password-seed-change-me", (ConvertTo-SecureString "dev-password-seed-change-me" -AsPlainText -Force))
 }
 
+if($null -eq $newadmin){
+    $newadmin = New-Object System.Management.Automation.PSCredential("admin@example.com", (ConvertTo-SecureString "admin123" -AsPlainText -Force))
+}
+
 # Configure password seed for AES encryption
 $env:PASSWORD_SEED = $PasswordSeed.UserName
 
@@ -43,6 +48,7 @@ if([string]::IsNullOrEmpty($DatabasePath)){
     $timestamp = Get-Date -Format "yyyyMMddHHmmss"
     $DatabasePath = "mtg_tournament_$timestamp.db"
 }
+
 $env:MTG_DB_PATH = $DatabasePath
 
 Write-Host "Installing dependencies..."
@@ -55,7 +61,7 @@ Write-Host "Initializing database..."
 python -m flask --app app.app db-init
 
 Write-Host "Creating default admin user..."
-python -m flask --app app.app create-admin --email $AdminEmail --password $AdminPassword
+python -m flask --app app.app create-admin --email $newadmin.UserName --password $newadmin.GetNetworkCredential().Password
 
 Write-Host "Starting Flask development server..."
 #python -m flask --app app.app run --debug
