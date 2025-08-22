@@ -8,18 +8,37 @@
   <div class="round">
     {% for m in r.matches|sort(attribute='table_number') %}
     <div class="match">
+        {% if t.format == 'Commander' %}
+          {% set players = [
+            (m.player1, m.player1_id, m.result.p1_place if m.result else None),
+            (m.player2, m.player2_id, m.result.p2_place if m.result else None),
+            (m.player3, m.player3_id, m.result.p3_place if m.result else None),
+            (m.player4, m.player4_id, m.result.p4_place if m.result else None)
+          ] %}
+          {% for pl, pid, place in players %}
+            {% if pl %}
+            <div class="player">
+              {{ pl.user.name }} ({{ points[pid] }})
+              {% if m.completed %}- {{ place }}{% endif %}
+            </div>
+            {% else %}
+            <div class="player bye">BYE</div>
+            {% endif %}
+          {% endfor %}
+        {% else %}
         <div class="player">
           {{ m.player1.user.name }} ({{ points[m.player1_id] }})
           {% if m.completed %}- {{ m.result.player1_wins }}{% endif %}
         </div>
-      {% if m.player2_id %}
+        {% if m.player2_id %}
         <div class="player">
           {{ m.player2.user.name }} ({{ points[m.player2_id] }})
           {% if m.completed %}- {{ m.result.player2_wins }}{% endif %}
         </div>
-      {% else %}
-      <div class="player bye">BYE</div>
-      {% endif %}
+        {% else %}
+        <div class="player bye">BYE</div>
+        {% endif %}
+        {% endif %}
     </div>
     {% endfor %}
   </div>

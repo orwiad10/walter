@@ -112,6 +112,9 @@ def create_app():
             fmt = request.form['format']
             structure = request.form.get('structure', 'swiss')
             cut = request.form.get('cut', 'none') if structure == 'swiss' else 'none'
+            if fmt == 'Commander' and cut not in ('none','top4','top16','top32','top64'):
+                flash('Commander supports cuts to Top 4, 16, 32, or 64.', 'error')
+                return render_template('admin/new_tournament.html')
             commander_points = request.form.get('commander_points', '3,2,1,0,1')
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            commander_points=commander_points)
@@ -445,16 +448,28 @@ def create_app():
             return redirect(url_for('view_round', tid=t.id, rid=m.round_id))
         if request.method == 'POST':
             if t.format.lower() == 'commander':
-                if request.form.get('is_draw'):
+                drop_p1 = bool(request.form.get('drop_p1'))
+                drop_p2 = bool(request.form.get('drop_p2'))
+                drop_p3 = bool(request.form.get('drop_p3'))
+                drop_p4 = bool(request.form.get('drop_p4'))
+                if request.form.get('is_draw') and not any([drop_p1, drop_p2, drop_p3, drop_p4]):
                     m.result = MatchResult(is_draw=True)
                 else:
                     p1_place = int(request.form.get('p1_place', 0) or 0)
                     p2_place = int(request.form.get('p2_place', 0) or 0)
                     p3_place = int(request.form.get('p3_place', 0) or 0)
                     p4_place = int(request.form.get('p4_place', 0) or 0)
+                    if drop_p1: p1_place = 4
+                    if drop_p2: p2_place = 4
+                    if drop_p3: p3_place = 4
+                    if drop_p4: p4_place = 4
                     m.result = MatchResult(p1_place=p1_place, p2_place=p2_place,
                                            p3_place=p3_place, p4_place=p4_place)
                 m.completed = True
+                if drop_p1: m.player1.dropped = True
+                if m.player2_id and drop_p2: m.player2.dropped = True
+                if m.player3_id and drop_p3: m.player3.dropped = True
+                if m.player4_id and drop_p4: m.player4.dropped = True
             else:
                 p1_wins = int(request.form['p1_wins'])
                 p2_wins = int(request.form['p2_wins'])

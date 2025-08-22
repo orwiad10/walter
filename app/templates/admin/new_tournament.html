@@ -31,4 +31,19 @@
   </label><br>
   <button class="btn" type="submit">Create</button>
 </form>
+<script>
+const fmtSel = document.querySelector('select[name="format"]');
+const cutSel = document.querySelector('select[name="cut"]');
+function updateCut(){
+  const top8 = cutSel.querySelector('option[value="top8"]');
+  if(fmtSel.value === 'Commander'){
+    top8.style.display = 'none';
+    if(cutSel.value === 'top8'){ cutSel.value = 'top4'; }
+  }else{
+    top8.style.display = '';
+  }
+}
+fmtSel.addEventListener('change', updateCut);
+updateCut();
+</script>
 {% endblock %}
