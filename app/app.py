@@ -224,7 +224,7 @@ def create_app():
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
-        if prev_round and any(not m.completed for m in prev_round.matches):
+        if prev_round and any((not m.completed) or (not m.result) for m in prev_round.matches):
             flash('Previous round not completed.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
         current_rounds = prev_round.number if prev_round else 0
@@ -303,24 +303,54 @@ def create_app():
                 db.session.add(r)
                 db.session.commit()
                 table = 1
-                for i in range(top_n // 2):
-                    p1 = seeds[i]
-                    p2 = seeds[top_n - 1 - i]
-                    m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
-                    db.session.add(m)
-                    table += 1
+                if t.format.lower() == 'commander':
+                    group_size = 4
+                    i = 0
+                    while i < top_n:
+                        pod = seeds[i:i+group_size]
+                        m = Match(round_id=r.id, table_number=table,
+                                  player1_id=pod[0].id,
+                                  player2_id=pod[1].id if len(pod) > 1 else None,
+                                  player3_id=pod[2].id if len(pod) > 2 else None,
+                                  player4_id=pod[3].id if len(pod) > 3 else None)
+                        db.session.add(m)
+                        table += 1
+                        i += group_size
+                else:
+                    for i in range(top_n // 2):
+                        p1 = seeds[i]
+                        p2 = seeds[top_n - 1 - i]
+                        m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
+                        db.session.add(m)
+                        table += 1
                 db.session.commit()
                 flash(f"Paired round {next_round_num}.", "success")
                 return redirect(url_for('view_tournament', tid=tid))
             winners = []
             for m in sorted(prev_round.matches, key=lambda m: m.table_number):
-                if m.result.player1_wins > m.result.player2_wins:
-                    winners.append(m.player1)
-                    if m.player2_id:
-                        m.player2.dropped = True
+                if t.format.lower() == 'commander':
+                    rres = m.result
+                    placements = [
+                        (m.player1, rres.p1_place),
+                        (m.player2, rres.p2_place),
+                        (m.player3, rres.p3_place),
+                        (m.player4, rres.p4_place),
+                    ]
+                    for pl, place in placements:
+                        if not pl:
+                            continue
+                        if place == 1:
+                            winners.append(pl)
+                        else:
+                            pl.dropped = True
                 else:
-                    winners.append(m.player2)
-                    m.player1.dropped = True
+                    if m.result.player1_wins > m.result.player2_wins:
+                        winners.append(m.player1)
+                        if m.player2_id:
+                            m.player2.dropped = True
+                    else:
+                        winners.append(m.player2)
+                        m.player1.dropped = True
             db.session.commit()
             if len(winners) <= 1:
                 flash('Tournament complete.', 'success')
@@ -329,10 +359,24 @@ def create_app():
             db.session.add(r)
             db.session.commit()
             table = 1
-            for i in range(0, len(winners), 2):
-                m = Match(round_id=r.id, player1_id=winners[i].id, player2_id=winners[i+1].id, table_number=table)
-                db.session.add(m)
-                table += 1
+            if t.format.lower() == 'commander':
+                group_size = 4
+                i = 0
+                while i < len(winners):
+                    pod = winners[i:i+group_size]
+                    m = Match(round_id=r.id, table_number=table,
+                              player1_id=pod[0].id,
+                              player2_id=pod[1].id if len(pod) > 1 else None,
+                              player3_id=pod[2].id if len(pod) > 2 else None,
+                              player4_id=pod[3].id if len(pod) > 3 else None)
+                    db.session.add(m)
+                    table += 1
+                    i += group_size
+            else:
+                for i in range(0, len(winners), 2):
+                    m = Match(round_id=r.id, player1_id=winners[i].id, player2_id=winners[i+1].id, table_number=table)
+                    db.session.add(m)
+                    table += 1
             db.session.commit()
             flash(f"Paired round {next_round_num}.", "success")
             return redirect(url_for('view_tournament', tid=tid))
@@ -376,7 +420,9 @@ def create_app():
         if not r or r.tournament_id != tid:
             abort(404)
         has_results = any(m.completed for m in r.matches)
-        return render_template('tournament/round.html', t=r.tournament, r=r, has_results=has_results)
+        next_round = db.session.query(Round).filter(Round.tournament_id==tid, Round.number>r.number).first()
+        locked = bool(next_round)
+        return render_template('tournament/round.html', t=r.tournament, r=r, has_results=has_results, locked=locked)
 
     @app.route('/match/<int:mid>', methods=['GET','POST'])
     @login_required
@@ -393,6 +439,10 @@ def create_app():
             m.player4.user_id if m.player4_id else None,
         ):
             abort(403)
+        next_round = db.session.query(Round).filter(Round.tournament_id==t.id, Round.number>m.round.number).first()
+        if next_round:
+            flash('Cannot modify result after next round has been paired.', 'error')
+            return redirect(url_for('view_round', tid=t.id, rid=m.round_id))
         if request.method == 'POST':
             if t.format.lower() == 'commander':
                 if request.form.get('is_draw'):
