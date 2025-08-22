@@ -3,7 +3,9 @@
 # and starts the Flask development server.
 
 param(
-    [string]$PasswordSeed = "dev-password-seed-change-me"
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()]    
+        $PasswordSeed
 )
 
 #check if Flask is already running and stop it if necessary
@@ -22,8 +24,12 @@ Stop-Process -Name "flask" -Force -ErrorAction SilentlyContinue | Out-Null
 # Ensure the script runs from its own directory so relative paths work
 Set-Location -Path $PSScriptRoot
 
+if($null -eq $PasswordSeed){
+    $PasswordSeed.UserName = "dev-password-seed-change-me"
+}
+
 # Configure password seed for AES encryption
-$env:PASSWORD_SEED = $PasswordSeed
+$env:PASSWORD_SEED = $PasswordSeed.UserName
 
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
