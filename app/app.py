@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, request, flash, abo
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import click
 import random
@@ -117,8 +117,14 @@ def create_app():
                 flash('Commander supports cuts to Top 4, 16, 32, or 64.', 'error')
                 return render_template('admin/new_tournament.html')
             commander_points = request.form.get('commander_points', '3,2,1,0,1')
+            round_length = int(request.form.get('round_length', 50))
+            draft_time = request.form.get('draft_time')
+            deck_build_time = request.form.get('deck_build_time')
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
-                           commander_points=commander_points)
+                           commander_points=commander_points,
+                           round_length=round_length,
+                           draft_time=int(draft_time) if draft_time else None,
+                           deck_build_time=int(deck_build_time) if deck_build_time else None)
             db.session.add(t)
             db.session.commit()
             flash("Tournament created.", "success")
@@ -195,7 +201,9 @@ def create_app():
         rounds = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number).all()
         standings = compute_standings(t, db.session)
         rec_rounds = recommended_rounds(len(players))
-        return render_template('tournament/view.html', t=t, players=players, rounds=rounds, standings=standings, rec_rounds=rec_rounds)
+        timer_end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end
+        return render_template('tournament/view.html', t=t, players=players, rounds=rounds,
+                               standings=standings, rec_rounds=rec_rounds, timer_end=timer_end)
 
     @app.route('/t/<int:tid>/join', methods=['POST'])
     @login_required
@@ -211,6 +219,33 @@ def create_app():
             db.session.commit()
             flash("Joined tournament", "success")
         return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/start-timer/<string:timer>', methods=['POST'])
+    def start_timer(tid, timer):
+        require_admin()
+        t = db.session.get(Tournament, tid)
+        if not t: abort(404)
+        now = datetime.utcnow()
+        if timer == 'round' and t.round_length:
+            t.round_timer_end = now + timedelta(minutes=t.round_length)
+        elif timer == 'draft' and t.draft_time:
+            t.draft_timer_end = now + timedelta(minutes=t.draft_time)
+        elif timer == 'deck' and t.deck_build_time:
+            t.deck_timer_end = now + timedelta(minutes=t.deck_build_time)
+        else:
+            abort(400)
+        db.session.commit()
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/draft-seating')
+    def draft_seating(tid):
+        t = db.session.get(Tournament, tid)
+        if not t or t.format != 'Draft':
+            abort(404)
+        players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).all()
+        random.shuffle(players)
+        tables = [players[i:i+8] for i in range(0, len(players), 8)]
+        return render_template('tournament/draft_seating.html', t=t, tables=tables)
 
     @app.route('/t/<int:tid>/set-rounds', methods=['POST'])
     def set_rounds(tid):
@@ -516,7 +551,27 @@ def create_app():
             round_limit = 0
         elim_rounds = [r for r in rounds if r.number > round_limit]
         points = {tp.id: player_points(tp, db.session) for tp in players}
-        return render_template('tournament/bracket.html', t=t, rounds=elim_rounds, points=points)
+        champion = None
+        if elim_rounds:
+            final_round = elim_rounds[-1]
+            if all(m.completed and m.result for m in final_round.matches):
+                fm = final_round.matches[0]
+                if t.format == 'Commander':
+                    placements = {
+                        fm.result.p1_place: fm.player1,
+                        fm.result.p2_place: fm.player2,
+                        fm.result.p3_place: fm.player3,
+                        fm.result.p4_place: fm.player4,
+                    }
+                    champion = placements.get(1)
+                else:
+                    if fm.result.player1_wins >= fm.result.player2_wins:
+                        champion = fm.player1
+                    else:
+                        champion = fm.player2
+        timer_end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end
+        return render_template('tournament/bracket.html', t=t, rounds=elim_rounds, points=points,
+                               champion=champion, timer_end=timer_end)
 
     @app.route('/admin/users')
     def admin_users():

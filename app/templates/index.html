@@ -9,6 +9,10 @@
       <div>Format: {{ t.format }}</div>
       <div>Cut: {{ t.cut|upper }}</div>
       <div>Players: {{ player_counts[t.id] }}</div>
+      {% set end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end %}
+      {% if end %}
+      <div>Timer: <span class="timer" data-timer-end="{{ end.isoformat() }}Z"></span></div>
+      {% endif %}
       {% if current_user.is_authenticated and current_user.is_admin %}
       <form method="post" action="{{ url_for('delete_tournament', tid=t.id) }}" onsubmit="return confirm('Delete this tournament?');">
         <button class="btn" type="submit">Delete</button>

@@ -43,6 +43,13 @@
     {% endfor %}
   </div>
   {% endfor %}
+  {% if champion %}
+  <div class="round">
+    <div class="match">
+      <div class="player">{{ champion.user.name }}</div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 

@@ -25,6 +25,7 @@
         <a href="{{ url_for('login') }}">Login</a>
         <a href="{{ url_for('register') }}">Register</a>
       {% endif %}
+      {% if timer_end %}<span id="header-timer" data-timer-end="{{ timer_end.isoformat() }}Z"></span>{% endif %}
     </nav>
   </header>
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -39,5 +40,26 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script>
+  document.querySelectorAll('[data-timer-end]').forEach(function(el){
+    const end = new Date(el.dataset.timerEnd);
+    function update(){
+      const diff = end - new Date();
+      if (diff <= 0){
+        el.textContent = '00:00';
+        if(!el.dataset.alerted){
+          alert('Time has elapsed');
+          el.dataset.alerted = '1';
+        }
+      }else{
+        const m = Math.floor(diff/60000);
+        const s = Math.floor((diff%60000)/1000);
+        el.textContent = m.toString().padStart(2,'0') + ':' + s.toString().padStart(2,'0');
+        setTimeout(update,1000);
+      }
+    }
+    update();
+  });
+  </script>
 </body>
 </html>
