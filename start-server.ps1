@@ -25,7 +25,7 @@ Set-Location -Path $PSScriptRoot
 
 if($null -eq $PasswordSeed){
 
-    $PasswordSeed = New-Object System.Management.Automation.PSCredential("dev-password-seed-change-me", "")
+    $PasswordSeed = New-Object System.Management.Automation.PSCredential("dev-password-seed-change-me", (ConvertTo-SecureString "dev-password-seed-change-me" -AsPlainText -Force))
 }
 
 # Configure password seed for AES encryption
