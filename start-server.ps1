@@ -18,7 +18,7 @@ function ConvertTo-Hashtable {
         }
         return $hash
     }
-    if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -notis [string]) {
+    if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject.GetType().Name -ne "String") {
         return @($InputObject | ForEach-Object { ConvertTo-Hashtable $_ })
     }
     return $InputObject
@@ -71,9 +71,10 @@ $env:PASSWORD_SEED = $PasswordSeed.UserName
 # Configure Flask secret
 $env:FLASK_SECRET = $FlaskSecret
 
+$timestamp = Get-Date -Format "yyyyMMddHHmmss"
+
 # Determine database path
 if([string]::IsNullOrEmpty($DatabasePath)){
-    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
     $DatabasePath = "mtg_tournament_$timestamp.db"
 }
 
