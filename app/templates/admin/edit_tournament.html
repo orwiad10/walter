@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Edit Tournament</h2>
+<form method="post">
+  <table class="table center-table">
+    <tbody>
+      <tr>
+        <td>Name</td>
+        <td><input name="name" value="{{ t.name }}" required></td>
+      </tr>
+      <tr>
+        <td>Format</td>
+        <td>
+          <select name="format" required>
+            <option{% if t.format=='Commander' %} selected{% endif %}>Commander</option>
+            <option{% if t.format=='Draft' %} selected{% endif %}>Draft</option>
+            <option{% if t.format=='Constructed' %} selected{% endif %}>Constructed</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>Structure</td>
+        <td>
+          <select name="structure">
+            <option value="swiss"{% if t.structure=='swiss' %} selected{% endif %}>Swiss / Cut</option>
+            <option value="single_elim"{% if t.structure=='single_elim' %} selected{% endif %}>Single Elimination</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>Cut</td>
+        <td>
+          <select name="cut">
+            <option value="none"{% if t.cut=='none' %} selected{% endif %}>None</option>
+            <option value="top64"{% if t.cut=='top64' %} selected{% endif %}>Top 64</option>
+            <option value="top32"{% if t.cut=='top32' %} selected{% endif %}>Top 32</option>
+            <option value="top16"{% if t.cut=='top16' %} selected{% endif %}>Top 16</option>
+            <option value="top8"{% if t.cut=='top8' %} selected{% endif %}>Top 8</option>
+            <option value="top4"{% if t.cut=='top4' %} selected{% endif %}>Top 4</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>Commander Points (1st,2nd,3rd,4th,draw)</td>
+        <td><input name="commander_points" value="{{ t.commander_points }}"></td>
+      </tr>
+      <tr>
+        <td>Round Length (minutes)</td>
+        <td><input type="number" name="round_length" value="{{ t.round_length }}"></td>
+      </tr>
+      <tr>
+        <td>Draft Time (minutes)</td>
+        <td><input type="number" name="draft_time" value="{{ t.draft_time or '' }}"></td>
+      </tr>
+      <tr>
+        <td>Deck Build Time (minutes)</td>
+        <td><input type="number" name="deck_build_time" value="{{ t.deck_build_time or '' }}"></td>
+      </tr>
+      <tr>
+        <td colspan="2"><button class="btn" type="submit">Save</button></td>
+      </tr>
+    </tbody>
+  </table>
+</form>
+<script>
+const fmtSel = document.querySelector('select[name="format"]');
+const cutSel = document.querySelector('select[name="cut"]');
+function updateCut(){
+  const top8 = cutSel.querySelector('option[value="top8"]');
+  if(fmtSel.value === 'Commander'){
+    top8.style.display = 'none';
+    if(cutSel.value === 'top8'){ cutSel.value = 'top4'; }
+  }else{
+    top8.style.display = '';
+  }
+}
+fmtSel.addEventListener('change', updateCut);
+updateCut();
+</script>
+{% endblock %}

@@ -2,6 +2,7 @@
 {% block content %}
 <p><a href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a></p>
 <h2>{{ t.name }} Draft Seating</h2>
+{% include 'tournament/_timer_bar.html' %}
 {% for table in tables %}
 <h3>Table {{ loop.index }}</h3>
 <ol>

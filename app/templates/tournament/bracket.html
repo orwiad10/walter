@@ -2,6 +2,7 @@
 {% block content %}
 <p><a href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a></p>
 <h2>{{ t.name }} Bracket</h2>
+{% include 'tournament/_timer_bar.html' %}
 <button class="btn" onclick="window.print()">Print</button>
 <div class="bracket">
   {% for r in rounds %}

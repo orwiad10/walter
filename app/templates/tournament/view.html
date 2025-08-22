@@ -2,6 +2,7 @@
 {% block content %}
 <h2>{{ t.name }}</h2>
 <p>Format: {{ t.format }} | Cut: {{ t.cut|upper }}</p>
+{% include 'tournament/_timer_bar.html' %}
 {% set round_limit = t.rounds_override or rec_rounds %}
 {% set current_rounds = rounds|length %}
 <div class="toolbar">
@@ -27,16 +28,7 @@
       <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}">
       <button class="btn" type="submit">Set Rounds</button>
     </form>
-    <form method="post" action="{{ url_for('start_timer', tid=t.id, timer='round') }}">
-      <button class="btn" type="submit">Start Round Timer</button>
-    </form>
     {% if t.format == 'Draft' %}
-    <form method="post" action="{{ url_for('start_timer', tid=t.id, timer='draft') }}">
-      <button class="btn" type="submit">Start Draft Timer</button>
-    </form>
-    <form method="post" action="{{ url_for('start_timer', tid=t.id, timer='deck') }}">
-      <button class="btn" type="submit">Start Deck Timer</button>
-    </form>
     <a class="btn" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>
     {% endif %}
   {% endif %}

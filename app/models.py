@@ -41,6 +41,9 @@ class Tournament(db.Model):
     round_timer_end = db.Column(db.DateTime, nullable=True)
     draft_timer_end = db.Column(db.DateTime, nullable=True)
     deck_timer_end = db.Column(db.DateTime, nullable=True)
+    round_timer_remaining = db.Column(db.Integer, nullable=True)
+    draft_timer_remaining = db.Column(db.Integer, nullable=True)
+    deck_timer_remaining = db.Column(db.Integer, nullable=True)
 
 class TournamentPlayer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
