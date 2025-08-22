@@ -5,7 +5,7 @@
 <p>Round {{ m.round.number }} — Table {{ m.table_number }}</p>
 <p>
   {% if m.player2_id %}
-    {{ m.player1.user.name }} vs {{ m.player2.user.name }}
+    {{ m.player1.user.name }} vs {{ m.player2.user.name }}{% if m.player3_id %} vs {{ m.player3.user.name }}{% endif %}{% if m.player4_id %} vs {{ m.player4.user.name }}{% endif %}
   {% else %}
     {{ m.player1.user.name }} has a BYE
   {% endif %}

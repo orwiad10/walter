@@ -2,34 +2,53 @@
 {% block content %}
 <h2>New Tournament</h2>
 <form method="post">
-  <label>Name <input name="name" required></label><br>
-  <label>Format
-    <select name="format" required>
-      <option>Commander</option>
-      <option>Draft</option>
-      <option>Constructed</option>
-    </select>
-  </label><br>
-  <label>Structure
-    <select name="structure">
-      <option value="swiss">Swiss / Cut</option>
-      <option value="single_elim">Single Elimination</option>
-    </select>
-  </label><br>
-  <label>Cut
-    <select name="cut">
-      <option value="none">None</option>
-      <option value="top64">Top 64</option>
-      <option value="top32">Top 32</option>
-      <option value="top16">Top 16</option>
-      <option value="top8">Top 8</option>
-      <option value="top4">Top 4</option>
-    </select>
-  </label><br>
-  <label>Commander Points (1st,2nd,3rd,4th,draw)
-    <input name="commander_points" value="3,2,1,0,1">
-  </label><br>
-  <button class="btn" type="submit">Create</button>
+  <table class="table center-table">
+    <tbody>
+      <tr>
+        <td>Name</td>
+        <td><input name="name" required></td>
+      </tr>
+      <tr>
+        <td>Format</td>
+        <td>
+          <select name="format" required>
+            <option>Commander</option>
+            <option>Draft</option>
+            <option>Constructed</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>Structure</td>
+        <td>
+          <select name="structure">
+            <option value="swiss">Swiss / Cut</option>
+            <option value="single_elim">Single Elimination</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>Cut</td>
+        <td>
+          <select name="cut">
+            <option value="none">None</option>
+            <option value="top64">Top 64</option>
+            <option value="top32">Top 32</option>
+            <option value="top16">Top 16</option>
+            <option value="top8">Top 8</option>
+            <option value="top4">Top 4</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>Commander Points (1st,2nd,3rd,4th,draw)</td>
+        <td><input name="commander_points" value="3,2,1,0,1"></td>
+      </tr>
+      <tr>
+        <td colspan="2"><button class="btn" type="submit">Create</button></td>
+      </tr>
+    </tbody>
+  </table>
 </form>
 <script>
 const fmtSel = document.querySelector('select[name="format"]');
