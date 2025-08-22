@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Admin Debug Panel</h2>
+<ul>
+  <li>Encryption type: {{ encryption_type }}</li>
+  <li>Database size: {{ db_size }}</li>
+  <li>RAM usage: {{ ram_usage }}</li>
+  <li>CPU usage: {{ cpu_usage }}%</li>
+  <li>Current connections: {{ connections }}</li>
+  <li>System uptime: {{ uptime }} seconds</li>
+</ul>
+{% if password_seed %}
+<p>Password seed: {{ password_seed }}</p>
+{% else %}
+<form method="post">
+  <label>Confirm password to reveal seed:</label>
+  <input type="password" name="password">
+  <button class="btn" type="submit">Reveal</button>
+</form>
+{% endif %}
+{% endblock %}
