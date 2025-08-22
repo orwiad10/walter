@@ -31,6 +31,8 @@ class Tournament(db.Model):
     cut = db.Column(db.String(10), default='none')     # none, top8, top4
     rounds_override = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Comma separated points for Commander: first, second, third, fourth, draw
+    commander_points = db.Column(db.String(50), default='3,2,1,0,1')
 
 class TournamentPlayer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -69,12 +71,21 @@ class MatchResult(db.Model):
     player1_wins = db.Column(db.Integer, default=0)
     player2_wins = db.Column(db.Integer, default=0)
     draws = db.Column(db.Integer, default=0)
+    # Commander placements; 1-4. If match is a draw, set is_draw True.
+    p1_place = db.Column(db.Integer, nullable=True)
+    p2_place = db.Column(db.Integer, nullable=True)
+    p3_place = db.Column(db.Integer, nullable=True)
+    p4_place = db.Column(db.Integer, nullable=True)
+    is_draw = db.Column(db.Boolean, default=False)
 
 class Match(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     round_id = db.Column(db.Integer, db.ForeignKey('round.id'), nullable=False)
     player1_id = db.Column(db.Integer, db.ForeignKey('tournament_player.id'), nullable=False)
     player2_id = db.Column(db.Integer, db.ForeignKey('tournament_player.id'), nullable=True)  # None means BYE
+    # Commander pods can have up to four players
+    player3_id = db.Column(db.Integer, db.ForeignKey('tournament_player.id'), nullable=True)
+    player4_id = db.Column(db.Integer, db.ForeignKey('tournament_player.id'), nullable=True)
     table_number = db.Column(db.Integer, nullable=False)
     completed = db.Column(db.Boolean, default=False)
     result_id = db.Column(db.Integer, db.ForeignKey('match_result.id'), nullable=True)
@@ -85,6 +96,8 @@ class Match(db.Model):
     )
     player1 = db.relationship('TournamentPlayer', foreign_keys=[player1_id])
     player2 = db.relationship('TournamentPlayer', foreign_keys=[player2_id])
+    player3 = db.relationship('TournamentPlayer', foreign_keys=[player3_id])
+    player4 = db.relationship('TournamentPlayer', foreign_keys=[player4_id])
     result = db.relationship(
         'MatchResult',
         backref=db.backref('match', cascade='all, delete-orphan'),

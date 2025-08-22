@@ -16,21 +16,33 @@
 {% for m in r.matches|sort(attribute='table_number') %}
   <li>
     Table {{ m.table_number }}:
-    {% if m.player2_id %}
-      {{ m.player1.user.name }} vs {{ m.player2.user.name }}
-    {% else %}
-      {{ m.player1.user.name }} has a BYE
-    {% endif %}
-    {% if m.completed %}
-      - Result:
-      {% if m.player2_id %}
-        {{ m.result.player1_wins }}-{{ m.result.player2_wins }} (Draws {{ m.result.draws }})
+    {% if t.format == 'Commander' %}
+      {{ m.player1.user.name }}{% if m.player2_id %}, {{ m.player2.user.name }}{% endif %}{% if m.player3_id %}, {{ m.player3.user.name }}{% endif %}{% if m.player4_id %}, {{ m.player4.user.name }}{% endif %}
+      {% if m.completed %}
+        - {% if m.result.is_draw %}Draw{% else %}Placings: {{ m.result.p1_place }}{% if m.player2_id %}, {{ m.result.p2_place }}{% endif %}{% if m.player3_id %}, {{ m.result.p3_place }}{% endif %}{% if m.player4_id %}, {{ m.result.p4_place }}{% endif %}{% endif %}
       {% else %}
-        Win by BYE
+        {% set ids = [m.player1.user_id, m.player2.user_id if m.player2_id else None, m.player3.user_id if m.player3_id else None, m.player4.user_id if m.player4_id else None] %}
+        {% if current_user.is_authenticated and (current_user.is_admin or current_user.id in ids) %}
+          <a href="{{ url_for('report_match', mid=m.id) }}">Report</a>
+        {% endif %}
       {% endif %}
     {% else %}
-      {% if current_user.is_authenticated and (current_user.is_admin or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
-        <a href="{{ url_for('report_match', mid=m.id) }}">Report</a>
+      {% if m.player2_id %}
+        {{ m.player1.user.name }} vs {{ m.player2.user.name }}
+      {% else %}
+        {{ m.player1.user.name }} has a BYE
+      {% endif %}
+      {% if m.completed %}
+        - Result:
+        {% if m.player2_id %}
+          {{ m.result.player1_wins }}-{{ m.result.player2_wins }} (Draws {{ m.result.draws }})
+        {% else %}
+          Win by BYE
+        {% endif %}
+      {% else %}
+        {% if current_user.is_authenticated and (current_user.is_admin or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
+          <a href="{{ url_for('report_match', mid=m.id) }}">Report</a>
+        {% endif %}
       {% endif %}
     {% endif %}
   </li>
