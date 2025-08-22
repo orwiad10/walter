@@ -2,6 +2,10 @@
 # Installs dependencies, initializes the database, creates an admin user,
 # and starts the Flask development server.
 
+param(
+    [string]$PasswordSeed = "dev-password-seed-change-me"
+)
+
 #check if Flask is already running and stop it if necessary
 $flaskpid = try{
     Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess
@@ -17,6 +21,9 @@ Stop-Process -Name "flask" -Force -ErrorAction SilentlyContinue | Out-Null
 
 # Ensure the script runs from its own directory so relative paths work
 Set-Location -Path $PSScriptRoot
+
+# Configure password seed for AES encryption
+$env:PASSWORD_SEED = $PasswordSeed
 
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
