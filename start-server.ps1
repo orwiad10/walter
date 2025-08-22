@@ -1,16 +1,24 @@
 # PowerShell script to set up and run the MTG Tournament Swiss App.
 # Installs dependencies, initializes the database, creates an admin user,
 # and starts the Flask development server.
-param(
-        [string]$DatabasePath,
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        [string]$newadmin,
-        [string]$FlaskSecret = "dev-secret-change-me",
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()]
-        $PasswordSeed
-)
+# Load settings from YAML config
+$configPath = Join-Path $PSScriptRoot "config.yaml"
+if(!(Test-Path $configPath)){
+    Write-Error "Missing config.yaml"
+    exit 1
+}
+
+try{
+    $cfg = Get-Content $configPath | ConvertFrom-Yaml
+}catch{
+    Write-Error "Failed to parse config.yaml"
+    exit 1
+}
+
+$DatabasePath = $cfg.db_file
+$FlaskSecret = $cfg.secret
+$PasswordSeed = New-Object System.Management.Automation.PSCredential("dev-password-seed-change-me", (ConvertTo-SecureString "dev-password-seed-change-me" -AsPlainText -Force))
+$newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 #check if Flask is already running and stop it if necessary
 $flaskpid = try{

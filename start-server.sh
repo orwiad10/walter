@@ -1,8 +1,22 @@
 #!/bin/bash
-DB_FILE="$1"
-ADMIN_EMAIL="$2"
-ADMIN_PASS="$3"
-SECRET="$4"
+CONFIG_FILE="config.yaml"
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "Missing $CONFIG_FILE"
+  exit 1
+fi
+
+read_yaml() {
+  python - <<PY
+import yaml,sys
+cfg=yaml.safe_load(open(sys.argv[1]))
+print(cfg.get(sys.argv[2],''))
+PY
+}
+
+DB_FILE=$(read_yaml "$CONFIG_FILE" db_file)
+ADMIN_EMAIL=$(read_yaml "$CONFIG_FILE" admin_email)
+ADMIN_PASS=$(read_yaml "$CONFIG_FILE" admin_pass)
+SECRET=$(read_yaml "$CONFIG_FILE" secret)
 
 if [ -z "$DB_FILE" ]; then
   DB_FILE="mtg_tournament_$(date +%Y%m%d%H%M%S).db"

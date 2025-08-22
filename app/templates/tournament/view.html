@@ -37,6 +37,7 @@
     {% if t.format == 'Draft' %}
     <a class="btn" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>
     {% endif %}
+    <a class="btn" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
   {% endif %}
 </div>
 
