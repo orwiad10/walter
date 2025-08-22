@@ -12,11 +12,13 @@ import os
 import random
 import click
 import hashlib
+import psutil
 
 
 db = SQLAlchemy()
 login_manager = LoginManager()
 PASSWORD_KEY = None
+PASSWORD_SEED = None
 
 
 def create_app():
@@ -25,13 +27,16 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
-    seed = os.environ.get('PASSWORD_SEED')
-    if seed is None:
-        seed = os.urandom(32)
+    seed_env = os.environ.get('PASSWORD_SEED')
+    if seed_env is None:
+        seed_bytes = os.urandom(32)
+        seed_display = seed_bytes.hex()
     else:
-        seed = seed.encode()
-    global PASSWORD_KEY
-    PASSWORD_KEY = hashlib.sha256(seed).digest()
+        seed_bytes = seed_env.encode()
+        seed_display = seed_env
+    global PASSWORD_KEY, PASSWORD_SEED
+    PASSWORD_KEY = hashlib.sha256(seed_bytes).digest()
+    PASSWORD_SEED = seed_display
 
     db.init_app(app)
     login_manager.init_app(app)
@@ -226,6 +231,39 @@ def create_app():
             flash(f"Registered {count} players.", "success")
             return redirect(url_for('admin_bulk_register'))
         return render_template('admin/bulk_register_players.html', tournaments=tournaments)
+
+    @app.route('/admin/panel', methods=['GET', 'POST'])
+    def admin_panel():
+        require_admin()
+        password_seed = None
+        if request.method == 'POST':
+            if current_user.check_password(request.form.get('password', '')):
+                password_seed = PASSWORD_SEED
+        process = psutil.Process(os.getpid())
+        db_path = os.path.join(os.path.dirname(app.root_path), 'mtg_tournament.db')
+        db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+        cpu_usage = process.cpu_percent(interval=0.1)
+        mem_usage = process.memory_info().rss
+        connections = len([c for c in psutil.net_connections() if c.status == psutil.CONN_ESTABLISHED])
+        uptime_seconds = int((datetime.utcnow() - datetime.fromtimestamp(psutil.boot_time())).total_seconds())
+
+        def fmt_bytes(num):
+            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                if num < 1024.0:
+                    return f"{num:.2f} {unit}"
+                num /= 1024.0
+            return f"{num:.2f} PB"
+
+        return render_template(
+            'admin/panel.html',
+            encryption_type='AES-256-CBC',
+            db_size=fmt_bytes(db_size),
+            ram_usage=fmt_bytes(mem_usage),
+            cpu_usage=cpu_usage,
+            connections=connections,
+            uptime=uptime_seconds,
+            password_seed=password_seed,
+        )
 
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
