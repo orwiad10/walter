@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>{{ t.name }} Logs</h2>
+<table>
+  <tr><th>Time</th><th>User</th><th>Action</th><th>Result</th><th>Error</th></tr>
+  {% for l in logs %}
+  <tr>
+    <td>{{ l.timestamp }}</td>
+    <td>{{ l.user.name if l.user else '' }}</td>
+    <td>{{ l.action }}</td>
+    <td>{{ l.result }}</td>
+    <td>{{ l.error or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

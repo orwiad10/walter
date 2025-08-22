@@ -54,6 +54,8 @@ def create_app():
         Role,
         PERMISSION_GROUPS,
         DEFAULT_ROLE_PERMISSIONS,
+        SiteLog,
+        TournamentLog,
     )
     from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
 
@@ -118,12 +120,14 @@ def create_app():
             password = request.form['password']
             if db.session.query(User).filter_by(email=email).first():
                 flash("Email already registered", "error")
+                log_site('register', 'failure', 'email exists')
                 return redirect(url_for('register'))
             role_user = db.session.query(Role).filter_by(name='user').first()
             u = User(email=email, name=name, role=role_user)
             u.set_password(password)
             db.session.add(u)
             db.session.commit()
+            log_site('register', 'success')
             tournament_id = request.form.get('tournament_id')
             if tournament_id:
                 t = db.session.get(Tournament, int(tournament_id))
@@ -147,14 +151,17 @@ def create_app():
             u = db.session.query(User).filter_by(email=email).first()
             if u and u.check_password(password):
                 login_user(u)
+                log_site('login', 'success')
                 return redirect(url_for('index'))
             flash("Invalid credentials", "error")
+            log_site('login', 'failure', 'invalid credentials')
         return render_template('login.html')
 
     @app.route('/logout')
     @login_required
     def logout():
         logout_user()
+        log_site('logout', 'success')
         return redirect(url_for('index'))
 
     # ---------- Admin ----------
@@ -164,6 +171,18 @@ def create_app():
 
     def require_admin():
         require_permission('admin.panel')
+
+    def log_site(action, result, error=None):
+        log = SiteLog(action=action, result=result, error=error,
+                      user_id=current_user.id if current_user.is_authenticated else None)
+        db.session.add(log)
+        db.session.commit()
+
+    def log_tournament(tid, action, result, error=None):
+        log = TournamentLog(tournament_id=tid, action=action, result=result, error=error,
+                             user_id=current_user.id if current_user.is_authenticated else None)
+        db.session.add(log)
+        db.session.commit()
 
     @app.route('/admin/tournaments/new', methods=['GET','POST'])
     def new_tournament():
@@ -185,10 +204,17 @@ def create_app():
                            round_length=round_length,
                            draft_time=int(draft_time) if draft_time else None,
                            deck_build_time=int(deck_build_time) if deck_build_time else None)
-            db.session.add(t)
-            db.session.commit()
-            flash("Tournament created.", "success")
-            return redirect(url_for('view_tournament', tid=t.id))
+            try:
+                db.session.add(t)
+                db.session.commit()
+                log_site('tournament_create', 'success')
+                log_tournament(t.id, 'create', 'success')
+                flash("Tournament created.", "success")
+                return redirect(url_for('view_tournament', tid=t.id))
+            except Exception as e:
+                db.session.rollback()
+                log_site('tournament_create', 'failure', str(e))
+                flash('Error creating tournament.', 'error')
         return render_template('admin/new_tournament.html')
 
     @app.route('/admin/tournaments/<int:tid>/edit', methods=['GET','POST'])
@@ -314,6 +340,12 @@ def create_app():
         roles = db.session.query(Role).order_by(Role.name).all()
         return render_template('admin/permissions.html', roles=roles, permission_groups=PERMISSION_GROUPS)
 
+    @app.route('/admin/logs')
+    def site_logs():
+        require_admin()
+        logs = db.session.query(SiteLog).order_by(SiteLog.timestamp.desc()).all()
+        return render_template('admin/site_logs.html', logs=logs)
+
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
         require_permission('tournaments.manage')
@@ -369,21 +401,38 @@ def create_app():
     @app.route('/t/<int:tid>/join', methods=['POST'])
     @login_required
     def join_tournament(tid):
+        require_permission('tournaments.join')
+        if current_user.is_admin or (current_user.role and current_user.role.name != 'user'):
+            abort(403)
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         tp = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, user_id=current_user.id).first()
         if tp:
             flash("Already joined", "info")
+            log_tournament(tid, 'join', 'already joined')
+            log_site('join_tournament', 'already joined')
         else:
             code = request.form.get('passcode', '')
             if t.passcode and code != t.passcode:
                 flash("Invalid passcode", "error")
+                log_tournament(tid, 'join', 'failure', 'invalid passcode')
+                log_site('join_tournament', 'failure', 'invalid passcode')
                 return redirect(url_for('view_tournament', tid=tid))
             tp = TournamentPlayer(tournament_id=tid, user_id=current_user.id)
             db.session.add(tp)
             db.session.commit()
             flash("Joined tournament", "success")
+            log_tournament(tid, 'join', 'success')
+            log_site('join_tournament', 'success')
         return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/logs')
+    def tournament_logs(tid):
+        require_permission('tournaments.manage')
+        t = db.session.get(Tournament, tid)
+        if not t: abort(404)
+        logs = db.session.query(TournamentLog).filter_by(tournament_id=tid).order_by(TournamentLog.timestamp.desc()).all()
+        return render_template('tournament/logs.html', t=t, logs=logs)
 
     @app.route('/t/<int:tid>/start-timer/<string:timer>', methods=['POST'])
     def start_timer(tid, timer):
@@ -977,10 +1026,13 @@ def create_app():
             role_id = request.form.get('role_id')
             if role_id:
                 role = db.session.get(Role, int(role_id))
-                if role and (role.name != 'admin' or current_user.has_permission('users.manage_admins')):
+                if uid == current_user.id and role and role.name != 'admin':
+                    flash('Cannot change your own admin role.', 'error')
+                elif role and (role.name != 'admin' or current_user.has_permission('users.manage_admins')):
                     u.role = role
                     u.is_admin = (role.name == 'admin')
             db.session.commit()
+            log_site('user_update', 'success')
             flash('User updated.', 'success')
         return redirect(url_for('admin_users'))
 

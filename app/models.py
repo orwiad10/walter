@@ -12,6 +12,7 @@ import json
 PERMISSION_GROUPS = {
     'tournaments': {
         'manage': 'Create and manage tournaments',
+        'join': 'Join tournaments',
     },
     'users': {
         'manage': 'Manage users',
@@ -38,7 +39,9 @@ DEFAULT_ROLE_PERMISSIONS = {
         'tournaments.manage': True,
         'users.manage': True,
     },
-    'user': {},
+    'user': {
+        'tournaments.join': True,
+    },
 }
 
 
@@ -102,6 +105,26 @@ class Tournament(db.Model):
     draft_timer_remaining = db.Column(db.Integer, nullable=True)
     deck_timer_remaining = db.Column(db.Integer, nullable=True)
     passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
+
+class SiteLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(200), nullable=False)
+    result = db.Column(db.String(200), nullable=False)
+    error = db.Column(db.Text, nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    user = db.relationship('User')
+
+class TournamentLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    action = db.Column(db.String(200), nullable=False)
+    result = db.Column(db.String(200), nullable=False)
+    error = db.Column(db.Text, nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    user = db.relationship('User')
+    tournament = db.relationship('Tournament', backref=db.backref('logs', cascade='all, delete-orphan'))
 
 class TournamentPlayer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
