@@ -13,6 +13,8 @@ if($flaskpid){
     Get-Process -Id $flaskpid | Stop-Process -Force -Confirm:$false
 }
 
+Stop-Process -Name "flask" -Force -ErrorAction SilentlyContinue | Out-Null
+
 # Ensure the script runs from its own directory so relative paths work
 Set-Location -Path $PSScriptRoot
 
