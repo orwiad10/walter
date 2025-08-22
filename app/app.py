@@ -11,10 +11,12 @@ from datetime import datetime, timedelta
 import os
 import random
 import click
+import hashlib
 
 
 db = SQLAlchemy()
 login_manager = LoginManager()
+PASSWORD_KEY = None
 
 
 def create_app():
@@ -22,6 +24,14 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mtg_tournament.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
+
+    seed = os.environ.get('PASSWORD_SEED')
+    if seed is None:
+        seed = os.urandom(32)
+    else:
+        seed = seed.encode()
+    global PASSWORD_KEY
+    PASSWORD_KEY = hashlib.sha256(seed).digest()
 
     db.init_app(app)
     login_manager.init_app(app)
