@@ -1,7 +1,7 @@
 <div class="timer-bar">
   <span class="timer"{% if timer_end %} data-timer-end="{{ timer_end.isoformat() }}Z"{% endif %}
         data-tournament-id="{{ t.id }}" data-tournament-name="{{ t.name }}"{% if timer_type %} data-timer-type="{{ timer_type }}"{% endif %}{% if timer_remaining %} data-timer-remaining="{{ timer_remaining }}"{% endif %}></span>
-  {% if current_user.is_authenticated and current_user.is_admin %}
+  {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
     <form method="post" action="{{ url_for('start_timer', tid=t.id, timer='round') }}" style="display:inline;">
       <button class="btn" type="submit">Start Round</button>
     </form>

@@ -24,7 +24,7 @@
   {% if t.cut.startswith('top') %}
   <a class="btn" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>
   {% endif %}
-  {% if current_user.is_authenticated and current_user.is_admin %}
+  {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
     {% if current_rounds < round_limit or t.cut.startswith('top') %}
     <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
       <button class="btn" type="submit">Pair</button>

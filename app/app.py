@@ -13,6 +13,7 @@ import random
 import click
 import hashlib
 import psutil
+import json
 
 
 db = SQLAlchemy()
@@ -43,7 +44,17 @@ def create_app():
     login_manager.init_app(app)
     login_manager.login_view = 'login'
 
-    from .models import User, Tournament, TournamentPlayer, Round, Match, MatchResult
+    from .models import (
+        User,
+        Tournament,
+        TournamentPlayer,
+        Round,
+        Match,
+        MatchResult,
+        Role,
+        PERMISSION_GROUPS,
+        DEFAULT_ROLE_PERMISSIONS,
+    )
     from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
 
     @login_manager.user_loader
@@ -54,11 +65,18 @@ def create_app():
     @app.cli.command('db-init')
     def db_init():
         db.create_all()
+        # Ensure default roles
+        for name, perms in DEFAULT_ROLE_PERMISSIONS.items():
+            if not db.session.query(Role).filter_by(name=name).first():
+                r = Role(name=name, permissions=json.dumps(perms))
+                db.session.add(r)
+        db.session.commit()
         # Ensure a default admin account exists for first-time login
         if not db.session.query(User).filter_by(
             email="admin@example.com"
         ).first():
-            u = User(email="admin@example.com", name="Admin", is_admin=True)
+            admin_role = db.session.query(Role).filter_by(name='admin').first()
+            u = User(email="admin@example.com", name="Admin", role=admin_role, is_admin=True)
             u.set_password("admin123")
             db.session.add(u)
             db.session.commit()
@@ -76,7 +94,8 @@ def create_app():
         if db.session.query(User).filter_by(email=email).first():
             print("User exists")
             return
-        u = User(email=email, name="Admin", is_admin=True)
+        admin_role = db.session.query(Role).filter_by(name='admin').first()
+        u = User(email=email, name="Admin", role=admin_role, is_admin=True)
         u.set_password(password)
         db.session.add(u)
         db.session.commit()
@@ -91,7 +110,7 @@ def create_app():
 
     @app.route('/register', methods=['GET','POST'])
     def register():
-        from .models import User, Tournament, TournamentPlayer
+        from .models import User, Tournament, TournamentPlayer, Role
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
@@ -100,7 +119,8 @@ def create_app():
             if db.session.query(User).filter_by(email=email).first():
                 flash("Email already registered", "error")
                 return redirect(url_for('register'))
-            u = User(email=email, name=name)
+            role_user = db.session.query(Role).filter_by(name='user').first()
+            u = User(email=email, name=name, role=role_user)
             u.set_password(password)
             db.session.add(u)
             db.session.commit()
@@ -138,13 +158,16 @@ def create_app():
         return redirect(url_for('index'))
 
     # ---------- Admin ----------
-    def require_admin():
-        if not current_user.is_authenticated or not current_user.is_admin:
+    def require_permission(perm):
+        if not current_user.is_authenticated or not current_user.has_permission(perm):
             abort(403)
+
+    def require_admin():
+        require_permission('admin.panel')
 
     @app.route('/admin/tournaments/new', methods=['GET','POST'])
     def new_tournament():
-        require_admin()
+        require_permission('tournaments.manage')
         if request.method == 'POST':
             name = request.form['name'].strip()
             fmt = request.form['format']
@@ -170,7 +193,7 @@ def create_app():
 
     @app.route('/admin/tournaments/<int:tid>/edit', methods=['GET','POST'])
     def edit_tournament(tid):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if request.method == 'POST':
             t.name = request.form['name'].strip()
@@ -190,8 +213,8 @@ def create_app():
 
     @app.route('/admin/register-player', methods=['GET', 'POST'])
     def admin_register_player():
-        require_admin()
-        from .models import User, Tournament, TournamentPlayer
+        require_permission('tournaments.manage')
+        from .models import User, Tournament, TournamentPlayer, Role
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
@@ -200,7 +223,8 @@ def create_app():
             if db.session.query(User).filter_by(email=email).first():
                 flash("Email already registered", "error")
             else:
-                u = User(email=email, name=name)
+                role_user = db.session.query(Role).filter_by(name='user').first()
+                u = User(email=email, name=name, role=role_user)
                 u.set_password(password)
                 db.session.add(u)
                 db.session.commit()
@@ -215,8 +239,8 @@ def create_app():
 
     @app.route('/admin/bulk-register', methods=['GET', 'POST'])
     def admin_bulk_register():
-        require_admin()
-        from .models import User, Tournament, TournamentPlayer
+        require_permission('tournaments.manage')
+        from .models import User, Tournament, TournamentPlayer, Role
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         if request.method == 'POST':
             tournament_id = request.form.get('tournament_id')
@@ -226,7 +250,8 @@ def create_app():
                 name = line.strip()
                 if not name:
                     continue
-                u = User(name=name)
+                role_user = db.session.query(Role).filter_by(name='user').first()
+                u = User(name=name, role=role_user)
                 db.session.add(u)
                 db.session.flush()
                 if tournament_id:
@@ -271,9 +296,27 @@ def create_app():
             password_seed=password_seed,
         )
 
+    @app.route('/admin/permissions', methods=['GET', 'POST'])
+    def permissions():
+        require_permission('admin.permissions')
+        if request.method == 'POST':
+            name = request.form['name'].strip()
+            perms = {}
+            for cat, items in PERMISSION_GROUPS.items():
+                for perm in items:
+                    key = f"{cat}.{perm}"
+                    perms[key] = bool(request.form.get(key))
+            role = Role(name=name, permissions=json.dumps(perms))
+            db.session.add(role)
+            db.session.commit()
+            flash('Role created.', 'success')
+            return redirect(url_for('permissions'))
+        roles = db.session.query(Role).order_by(Role.name).all()
+        return render_template('admin/permissions.html', roles=roles, permission_groups=PERMISSION_GROUPS)
+
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
@@ -295,7 +338,7 @@ def create_app():
         show_passcode = False
         if current_user.is_authenticated:
             is_player = any(p.user_id == current_user.id for p in players)
-            show_passcode = current_user.is_admin or is_player
+            show_passcode = current_user.has_permission('tournaments.manage') or is_player
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -344,7 +387,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/start-timer/<string:timer>', methods=['POST'])
     def start_timer(tid, timer):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         now = datetime.utcnow()
@@ -382,7 +425,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/pause-timer/<string:timer>', methods=['POST'])
     def pause_timer(tid, timer):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         now = datetime.utcnow()
@@ -402,7 +445,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/stop-timer/<string:timer>', methods=['POST'])
     def stop_timer(tid, timer):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         if timer == 'round':
@@ -421,7 +464,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/restart-timer/<string:timer>', methods=['POST'])
     def restart_timer(tid, timer):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         now = datetime.utcnow()
@@ -474,7 +517,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/set-rounds', methods=['POST'])
     def set_rounds(tid):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         t.rounds_override = int(request.form['rounds'])
@@ -484,7 +527,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/pair-next-round', methods=['POST'])
     def pair_next_round(tid):
-        require_admin()
+        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
         prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
@@ -650,7 +693,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/round/<int:rid>/repair', methods=['POST'])
     def repair_round(tid, rid):
-        require_admin()
+        require_permission('tournaments.manage')
         r = db.session.get(Round, rid)
         if not r or r.tournament_id != tid:
             abort(404)
@@ -671,7 +714,7 @@ def create_app():
 
     @app.route('/t/<int:tid>/round/<int:rid>/delete', methods=['POST'])
     def delete_round(tid, rid):
-        require_admin()
+        require_permission('tournaments.manage')
         r = db.session.get(Round, rid)
         if not r or r.tournament_id != tid:
             abort(404)
@@ -725,9 +768,9 @@ def create_app():
         m = db.session.get(Match, mid)
         if not m: abort(404)
         from .models import TournamentPlayer, MatchResult
-        # Only participants or admin can report
+        # Only participants or tournament managers can report
         t = m.round.tournament
-        if not current_user.is_admin and current_user.id not in (
+        if not current_user.has_permission('tournaments.manage') and current_user.id not in (
             m.player1.user_id,
             m.player2.user_id if m.player2_id else None,
             m.player3.user_id if m.player3_id else None,
@@ -875,16 +918,25 @@ def create_app():
 
     @app.route('/admin/users')
     def admin_users():
-        require_admin()
-        from .models import User, Tournament, TournamentPlayer
-        users = db.session.query(User).order_by(User.name).all()
+        require_permission('users.manage')
+        from .models import User, Tournament, TournamentPlayer, Role
+        if current_user.has_permission('users.manage_admins'):
+            users = db.session.query(User).order_by(User.name).all()
+        else:
+            users = db.session.query(User).filter(User.is_admin == False).order_by(User.name).all()
         tournaments = db.session.query(Tournament).order_by(Tournament.name).all()
-        return render_template('admin/users.html', users=users, tournaments=tournaments)
+        roles = db.session.query(Role).order_by(Role.name).all()
+        if not current_user.has_permission('users.manage_admins'):
+            roles = [r for r in roles if r.name != 'admin']
+        return render_template('admin/users.html', users=users, tournaments=tournaments, roles=roles)
 
     @app.route('/admin/users/<int:uid>/add', methods=['POST'])
     def admin_add_user_to_tournament(uid):
-        require_admin()
-        from .models import TournamentPlayer
+        require_permission('users.manage')
+        from .models import TournamentPlayer, User
+        target = db.session.get(User, uid)
+        if target.is_admin and not current_user.has_permission('users.manage_admins'):
+            abort(403)
         tid = int(request.form['tournament_id'])
         if not db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first():
             tp = TournamentPlayer(user_id=uid, tournament_id=tid)
@@ -895,8 +947,11 @@ def create_app():
 
     @app.route('/admin/users/<int:uid>/remove/<int:tid>', methods=['POST'])
     def admin_remove_user_from_tournament(uid, tid):
-        require_admin()
-        from .models import TournamentPlayer
+        require_permission('users.manage')
+        from .models import TournamentPlayer, User
+        target = db.session.get(User, uid)
+        if target.is_admin and not current_user.has_permission('users.manage_admins'):
+            abort(403)
         tp = db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first()
         if tp:
             db.session.delete(tp)
@@ -906,28 +961,38 @@ def create_app():
 
     @app.route('/admin/users/<int:uid>/update', methods=['POST'])
     def admin_update_user(uid):
-        require_admin()
-        from .models import User
+        require_permission('users.manage')
+        from .models import User, Role
         u = db.session.get(User, uid)
         if not u:
             abort(404)
+        if u.is_admin and not current_user.has_permission('users.manage_admins'):
+            abort(403)
         email = request.form.get('email', '').strip().lower() or None
         if email and db.session.query(User).filter(User.email == email, User.id != uid).first():
             flash('Email already registered.', 'error')
         else:
             u.email = email
             u.notes = request.form.get('notes', '').strip() or None
+            role_id = request.form.get('role_id')
+            if role_id:
+                role = db.session.get(Role, int(role_id))
+                if role and (role.name != 'admin' or current_user.has_permission('users.manage_admins')):
+                    u.role = role
+                    u.is_admin = (role.name == 'admin')
             db.session.commit()
             flash('User updated.', 'success')
         return redirect(url_for('admin_users'))
 
     @app.route('/admin/users/<int:uid>/delete', methods=['POST'])
     def admin_delete_user(uid):
-        require_admin()
+        require_permission('users.manage')
         from .models import User
         u = db.session.get(User, uid)
         if not u:
             abort(404)
+        if u.is_admin and not current_user.has_permission('users.manage_admins'):
+            abort(403)
         for tp in list(u.tournament_entries):
             db.session.delete(tp)
         db.session.delete(u)

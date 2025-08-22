@@ -13,12 +13,19 @@
       {% if current_user.is_authenticated %}
         <span>Hi, {{ current_user.name }}</span>
         <a href="{{ url_for('index') }}">All Tournaments</a>
-        {% if current_user.is_admin %}
+        {% if current_user.has_permission('tournaments.manage') %}
         <a href="{{ url_for('new_tournament') }}">New Tournament</a>
         <a href="{{ url_for('admin_register_player') }}">Register Player</a>
         <a href="{{ url_for('admin_bulk_register') }}">Bulk Register Players</a>
+        {% endif %}
+        {% if current_user.has_permission('users.manage') %}
         <a href="{{ url_for('admin_users') }}">Manage Users</a>
+        {% endif %}
+        {% if current_user.has_permission('admin.panel') %}
         <a href="{{ url_for('admin_panel') }}">Admin Panel</a>
+        {% endif %}
+        {% if current_user.has_permission('admin.permissions') %}
+        <a href="{{ url_for('permissions') }}">Permissions</a>
         {% endif %}
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}

@@ -3,6 +3,9 @@
 # and starts the Flask development server.
 param(
         [string]$DatabasePath,
+        [string]$AdminEmail = "admin@example.com",
+        [string]$AdminPassword = "admin123",
+        [string]$FlaskSecret = "dev-secret-change-me",
         [System.Management.Automation.PSCredential]
         [System.Management.Automation.Credential()]
         $PasswordSeed
@@ -32,6 +35,9 @@ if($null -eq $PasswordSeed){
 # Configure password seed for AES encryption
 $env:PASSWORD_SEED = $PasswordSeed.UserName
 
+# Configure Flask secret
+$env:FLASK_SECRET = $FlaskSecret
+
 # Determine database path
 if([string]::IsNullOrEmpty($DatabasePath)){
     $timestamp = Get-Date -Format "yyyyMMddHHmmss"
@@ -49,7 +55,7 @@ Write-Host "Initializing database..."
 python -m flask --app app.app db-init
 
 Write-Host "Creating default admin user..."
-python -m flask --app app.app create-admin --email admin@example.com --password admin123
+python -m flask --app app.app create-admin --email $AdminEmail --password $AdminPassword
 
 Write-Host "Starting Flask development server..."
 #python -m flask --app app.app run --debug
