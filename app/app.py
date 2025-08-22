@@ -1,16 +1,47 @@
 from flask import Flask, render_template, redirect, url_for, request, flash, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import os
 import click
 import random
+import base64
+import hashlib
+import hmac
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
+
+password_salt = None
+_password_key = None
+_iv = bytes(16)
+
+
+def init_password_cipher():
+    global password_salt, _password_key
+    password_salt = os.urandom(16)
+    _password_key = hashlib.sha256(password_salt).digest()
+
+
+def encrypt_password(pw: str) -> str:
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(pw.encode()) + padder.finalize()
+    cipher = Cipher(algorithms.AES(_password_key), modes.CBC(_iv))
+    encryptor = cipher.encryptor()
+    ct = encryptor.update(padded) + encryptor.finalize()
+    return base64.b64encode(ct).decode()
+
+
+def verify_password(pw: str, encrypted: str) -> bool:
+    expected = encrypt_password(pw)
+    return hmac.compare_digest(expected, encrypted)
+
 
 db = SQLAlchemy()
 login_manager = LoginManager()
 
+
 def create_app():
+    init_password_cipher()
     app = Flask(__name__)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mtg_tournament.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

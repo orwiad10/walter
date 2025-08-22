@@ -1,6 +1,5 @@
-from .app import db
+from .app import db, encrypt_password, verify_password
 from flask_login import UserMixin
-from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from sqlalchemy import UniqueConstraint
 import uuid
@@ -17,12 +16,12 @@ class User(db.Model, UserMixin):
     notes = db.Column(db.Text, nullable=True)
 
     def set_password(self, pw):
-        self.password_hash = generate_password_hash(pw)
+        self.password_hash = encrypt_password(pw)
 
     def check_password(self, pw):
         if not self.password_hash:
             return False
-        return check_password_hash(self.password_hash, pw)
+        return verify_password(pw, self.password_hash)
 
 class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
