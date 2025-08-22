@@ -24,7 +24,8 @@ Stop-Process -Name "flask" -Force -ErrorAction SilentlyContinue | Out-Null
 Set-Location -Path $PSScriptRoot
 
 if($null -eq $PasswordSeed){
-    $PasswordSeed.UserName = "dev-password-seed-change-me"
+
+    $PasswordSeed = New-Object System.Management.Automation.PSCredential("dev-password-seed-change-me", "")
 }
 
 # Configure password seed for AES encryption
