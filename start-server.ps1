@@ -48,6 +48,11 @@ if([string]::IsNullOrEmpty($DatabasePath)){
     $DatabasePath = "mtg_tournament_$timestamp.db"
 }
 
+#override the default
+if($DatabasePath -eq "mtg_tournament.db"){
+    $DatabasePath = "mtg_tournament_$timestamp.db"
+}
+
 $env:MTG_DB_PATH = $DatabasePath
 
 Write-Host "Installing dependencies..."
