@@ -107,24 +107,25 @@ class Tournament(db.Model):
     passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
 
 class SiteLog(db.Model):
+    __bind_key__ = 'logs'
     id = db.Column(db.Integer, primary_key=True)
     action = db.Column(db.String(200), nullable=False)
     result = db.Column(db.String(200), nullable=False)
     error = db.Column(db.Text, nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
-    user = db.relationship('User')
+    user_id = db.Column(db.Integer, nullable=True)
+    # relationship loaded manually to avoid cross-db foreign key
 
 class TournamentLog(db.Model):
+    __bind_key__ = 'logs'
     id = db.Column(db.Integer, primary_key=True)
-    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    tournament_id = db.Column(db.Integer, nullable=False)
     action = db.Column(db.String(200), nullable=False)
     result = db.Column(db.String(200), nullable=False)
     error = db.Column(db.Text, nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
-    user = db.relationship('User')
-    tournament = db.relationship('Tournament', backref=db.backref('logs', cascade='all, delete-orphan'))
+    user_id = db.Column(db.Integer, nullable=True)
+    # relationship loaded manually to avoid cross-db foreign key
 
 class TournamentPlayer(db.Model):
     id = db.Column(db.Integer, primary_key=True)

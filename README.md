@@ -13,6 +13,9 @@
    # Optional: set a seed for AES password encryption
    set PASSWORD_SEED=some-random-string     (Windows)
    export PASSWORD_SEED=some-random-string  (macOS/Linux)
+   # Optional: specify a separate SQLite database file for logs
+   set MTG_LOG_DB_PATH=mtg_logs.db          (Windows)
+   export MTG_LOG_DB_PATH=mtg_logs.db       (macOS/Linux)
 
 3) Initialize the DB (creates a default admin user `admin@example.com` / `admin123`):
    flask --app app.app db-init
