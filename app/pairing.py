@@ -1,4 +1,3 @@
-from collections import defaultdict
 import random
 from .models import Tournament, TournamentPlayer, Match, MatchResult, Round
 from .app import db
@@ -17,6 +16,29 @@ def recommended_rounds(n_players: int) -> int:
 def player_points(tp: TournamentPlayer, session) -> int:
     # Recompute points from matches
     points = 0
+    t = tp.tournament
+    if t.format.lower() == 'commander':
+        cfg = [int(x) for x in t.commander_points.split(',')]
+        for m in matches_for(tp, session):
+            if not m.completed or not m.result:
+                continue
+            r = m.result
+            if r.is_draw:
+                pts = cfg[4] if len(cfg) > 4 else 1
+                points += pts
+                continue
+            place = None
+            if m.player1_id == tp.id:
+                place = r.p1_place
+            elif m.player2_id == tp.id:
+                place = r.p2_place
+            elif m.player3_id == tp.id:
+                place = r.p3_place
+            elif m.player4_id == tp.id:
+                place = r.p4_place
+            if place and 1 <= place <= 4:
+                points += cfg[place-1]
+        return points
     for m in matches_for(tp, session):
         if not m.completed or not m.result:
             continue
@@ -36,95 +58,57 @@ def player_points(tp: TournamentPlayer, session) -> int:
 
 def matches_for(tp: TournamentPlayer, session):
     return session.query(Match).join(Round).filter(Round.tournament_id==tp.tournament_id).filter(
-        (Match.player1_id == tp.id) | (Match.player2_id == tp.id)
+        (Match.player1_id == tp.id) | (Match.player2_id == tp.id) |
+        (Match.player3_id == tp.id) | (Match.player4_id == tp.id)
     ).all()
 
 def have_played(a_id, b_id, session):
-    if a_id == b_id: return True
+    if a_id == b_id:
+        return True
     q = session.query(Match).filter(
-        ((Match.player1_id==a_id) & (Match.player2_id==b_id)) |
-        ((Match.player1_id==b_id) & (Match.player2_id==a_id))
+        ((Match.player1_id==a_id) | (Match.player2_id==a_id) | (Match.player3_id==a_id) | (Match.player4_id==a_id)) &
+        ((Match.player1_id==b_id) | (Match.player2_id==b_id) | (Match.player3_id==b_id) | (Match.player4_id==b_id))
     )
     return session.query(q.exists()).scalar()
 
 def swiss_pair_round(t: Tournament, r: Round, session):
     players = session.query(TournamentPlayer).filter_by(tournament_id=t.id, dropped=False).all()
+    group_size = 4 if t.format.lower() == 'commander' else 2
     if r.number == 1:
         random.shuffle(players)
         table = 1
         created = []
         i = 0
-        while i + 1 < len(players):
-            a = players[i]; b = players[i+1]
-            m = Match(round_id=r.id, player1_id=a.id, player2_id=b.id, table_number=table)
-            session.add(m)
-            created.append(m)
-            table += 1; i += 2
-        if i < len(players):
-            floater = players[i]
-            m = Match(round_id=r.id, player1_id=floater.id, player2_id=None, table_number=table, completed=True)
-            m.result = MatchResult(player1_wins=2, player2_wins=0, draws=0)
-            session.add(m)
-            created.append(m)
-        session.commit()
-        return created
-    # Build score groups
-    scored = [(tp, player_points(tp, session)) for tp in players]
-    scored.sort(key=lambda x: (-x[1], x[0].id))  # by points desc
-
-    groups = defaultdict(list)
-    for tp, pts in scored:
-        groups[pts].append(tp)
-
-    table = 1
-    created = []
-    for pts in sorted(groups.keys(), reverse=True):
-        group = groups[pts][:]
-        # If odd, float down lowest to next group
-        if len(group) % 2 == 1:
-            # Float lowest in group to the next lower points group or give bye if none
-            floater = group.pop()
-            lower_keys = [k for k in sorted(groups.keys()) if k < pts]
-            placed = False
-            for lk in reversed(lower_keys):
-                groups[lk].append(floater)
-                placed = True
-                break
-            if not placed:
-                # Give BYE
-                m = Match(round_id=r.id, player1_id=floater.id, player2_id=None, table_number=table, completed=True)
-                m.result = MatchResult(player1_wins=2, player2_wins=0, draws=0)
-                session.add(m)
-                created.append(m)
-                table += 1
-
-        # Now pair within group avoiding rematches if possible
-        used = set()
-        for i, a in enumerate(group):
-            if a.id in used: continue
-            # find best opponent not yet used and not previously played
-            opp = None
-            for b in group[i+1:]:
-                if b.id in used: continue
-                if not have_played(a.id, b.id, session):
-                    opp = b
-                    break
-            if opp is None:
-                # fallback: first available
-                for b in group[i+1:]:
-                    if b.id in used: 
-                        continue
-                    opp = b
-                    break
-            if opp is None:
-                # shouldn't happen due to even count after float, but guard
-                continue
-            used.add(a.id); used.add(opp.id)
-            m = Match(round_id=r.id, player1_id=a.id, player2_id=opp.id, table_number=table)
+        while i < len(players):
+            pod = players[i:i+group_size]
+            m = Match(round_id=r.id, table_number=table,
+                      player1_id=pod[0].id,
+                      player2_id=pod[1].id if len(pod) > 1 else None,
+                      player3_id=pod[2].id if len(pod) > 2 else None,
+                      player4_id=pod[3].id if len(pod) > 3 else None)
             session.add(m)
             created.append(m)
             table += 1
-
+            i += group_size
+        session.commit()
+        return created
+    # Build score ordering
+    scored = [(tp, player_points(tp, session)) for tp in players]
+    scored.sort(key=lambda x: (-x[1], x[0].id))  # by points desc
+    table = 1
+    created = []
+    i = 0
+    while i < len(scored):
+        pod = [tp for tp,_ in scored[i:i+group_size]]
+        m = Match(round_id=r.id, table_number=table,
+                  player1_id=pod[0].id,
+                  player2_id=pod[1].id if len(pod) > 1 else None,
+                  player3_id=pod[2].id if len(pod) > 2 else None,
+                  player4_id=pod[3].id if len(pod) > 3 else None)
+        session.add(m)
+        created.append(m)
+        table += 1
+        i += group_size
     session.commit()
     return created
 
@@ -134,6 +118,8 @@ def swiss_pair_round(t: Tournament, r: Round, session):
 # OGW%: average of opponents' game-win %, floored at 33%
 
 def compute_standings(t: Tournament, session):
+    if t.format.lower() == 'commander':
+        return _compute_commander_standings(t, session)
     tps = session.query(TournamentPlayer).filter_by(tournament_id=t.id).all()
 
     # Build opponent lists and match/game counts
@@ -239,4 +225,41 @@ def compute_standings(t: Tournament, session):
         })
     # Sort: points desc, OMW desc, GW desc, OGW desc, name
     rows.sort(key=lambda r: (-r['points'], -r['omw'], -r['gw'], -r['ogw'], r['player'].lower()))
+    return rows
+
+
+def _compute_commander_standings(t: Tournament, session):
+    tps = session.query(TournamentPlayer).filter_by(tournament_id=t.id).all()
+    cfg = [int(x) for x in t.commander_points.split(',')]
+    match_points = {tp.id: 0 for tp in tps}
+    matches = session.query(Match).join(Round).filter(Round.tournament_id==t.id).all()
+    for m in matches:
+        if not m.completed or not m.result:
+            continue
+        r = m.result
+        if r.is_draw:
+            pts = cfg[4] if len(cfg) > 4 else 1
+            for pid in [m.player1_id, m.player2_id, m.player3_id, m.player4_id]:
+                if pid:
+                    match_points[pid] += pts
+            continue
+        placements = [
+            (m.player1_id, r.p1_place),
+            (m.player2_id, r.p2_place),
+            (m.player3_id, r.p3_place),
+            (m.player4_id, r.p4_place),
+        ]
+        for pid, place in placements:
+            if pid and place and 1 <= place <= 4:
+                match_points[pid] += cfg[place-1]
+    rows = [{
+        'tp': tp,
+        'player': tp.user.name,
+        'points': match_points[tp.id],
+        'mw': 0,
+        'gw': 0,
+        'omw': 0,
+        'ogw': 0,
+    } for tp in tps]
+    rows.sort(key=lambda r: (-r['points'], r['player'].lower()))
     return rows

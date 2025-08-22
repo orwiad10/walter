@@ -112,7 +112,9 @@ def create_app():
             fmt = request.form['format']
             structure = request.form.get('structure', 'swiss')
             cut = request.form.get('cut', 'none') if structure == 'swiss' else 'none'
-            t = Tournament(name=name, format=fmt, cut=cut, structure=structure)
+            commander_points = request.form.get('commander_points', '3,2,1,0,1')
+            t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
+                           commander_points=commander_points)
             db.session.add(t)
             db.session.commit()
             flash("Tournament created.", "success")
@@ -383,35 +385,52 @@ def create_app():
         if not m: abort(404)
         from .models import TournamentPlayer, MatchResult
         # Only participants or admin can report
-        if not current_user.is_admin and current_user.id not in (m.player1.user_id, m.player2.user_id):
+        t = m.round.tournament
+        if not current_user.is_admin and current_user.id not in (
+            m.player1.user_id,
+            m.player2.user_id if m.player2_id else None,
+            m.player3.user_id if m.player3_id else None,
+            m.player4.user_id if m.player4_id else None,
+        ):
             abort(403)
         if request.method == 'POST':
-            p1_wins = int(request.form['p1_wins'])
-            p2_wins = int(request.form['p2_wins'])
-            draws   = int(request.form.get('draws', 0))
-            m.result = MatchResult(player1_wins=p1_wins, player2_wins=p2_wins, draws=draws)
-            m.completed = True
-            if request.form.get('drop_p1'):
-                m.player1.dropped = True
-            if m.player2_id and request.form.get('drop_p2'):
-                m.player2.dropped = True
-            # Auto-drop losers in elimination rounds
-            t = m.round.tournament
-            active = db.session.query(TournamentPlayer).filter_by(
-                tournament_id=t.id, dropped=False
-            ).count()
-            round_limit = t.rounds_override or recommended_rounds(active)
-            if t.structure == 'single_elim':
-                round_limit = 0
-            if m.round.number > round_limit and m.player2_id:
-                if p1_wins > p2_wins:
-                    m.player2.dropped = True
-                elif p2_wins > p1_wins:
+            if t.format.lower() == 'commander':
+                if request.form.get('is_draw'):
+                    m.result = MatchResult(is_draw=True)
+                else:
+                    p1_place = int(request.form.get('p1_place', 0) or 0)
+                    p2_place = int(request.form.get('p2_place', 0) or 0)
+                    p3_place = int(request.form.get('p3_place', 0) or 0)
+                    p4_place = int(request.form.get('p4_place', 0) or 0)
+                    m.result = MatchResult(p1_place=p1_place, p2_place=p2_place,
+                                           p3_place=p3_place, p4_place=p4_place)
+                m.completed = True
+            else:
+                p1_wins = int(request.form['p1_wins'])
+                p2_wins = int(request.form['p2_wins'])
+                draws   = int(request.form.get('draws', 0))
+                m.result = MatchResult(player1_wins=p1_wins, player2_wins=p2_wins, draws=draws)
+                m.completed = True
+                if request.form.get('drop_p1'):
                     m.player1.dropped = True
+                if m.player2_id and request.form.get('drop_p2'):
+                    m.player2.dropped = True
+                # Auto-drop losers in elimination rounds
+                active = db.session.query(TournamentPlayer).filter_by(
+                    tournament_id=t.id, dropped=False
+                ).count()
+                round_limit = t.rounds_override or recommended_rounds(active)
+                if t.structure == 'single_elim':
+                    round_limit = 0
+                if m.round.number > round_limit and m.player2_id:
+                    if p1_wins > p2_wins:
+                        m.player2.dropped = True
+                    elif p2_wins > p1_wins:
+                        m.player1.dropped = True
             db.session.commit()
             flash("Result submitted.", "success")
             return redirect(url_for('view_round', tid=m.round.tournament_id, rid=m.round_id))
-        return render_template('match/report.html', m=m)
+        return render_template('match/report.html', m=m, t=t)
 
     @app.route('/t/<int:tid>/standings')
     def standings(tid):
