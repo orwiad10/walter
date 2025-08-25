@@ -9,6 +9,7 @@
 <body>
   <header>
     <h1><a href="{{ url_for('index') }}">WaLTER</a></h1>
+    <button class="menu-toggle" aria-label="Toggle navigation">Menu</button>
     <nav>
       {% if current_user.is_authenticated %}
         <span>Hi, {{ current_user.name }}</span>
@@ -80,6 +81,13 @@
     }
     update();
   });
+  const menuToggle = document.querySelector('.menu-toggle');
+  const nav = document.querySelector('header nav');
+  if(menuToggle && nav){
+    menuToggle.addEventListener('click', function(){
+      nav.classList.toggle('open');
+    });
+  }
   </script>
 </body>
 </html>
