@@ -44,14 +44,27 @@ print(json.dumps(data))
     exit 1
 }
 
+$DefaultDb = "mtg_tournament.db"
+$DefaultLogDb = "mtg_tournament_logs.db"
+
 $DatabasePath = $cfg.db_file
-$FlaskSecret = $cfg.secret
-$PasswordSeed = New-Object System.Management.Automation.PSCredential("dev-password-seed-change-me", (ConvertTo-SecureString "dev-password-seed-change-me" -AsPlainText -Force))
+$LogDatabasePath = $cfg.log_db_file
+$FlaskSecret = $cfg.flask_secret
+$PasswordSeed = $cfg.password_seed
+$FlaskIP = $cfg.flask_ip
+$FlaskPort = $cfg.flask_port
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
+
+if([string]::IsNullOrEmpty($DatabasePath)){ $DatabasePath = $DefaultDb }
+if([string]::IsNullOrEmpty($LogDatabasePath)){ $LogDatabasePath = $DefaultLogDb }
+if([string]::IsNullOrEmpty($FlaskSecret)){ $FlaskSecret = "dev-secret-change-me" }
+if([string]::IsNullOrEmpty($PasswordSeed)){ $PasswordSeed = "dev-password-seed-change-me" }
+if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "127.0.0.1" }
+if([string]::IsNullOrEmpty($FlaskPort)){ $FlaskPort = 5000 }
 
 #check if Flask is already running and stop it if necessary
 $flaskpid = try{
-    Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess
+    Get-NetTCPConnection -LocalPort $FlaskPort -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess
 }catch{
     $null
 }
@@ -66,24 +79,28 @@ Stop-Process -Name "flask" -Force -ErrorAction SilentlyContinue | Out-Null
 Set-Location -Path $PSScriptRoot
 
 # Configure password seed for AES encryption
-$env:PASSWORD_SEED = $PasswordSeed.UserName
+$env:PASSWORD_SEED = $PasswordSeed
 
 # Configure Flask secret
 $env:FLASK_SECRET = $FlaskSecret
 
+$env:FLASK_RUN_HOST = $FlaskIP
+$env:FLASK_RUN_PORT = $FlaskPort
+
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 
-# Determine database path
-if([string]::IsNullOrEmpty($DatabasePath)){
+if($DatabasePath -eq $DefaultDb){
     $DatabasePath = "mtg_tournament_$timestamp.db"
-}
-
-#override the default
-if($DatabasePath -eq "mtg_tournament.db"){
-    $DatabasePath = "mtg_tournament_$timestamp.db"
+    $LogDatabasePath = "mtg_tournament_logs_$timestamp.db"
+} elseif($LogDatabasePath -eq $DefaultLogDb) {
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($DatabasePath)
+    $dir = [System.IO.Path]::GetDirectoryName($DatabasePath)
+    if([string]::IsNullOrEmpty($dir)){ $dir = "." }
+    $LogDatabasePath = Join-Path $dir "$base`_logs.db"
 }
 
 $env:MTG_DB_PATH = $DatabasePath
+$env:MTG_LOG_DB_PATH = $LogDatabasePath
 
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
@@ -100,7 +117,7 @@ python -m flask --app app.app create-admin --email $newadmin.UserName --password
 Write-Host "Starting Flask development server..."
 #python -m flask --app app.app run --debug
 
-Start-Process -NoNewWindow -FilePath "flask" -ArgumentList "--app app.app run --debug --host=10.147.17.136 --port=5000"
+Start-Process -NoNewWindow -FilePath "flask" -ArgumentList "--app app.app run --debug --host=$FlaskIP --port=$FlaskPort"
 
 #open the browser to the Flask app
-Start-Process "http://10.147.17.136:5000/"
+Start-Process "http://$FlaskIP:$FlaskPort/"

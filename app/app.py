@@ -25,7 +25,7 @@ PASSWORD_SEED = None
 def create_app():
     app = Flask(__name__)
     db_file = os.environ.get('MTG_DB_PATH', 'mtg_tournament.db')
-    log_db_file = os.environ.get('MTG_LOG_DB_PATH', 'mtg_logs.db')
+    log_db_file = os.environ.get('MTG_LOG_DB_PATH', db_file.replace('.db', '_logs.db'))
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_file}'
     app.config['SQLALCHEMY_BINDS'] = {'logs': f'sqlite:///{log_db_file}'}
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
