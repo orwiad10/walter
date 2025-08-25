@@ -100,7 +100,7 @@ python -m flask --app app.app create-admin --email $newadmin.UserName --password
 Write-Host "Starting Flask development server..."
 #python -m flask --app app.app run --debug
 
-Start-Process -NoNewWindow -FilePath "flask" -ArgumentList "--app app.app run --debug"
+Start-Process -NoNewWindow -FilePath "flask" -ArgumentList "--app app.app run --debug --host=10.147.17.136 --port=5000"
 
 #open the browser to the Flask app
-Start-Process "http://127.0.0.1:5000/"
+Start-Process "http://10.147.17.136:5000/"
