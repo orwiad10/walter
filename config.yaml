@@ -1,4 +1,8 @@
 db_file: mtg_tournament.db
+log_db_file: mtg_tournament_logs.db
 admin_email: admin@example.com
 admin_pass: admin123
-secret: dev-secret-change-me
+flask_secret: dev-secret-change-me
+password_seed: dev-password-seed-change-me
+flask_ip: 127.0.0.1
+flask_port: 5000
