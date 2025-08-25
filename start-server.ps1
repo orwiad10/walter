@@ -119,5 +119,7 @@ Write-Host "Starting Flask development server..."
 
 Start-Process -NoNewWindow -FilePath "flask" -ArgumentList "--app app.app run --debug --host=$FlaskIP --port=$FlaskPort"
 
+Start-Sleep -Seconds 3
+
 #open the browser to the Flask app
-Start-Process "http://$FlaskIP:$FlaskPort/"
+Start-Process "http://$($FlaskIP):$($FlaskPort)/"
