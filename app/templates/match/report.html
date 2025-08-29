@@ -16,7 +16,7 @@
     <tbody>
       <tr>
         <td>{{ m.player1.user.name }} place</td>
-        <td><input type="number" name="p1_place" min="1" max="4" value="{{ m.result.p1_place if m.result else '' }}"></td>
+        <td><input type="number" name="p1_place" min="1" max="4" value="{{ m.result.p1_place if m.result else (1 if not m.player2_id else '') }}"></td>
         <td><label><input type="checkbox" name="drop_p1"> Drop</label></td>
       </tr>
       {% if m.player2_id %}
@@ -79,7 +79,14 @@
     </table>
   </form>
   {% else %}
-  <p>BYE — no reporting needed.</p>
+  <form method="post">
+    <p>BYE for {{ m.player1.user.name }}</p>
+    <input type="hidden" name="p1_wins" value="{{ m.result.player1_wins if m.result else 2 }}">
+    <input type="hidden" name="p2_wins" value="{{ m.result.player2_wins if m.result else 0 }}">
+    <input type="hidden" name="draws" value="{{ m.result.draws if m.result else 0 }}">
+    <p><label><input type="checkbox" name="drop_p1"> Drop {{ m.player1.user.name }}</label></p>
+    <button class="btn" type="submit">Submit Result</button>
+  </form>
   {% endif %}
 {% endif %}
 {% endblock %}
