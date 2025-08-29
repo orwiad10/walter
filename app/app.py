@@ -901,8 +901,8 @@ def create_app():
                     m.player4.dropped = True
                     dropped_ids.append(m.player4.user_id)
             else:
-                p1_wins = int(request.form['p1_wins'])
-                p2_wins = int(request.form['p2_wins'])
+                p1_wins = int(request.form.get('p1_wins', 2 if m.player2_id is None else 0))
+                p2_wins = int(request.form.get('p2_wins', 0))
                 draws   = int(request.form.get('draws', 0))
                 m.result = MatchResult(player1_wins=p1_wins, player2_wins=p2_wins, draws=draws)
                 m.completed = True
