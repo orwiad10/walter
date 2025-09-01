@@ -1,7 +1,6 @@
 # PowerShell script to stop the MTG Tournament Swiss App.
 # Terminates the Flask server process and any python process holding
-# an open handle to the SQLite database.
-# Requires the Sysinternals 'handle' utility to check open file handles.
+# an open handle to the SQLite database using native PowerShell.
 
 # Load settings from YAML config
 $configPath = Join-Path $PSScriptRoot 'config.yaml'
@@ -40,19 +39,31 @@ if($flaskConn){
     }
 }
 
-# Kill any python process with handle on the database file
+# Determine if a file is locked by attempting to open it with exclusive access
+function Test-FileLock {
+    param([string]$Path)
+    try {
+        $fs = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $fs.Close()
+        return $false
+    } catch [System.IO.IOException] {
+        return $true
+    }
+}
+
+# Kill any python process with a handle on the database file
 $pyProcs = Get-Process python -ErrorAction SilentlyContinue
 foreach($p in $pyProcs){
-    $handles = & handle.exe -p $p.Id $dbPath 2>$null
-    if($handles){
+    if(Test-FileLock $dbPath){
         Write-Host "Terminating Python process $($p.Id) using $dbPath"
         $p | Stop-Process -Force
+    } else {
+        break
     }
 }
 
 Start-Sleep -Seconds 1
-$remaining = & handle.exe $dbPath 2>$null
-if($remaining){
+if(Test-FileLock $dbPath){
     Write-Warning "Database $dbPath is still in use."
 } else {
     Write-Host "Database $dbPath is quiesced."
