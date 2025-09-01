@@ -92,14 +92,21 @@ def swiss_pair_round(t: Tournament, r: Round, session):
             i += group_size
         session.commit()
         return created
-    # Build score ordering
-    scored = [(tp, player_points(tp, session)) for tp in players]
-    scored.sort(key=lambda x: (-x[1], x[0].id))  # by points desc
+    # Build ordering using match points and standard tie breakers
+    standings = compute_standings(t, session)
+    rank = {row['tp'].id: (
+        row['points'], row['omw'], row['gw'], row['ogw'], row['player'].lower()
+    ) for row in standings}
+    players.sort(
+        key=lambda tp: (
+            -rank[tp.id][0], -rank[tp.id][1], -rank[tp.id][2], -rank[tp.id][3], rank[tp.id][4]
+        )
+    )
     table = 1
     created = []
     i = 0
-    while i < len(scored):
-        pod = [tp for tp,_ in scored[i:i+group_size]]
+    while i < len(players):
+        pod = players[i:i+group_size]
         m = Match(round_id=r.id, table_number=table,
                   player1_id=pod[0].id,
                   player2_id=pod[1].id if len(pod) > 1 else None,
