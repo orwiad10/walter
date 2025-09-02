@@ -2,6 +2,15 @@
 {% block content %}
 <h2>{{ t.name }}</h2>
 <p>Format: {{ t.format }} | Cut: {{ t.cut|upper }}</p>
+<p>Head Judge: {{ t.head_judge.name if t.head_judge else 'None' }}</p>
+<p>Floor Judges:
+  {% if floor_judges %}
+    {% for u in floor_judges %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+  {% else %}None{% endif %}
+</p>
+{% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
+<p><a class="btn" href="{{ url_for('assign_judges', tid=t.id) }}">Assign Judges</a></p>
+{% endif %}
 {% if show_passcode %}
 <p>Tournament Passcode: {{ t.passcode }}</p>
 {% endif %}

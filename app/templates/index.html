@@ -12,7 +12,7 @@
       {% set end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end %}
       {% if t.round_timer_end %}{% set ttype = 'round' %}{% elif t.draft_timer_end %}{% set ttype = 'draft' %}{% elif t.deck_timer_end %}{% set ttype = 'deck' %}{% endif %}
       {% if end %}
-      <div>Timer: <span class="timer" data-timer-end="{{ end.isoformat() }}Z" data-tournament-id="{{ t.id }}" data-tournament-name="{{ t.name }}"{% if ttype %} data-timer-type="{{ ttype }}"{% endif %}></span></div>
+      <div>Timer: <span class="timer" data-timer-end="{{ end.isoformat() }}Z" data-server-now="{{ server_now.isoformat() }}Z" data-tournament-id="{{ t.id }}" data-tournament-name="{{ t.name }}"{% if ttype %} data-timer-type="{{ ttype }}"{% endif %}></span></div>
       {% endif %}
       {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
         <a class="btn" href="{{ url_for('edit_tournament', tid=t.id) }}">Edit</a>

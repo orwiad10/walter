@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Assign Judges for {{ t.name }}</h2>
+<form method="post">
+  <div>
+    <label>Head Judge:
+      <select name="head_judge">
+        <option value="">-- None --</option>
+        {% for u in users %}
+        <option value="{{ u.id }}"{% if t.head_judge_id==u.id %} selected{% endif %}>{{ u.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <h3>Floor Judges</h3>
+  {% for u in users %}
+    <label><input type="checkbox" name="floor_judges" value="{{ u.id }}"{% if u.id in floor_set %} checked{% endif %}> {{ u.name }}</label><br>
+  {% endfor %}
+  <button class="btn" type="submit">Save</button>
+</form>
+{% endblock %}
