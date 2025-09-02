@@ -39,6 +39,14 @@ DEFAULT_ROLE_PERMISSIONS = {
         'tournaments.manage': True,
         'users.manage': True,
     },
+    'venue judge': {
+        'tournaments.manage': True,
+    },
+    'event head judge': {
+        'tournaments.manage': True,
+    },
+    'floor judge': {
+    },
     'user': {
         'tournaments.join': True,
     },
@@ -98,6 +106,11 @@ class Tournament(db.Model):
     round_length = db.Column(db.Integer, default=50)
     draft_time = db.Column(db.Integer, nullable=True)
     deck_build_time = db.Column(db.Integer, nullable=True)
+    # Optional scheduled start time for tournament
+    start_time = db.Column(db.DateTime, nullable=True)
+    # Judge assignments
+    head_judge_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    floor_judges = db.Column(db.Text, default='[]')  # store list of user ids as JSON
     round_timer_end = db.Column(db.DateTime, nullable=True)
     draft_timer_end = db.Column(db.DateTime, nullable=True)
     deck_timer_end = db.Column(db.DateTime, nullable=True)
@@ -105,6 +118,15 @@ class Tournament(db.Model):
     draft_timer_remaining = db.Column(db.Integer, nullable=True)
     deck_timer_remaining = db.Column(db.Integer, nullable=True)
     passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
+
+    head_judge = db.relationship('User', foreign_keys=[head_judge_id])
+
+    def floor_judge_ids(self):
+        """Return list of user IDs assigned as floor judges."""
+        try:
+            return json.loads(self.floor_judges or '[]')
+        except Exception:
+            return []
 
 class SiteLog(db.Model):
     __bind_key__ = 'logs'

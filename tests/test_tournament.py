@@ -1,6 +1,7 @@
 from app.app import db
 from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult
 from app.pairing import swiss_pair_round, compute_standings
+from datetime import datetime
 
 
 def test_tournament_create_pairing_standings(session):
@@ -43,3 +44,12 @@ def test_tournament_create_pairing_standings(session):
     session.delete(t)
     session.commit()
     assert session.query(Tournament).count() == 0
+
+
+def test_tournament_start_time(session):
+    start = datetime(2024, 1, 1, 10, 0)
+    t = Tournament(name='Start Event', format='Constructed', start_time=start)
+    session.add(t)
+    session.commit()
+    fetched = session.get(Tournament, t.id)
+    assert fetched.start_time == start

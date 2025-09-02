@@ -23,3 +23,10 @@ def test_user_crud(session):
     session.delete(fetched)
     session.commit()
     assert session.query(User).count() == 0
+
+
+def test_judge_roles_exist(session):
+    roles = {r.name for r in session.query(Role).all()}
+    assert 'venue judge' in roles
+    assert 'event head judge' in roles
+    assert 'floor judge' in roles

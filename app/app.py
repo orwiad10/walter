@@ -110,7 +110,8 @@ def create_app():
     def index():
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         player_counts = {t.id: len(t.players) for t in tournaments}
-        return render_template('index.html', tournaments=tournaments, player_counts=player_counts)
+        return render_template('index.html', tournaments=tournaments, player_counts=player_counts,
+                               server_now=datetime.utcnow())
 
     @app.route('/register', methods=['GET','POST'])
     def register():
@@ -187,6 +188,16 @@ def create_app():
         db.session.add(log)
         db.session.commit()
 
+    def estimate_end_time(t):
+        """Estimate tournament end time based on start time and timers."""
+        if not t.start_time:
+            return None
+        rounds = t.rounds_override or recommended_rounds(len(t.players))
+        total = (t.draft_time or 0) + (t.deck_build_time or 0) + rounds * (t.round_length or 50)
+        if t.cut != 'none':
+            total += (t.round_length or 50)
+        return t.start_time + timedelta(minutes=total)
+
     @app.route('/admin/tournaments/new', methods=['GET','POST'])
     def new_tournament():
         require_permission('tournaments.manage')
@@ -202,13 +213,27 @@ def create_app():
             round_length = int(request.form.get('round_length', 50))
             draft_time = request.form.get('draft_time')
             deck_build_time = request.form.get('deck_build_time')
+            start_time_str = request.form.get('start_time')
+            start_time = datetime.fromisoformat(start_time_str) if start_time_str else None
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            commander_points=commander_points,
                            round_length=round_length,
                            draft_time=int(draft_time) if draft_time else None,
-                           deck_build_time=int(deck_build_time) if deck_build_time else None)
+                           deck_build_time=int(deck_build_time) if deck_build_time else None,
+                           start_time=start_time)
             try:
                 db.session.add(t)
+                # warn on overlapping schedule
+                if start_time:
+                    new_end = estimate_end_time(t)
+                    others = db.session.query(Tournament).filter(Tournament.start_time.isnot(None)).all()
+                    for other in others:
+                        if other.id == t.id:
+                            continue
+                        other_end = estimate_end_time(other)
+                        if other.start_time and other_end and not (new_end <= other.start_time or start_time >= other_end):
+                            flash('Warning: overlaps with existing tournament "' + other.name + '"', 'warning')
+                            break
                 db.session.commit()
                 log_site('tournament_create', 'success')
                 log_tournament(t.id, 'create', 'success')
@@ -233,6 +258,8 @@ def create_app():
             t.round_length = int(request.form.get('round_length', 50))
             draft_time = request.form.get('draft_time')
             deck_build_time = request.form.get('deck_build_time')
+            start_time_str = request.form.get('start_time')
+            t.start_time = datetime.fromisoformat(start_time_str) if start_time_str else None
             t.draft_time = int(draft_time) if draft_time else None
             t.deck_build_time = int(deck_build_time) if deck_build_time else None
             db.session.commit()
@@ -241,6 +268,45 @@ def create_app():
             log_tournament(tid, 'edit', 'success')
             return redirect(url_for('view_tournament', tid=tid))
         return render_template('admin/edit_tournament.html', t=t)
+
+    @app.route('/admin/tournaments/<int:tid>/judges', methods=['GET','POST'])
+    def assign_judges(tid):
+        require_permission('tournaments.manage')
+        t = db.session.get(Tournament, tid)
+        users = db.session.query(User).order_by(User.name).all()
+        if request.method == 'POST':
+            head_id = request.form.get('head_judge')
+            floor_ids = request.form.getlist('floor_judges')
+            t.head_judge_id = int(head_id) if head_id else None
+            t.floor_judges = json.dumps([int(fid) for fid in floor_ids])
+            db.session.commit()
+            flash('Judges updated.', 'success')
+            log_tournament(tid, 'assign_judges', 'success')
+            return redirect(url_for('view_tournament', tid=tid))
+        floor_set = set(t.floor_judge_ids())
+        return render_template('admin/judges.html', t=t, users=users, floor_set=floor_set)
+
+    @app.route('/admin/staff')
+    def staff_management():
+        require_permission('tournaments.manage')
+        tournaments = db.session.query(Tournament).order_by(Tournament.start_time).all()
+        data = []
+        for t in tournaments:
+            floor = []
+            ids = t.floor_judge_ids()
+            if ids:
+                floor = db.session.query(User).filter(User.id.in_(ids)).all()
+            data.append({'t': t, 'head': t.head_judge, 'floor': floor})
+        return render_template('admin/staff.html', data=data)
+
+    @app.route('/admin/schedule')
+    def schedule():
+        require_permission('tournaments.manage')
+        tournaments = db.session.query(Tournament).order_by(Tournament.start_time).all()
+        entries = []
+        for t in tournaments:
+            entries.append({'t': t, 'start': t.start_time, 'end': estimate_end_time(t)})
+        return render_template('admin/schedule.html', entries=entries)
 
     @app.route('/admin/register-player', methods=['GET', 'POST'])
     def admin_register_player():
@@ -388,6 +454,10 @@ def create_app():
         rounds = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number).all()
         standings = compute_standings(t, db.session)
         rec_rounds = recommended_rounds(len(players))
+        floor_judges = []
+        ids = t.floor_judge_ids()
+        if ids:
+            floor_judges = db.session.query(User).filter(User.id.in_(ids)).all()
         is_player = False
         show_passcode = False
         if current_user.is_authenticated:
@@ -418,7 +488,9 @@ def create_app():
                                standings=standings, rec_rounds=rec_rounds,
                                timer_end=timer_end, timer_type=timer_type,
                                timer_remaining=timer_remaining,
-                               is_player=is_player, show_passcode=show_passcode)
+                               is_player=is_player, show_passcode=show_passcode,
+                               floor_judges=floor_judges,
+                               server_now=datetime.utcnow())
 
     @app.route('/t/<int:tid>/join', methods=['POST'])
     @login_required
@@ -591,7 +663,7 @@ def create_app():
             timer_remaining = t.deck_timer_remaining
         return render_template('tournament/draft_seating.html', t=t, tables=tables,
                                timer_end=timer_end, timer_type=timer_type,
-                               timer_remaining=timer_remaining)
+                               timer_remaining=timer_remaining, server_now=datetime.utcnow())
 
     @app.route('/t/<int:tid>/set-rounds', methods=['POST'])
     def set_rounds(tid):
@@ -846,7 +918,7 @@ def create_app():
             timer_remaining = t.deck_timer_remaining
         return render_template('tournament/round.html', t=t, r=r, has_results=has_results,
                                locked=locked, timer_end=timer_end, timer_type=timer_type,
-                               timer_remaining=timer_remaining)
+                               timer_remaining=timer_remaining, server_now=datetime.utcnow())
 
     @app.route('/match/<int:mid>', methods=['GET','POST'])
     @login_required
@@ -962,7 +1034,7 @@ def create_app():
             timer_remaining = t.deck_timer_remaining
         return render_template('tournament/standings.html', t=t, standings=standings,
                                timer_end=timer_end, timer_type=timer_type,
-                               timer_remaining=timer_remaining)
+                               timer_remaining=timer_remaining, server_now=datetime.utcnow())
 
     @app.route('/t/<int:tid>/bracket')
     def bracket(tid):
@@ -1016,7 +1088,8 @@ def create_app():
             timer_remaining = t.deck_timer_remaining
         return render_template('tournament/bracket.html', t=t, rounds=elim_rounds, points=points,
                                champion=champion, timer_end=timer_end,
-                               timer_type=timer_type, timer_remaining=timer_remaining)
+                               timer_type=timer_type, timer_remaining=timer_remaining,
+                               server_now=datetime.utcnow())
 
     @app.route('/admin/users')
     def admin_users():

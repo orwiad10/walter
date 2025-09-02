@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Tournament Schedule</h2>
+<table class="table center-table">
+  <thead><tr><th>Name</th><th>Start</th><th>End (estimated)</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+    <tr>
+      <td>{{ e.t.name }}</td>
+      <td>{{ e.start if e.start else 'N/A' }}</td>
+      <td>{{ e.end if e.end else 'N/A' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

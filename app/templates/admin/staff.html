@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Staff Management</h2>
+{% for item in data %}
+  <h3>{{ item.t.name }}</h3>
+  <p>Head Judge: {{ item.head.name if item.head else 'None' }}</p>
+  <p>Floor Judges:
+    {% if item.floor %}
+      {% for u in item.floor %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+    {% else %}None{% endif %}
+  </p>
+{% endfor %}
+{% endblock %}
