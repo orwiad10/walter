@@ -14,6 +14,7 @@ import click
 import hashlib
 import psutil
 import json
+from sqlalchemy import inspect, text
 
 
 db = SQLAlchemy()
@@ -45,6 +46,20 @@ def create_app():
     db.init_app(app)
     login_manager.init_app(app)
     login_manager.login_view = 'login'
+
+    # Automatically upgrade existing databases missing newer columns.
+    # Older installations may not have the ``start_time`` column on the
+    # ``tournament`` table which leads to ``OperationalError`` when the model
+    # is loaded.  We inspect the current schema and add the column if it's
+    # absent to keep backwards compatibility without requiring manual
+    # migrations.
+    with app.app_context():
+        inspector = inspect(db.engine)
+        if 'tournament' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('tournament')]
+            if 'start_time' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN start_time DATETIME'))
+                db.session.commit()
 
     from .models import (
         User,
