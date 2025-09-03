@@ -30,3 +30,10 @@ def test_judge_roles_exist(session):
     assert 'venue judge' in roles
     assert 'event head judge' in roles
     assert 'floor judge' in roles
+
+
+def test_judge_roles_have_user_manage(session):
+    roles = {r.name: r for r in session.query(Role).all()}
+    for name in ('venue judge', 'event head judge', 'floor judge'):
+        perms = json.loads(roles[name].permissions)
+        assert perms.get('users.manage')
