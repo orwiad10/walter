@@ -60,6 +60,11 @@ def create_app():
             if 'start_time' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN start_time DATETIME'))
                 db.session.commit()
+        if 'user' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('user')]
+            if 'break_end' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN break_end DATETIME'))
+                db.session.commit()
 
     from .models import (
         User,
@@ -288,7 +293,20 @@ def create_app():
     def assign_judges(tid):
         require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
-        users = db.session.query(User).order_by(User.name).all()
+        head_judges = (
+            db.session.query(User)
+            .join(Role)
+            .filter(Role.name == 'event head judge')
+            .order_by(User.name)
+            .all()
+        )
+        floor_judges = (
+            db.session.query(User)
+            .join(Role)
+            .filter(Role.name == 'floor judge')
+            .order_by(User.name)
+            .all()
+        )
         if request.method == 'POST':
             head_id = request.form.get('head_judge')
             floor_ids = request.form.getlist('floor_judges')
@@ -299,7 +317,13 @@ def create_app():
             log_tournament(tid, 'assign_judges', 'success')
             return redirect(url_for('view_tournament', tid=tid))
         floor_set = set(t.floor_judge_ids())
-        return render_template('admin/judges.html', t=t, users=users, floor_set=floor_set)
+        return render_template(
+            'admin/judges.html',
+            t=t,
+            head_judges=head_judges,
+            floor_judges=floor_judges,
+            floor_set=floor_set,
+        )
 
     @app.route('/admin/staff')
     def staff_management():
@@ -311,8 +335,38 @@ def create_app():
             ids = t.floor_judge_ids()
             if ids:
                 floor = db.session.query(User).filter(User.id.in_(ids)).all()
-            data.append({'t': t, 'head': t.head_judge, 'floor': floor})
-        return render_template('admin/staff.html', data=data)
+            data.append(
+                {
+                    't': t,
+                    'head': t.head_judge,
+                    'floor': floor,
+                    'start': t.start_time,
+                    'end': estimate_end_time(t),
+                }
+            )
+        return render_template(
+            'admin/staff.html',
+            data=data,
+            server_now=datetime.utcnow(),
+        )
+
+    @app.route('/admin/judges/<int:uid>/break', methods=['POST'])
+    def judge_break(uid):
+        require_permission('tournaments.manage')
+        u = db.session.get(User, uid)
+        minutes = request.form.get('minutes')
+        if minutes:
+            try:
+                mins = int(minutes)
+                u.break_end = datetime.utcnow() + timedelta(minutes=mins)
+                flash(f'{u.name} on break for {mins} minutes.', 'success')
+            except Exception:
+                flash('Invalid break duration.', 'error')
+        else:
+            u.break_end = None
+            flash(f'{u.name} break cleared.', 'success')
+        db.session.commit()
+        return redirect(url_for('staff_management'))
 
     @app.route('/admin/schedule')
     def schedule():

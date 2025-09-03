@@ -2,12 +2,30 @@
 {% block content %}
 <h2>Staff Management</h2>
 {% for item in data %}
-  <h3>{{ item.t.name }}</h3>
+  <h3>{{ item.t.name }}{% if item.start %} ({{ item.start.strftime('%H:%M') }} - {% if item.end %}{{ item.end.strftime('%H:%M') }}{% else %}?{% endif %}){% endif %}</h3>
   <p>Head Judge: {{ item.head.name if item.head else 'None' }}</p>
-  <p>Floor Judges:
-    {% if item.floor %}
-      {% for u in item.floor %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}
-    {% else %}None{% endif %}
-  </p>
+  <p>Floor Judges:</p>
+  <ul>
+  {% if item.floor %}
+    {% for u in item.floor %}
+    <li>
+      {{ u.name }}
+      {% if u.break_end and u.break_end > server_now %}
+        - On break (<span class="timer" data-timer-end="{{ u.break_end.isoformat() }}Z" data-server-now="{{ server_now.isoformat() }}Z" data-tournament-id="{{ u.id }}" data-tournament-name="{{ u.name }}" data-timer-type="break"></span>)
+        <form method="post" action="{{ url_for('judge_break', uid=u.id) }}" style="display:inline;">
+          <button class="btn" type="submit">Clear</button>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('judge_break', uid=u.id) }}" style="display:inline;">
+          <input type="number" name="minutes" value="15" min="1" style="width:4em;">
+          <button class="btn" type="submit">Break</button>
+        </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  {% else %}
+    <li>None</li>
+  {% endif %}
+  </ul>
 {% endfor %}
 {% endblock %}

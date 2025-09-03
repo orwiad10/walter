@@ -41,11 +41,14 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     'venue judge': {
         'tournaments.manage': True,
+        'users.manage': True,
     },
     'event head judge': {
         'tournaments.manage': True,
+        'users.manage': True,
     },
     'floor judge': {
+        'users.manage': True,
     },
     'user': {
         'tournaments.join': True,
@@ -75,6 +78,7 @@ class User(db.Model, UserMixin):
     notes = db.Column(db.Text, nullable=True)
     role_id = db.Column(db.Integer, db.ForeignKey('role.id'))
     role = db.relationship('Role')
+    break_end = db.Column(db.DateTime, nullable=True)
 
     def set_password(self, pw):
         self.salt = os.urandom(16).hex()
