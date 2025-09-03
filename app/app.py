@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, abort
+from flask import Flask, render_template, redirect, url_for, request, flash, abort, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
@@ -14,7 +14,11 @@ import click
 import hashlib
 import psutil
 import json
+import base64
 from sqlalchemy import inspect, text
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 db = SQLAlchemy()
@@ -78,6 +82,7 @@ def create_app():
         DEFAULT_ROLE_PERMISSIONS,
         SiteLog,
         TournamentLog,
+        Message,
     )
     from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
 
@@ -102,6 +107,7 @@ def create_app():
             admin_role = db.session.query(Role).filter_by(name='admin').first()
             u = User(email="admin@example.com", name="Admin", role=admin_role, is_admin=True)
             u.set_password("admin123")
+            u.generate_keys("admin123")
             db.session.add(u)
             db.session.commit()
             print("Created default admin: admin@example.com / admin123")
@@ -121,6 +127,7 @@ def create_app():
         admin_role = db.session.query(Role).filter_by(name='admin').first()
         u = User(email=email, name="Admin", role=admin_role, is_admin=True)
         u.set_password(password)
+        u.generate_keys(password)
         db.session.add(u)
         db.session.commit()
         print("Admin created.")
@@ -148,6 +155,7 @@ def create_app():
             role_user = db.session.query(Role).filter_by(name='user').first()
             u = User(email=email, name=name, role=role_user)
             u.set_password(password)
+            u.generate_keys(password)
             db.session.add(u)
             db.session.commit()
             log_site('register', 'success')
@@ -174,6 +182,12 @@ def create_app():
             u = db.session.query(User).filter_by(email=email).first()
             if u and u.check_password(password):
                 login_user(u)
+                try:
+                    priv_pem = u.decrypt_private_key(password)
+                    if priv_pem:
+                        session['private_key'] = base64.b64encode(priv_pem).decode()
+                except Exception:
+                    session['private_key'] = None
                 log_site('login', 'success')
                 return redirect(url_for('index'))
             flash("Invalid credentials", "error")
@@ -183,9 +197,90 @@ def create_app():
     @app.route('/logout')
     @login_required
     def logout():
+        session.pop('private_key', None)
         logout_user()
         log_site('logout', 'success')
         return redirect(url_for('index'))
+
+    @app.route('/messages')
+    @login_required
+    def messages_inbox():
+        from .models import Message
+        priv_b64 = session.get('private_key')
+        if not priv_b64:
+            flash('Cannot decrypt messages', 'error')
+            msgs = []
+        else:
+            private_key = serialization.load_pem_private_key(base64.b64decode(priv_b64), password=None)
+            msgs_db = (
+                db.session.query(Message)
+                .filter_by(recipient_id=current_user.id)
+                .order_by(Message.sent_at.desc())
+                .all()
+            )
+            msgs = []
+            for m in msgs_db:
+                try:
+                    aes_key = private_key.decrypt(
+                        m.key_encrypted,
+                        padding.OAEP(
+                            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
+                    aesgcm = AESGCM(aes_key)
+                    title = aesgcm.decrypt(m.title_nonce, m.title_encrypted, None).decode()
+                    body = aesgcm.decrypt(m.body_nonce, m.body_encrypted, None).decode()
+                    msgs.append({'id': m.id, 'title': title, 'body': body, 'sender': m.sender, 'sent_at': m.sent_at})
+                    if not m.is_read:
+                        m.is_read = True
+                except Exception:
+                    continue
+            db.session.commit()
+        return render_template('messages.html', messages=msgs)
+
+    @app.route('/messages/send', methods=['GET', 'POST'])
+    @login_required
+    def send_message():
+        from .models import User, Message
+        if request.method == 'POST':
+            to_email = request.form['to'].strip().lower()
+            title = request.form['title']
+            body = request.form['body']
+            recipient = db.session.query(User).filter_by(email=to_email).first()
+            if not recipient or not recipient.public_key:
+                flash('Recipient not found or cannot receive messages', 'error')
+                return redirect(url_for('send_message'))
+            public_key = serialization.load_pem_public_key(recipient.public_key)
+            aes_key = os.urandom(32)
+            aesgcm = AESGCM(aes_key)
+            nonce_title = os.urandom(12)
+            nonce_body = os.urandom(12)
+            title_enc = aesgcm.encrypt(nonce_title, title.encode(), None)
+            body_enc = aesgcm.encrypt(nonce_body, body.encode(), None)
+            key_enc = public_key.encrypt(
+                aes_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            msg = Message(
+                sender_id=current_user.id,
+                recipient_id=recipient.id,
+                key_encrypted=key_enc,
+                title_encrypted=title_enc,
+                title_nonce=nonce_title,
+                body_encrypted=body_enc,
+                body_nonce=nonce_body,
+            )
+            db.session.add(msg)
+            db.session.commit()
+            flash('Message sent', 'success')
+            return redirect(url_for('messages_inbox'))
+        return render_template('send_message.html')
 
     # ---------- Admin ----------
     def require_permission(perm):

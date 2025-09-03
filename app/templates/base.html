@@ -14,6 +14,7 @@
       {% if current_user.is_authenticated %}
         <span>Hi, {{ current_user.name }}</span>
         <a href="{{ url_for('index') }}">All Tournaments</a>
+        <a href="{{ url_for('messages_inbox') }}">Messages</a>
         {% if current_user.has_permission('tournaments.manage') %}
         <a href="{{ url_for('new_tournament') }}">New Tournament</a>
         <a href="{{ url_for('admin_register_player') }}">Register Player</a>

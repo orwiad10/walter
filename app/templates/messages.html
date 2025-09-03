@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Inbox</h2>
+<table>
+  <tr><th>From</th><th>Title</th><th>Date</th></tr>
+  {% for m in messages %}
+  <tr>
+    <td>{{ m.sender.name }}</td>
+    <td>{{ m.title }}</td>
+    <td>{{ m.sent_at }}</td>
+  </tr>
+  <tr>
+    <td colspan="3">{{ m.body }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="3">No messages</td></tr>
+  {% endfor %}
+</table>
+<p><a href="{{ url_for('send_message') }}">Compose Message</a></p>
+{% endblock %}
