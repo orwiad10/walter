@@ -7,6 +7,10 @@ import os
 import random
 import hashlib
 import json
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Permission groups and default role permissions
 PERMISSION_GROUPS = {
@@ -79,6 +83,10 @@ class User(db.Model, UserMixin):
     role_id = db.Column(db.Integer, db.ForeignKey('role.id'))
     role = db.relationship('Role')
     break_end = db.Column(db.DateTime, nullable=True)
+    public_key = db.Column(db.LargeBinary, nullable=True)
+    private_key_encrypted = db.Column(db.LargeBinary, nullable=True)
+    private_key_salt = db.Column(db.LargeBinary, nullable=True)
+    private_key_nonce = db.Column(db.LargeBinary, nullable=True)
 
     def set_password(self, pw):
         self.salt = os.urandom(16).hex()
@@ -89,12 +97,65 @@ class User(db.Model, UserMixin):
             return False
         return self.password_hash == hashlib.sha256((self.salt + pw).encode()).hexdigest()
 
+    def generate_keys(self, password):
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_key = private_key.public_key()
+        public_pem = public_key.public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        private_pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        salt = os.urandom(16)
+        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=390000)
+        key = kdf.derive(password.encode())
+        aesgcm = AESGCM(key)
+        nonce = os.urandom(12)
+        enc = aesgcm.encrypt(nonce, private_pem, None)
+        self.public_key = public_pem
+        self.private_key_encrypted = enc
+        self.private_key_salt = salt
+        self.private_key_nonce = nonce
+
+    def decrypt_private_key(self, password):
+        if not self.private_key_encrypted or not self.private_key_salt or not self.private_key_nonce:
+            return None
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=self.private_key_salt,
+            iterations=390000,
+        )
+        key = kdf.derive(password.encode())
+        aesgcm = AESGCM(key)
+        private_pem = aesgcm.decrypt(self.private_key_nonce, self.private_key_encrypted, None)
+        return private_pem
+
     def has_permission(self, key):
         if self.is_admin:
             return True
         if not self.role:
             return False
         return self.role.permissions_dict().get(key, False)
+
+
+class Message(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    key_encrypted = db.Column(db.LargeBinary, nullable=False)
+    title_encrypted = db.Column(db.LargeBinary, nullable=False)
+    title_nonce = db.Column(db.LargeBinary, nullable=False)
+    body_encrypted = db.Column(db.LargeBinary, nullable=False)
+    body_nonce = db.Column(db.LargeBinary, nullable=False)
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+
+    sender = db.relationship('User', foreign_keys=[sender_id])
+    recipient = db.relationship('User', foreign_keys=[recipient_id])
 
 class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
