@@ -30,6 +30,12 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # Create the Flask app so we can access the database and models.
 flask_app = create_app()
 
+# Derive and apply a secret so NiceGUI's per-user storage works.
+_NG_SECRET = os.environ.get(
+    "STORAGE_SECRET", flask_app.config.get("SECRET_KEY", "dev-secret-change-me")
+)
+ng_app.storage.secret_key = _NG_SECRET
+
 
 def _header() -> None:
     """Common navigation header used on all pages."""
@@ -328,8 +334,7 @@ def run() -> None:
     """Run the NiceGUI frontend application."""
     host = os.environ.get("FLASK_RUN_HOST", "127.0.0.1")
     port = int(os.environ.get("FLASK_RUN_PORT", "8080"))
-    secret = os.environ.get("STORAGE_SECRET", flask_app.config.get("SECRET_KEY", "dev-secret-change-me"))
-    ui.run(host=host, port=port, reload=False, storage_secret=secret)
+    ui.run(host=host, port=port, reload=False, storage_secret=_NG_SECRET)
 
 
 if __name__ == "__main__":
