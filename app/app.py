@@ -1,7 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from nicegui import ui
 import os
 import hashlib
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import (
     create_engine,
     inspect,
@@ -78,7 +81,7 @@ def create_app() -> FastAPI:
             db.session.execute(text("ALTER TABLE user ADD COLUMN break_end DATETIME"))
             db.session.commit()
 
-    from .models import Tournament
+    from .models import Tournament, User, Message
 
     @ui.page("/")
     def index_page() -> None:
@@ -91,6 +94,89 @@ def create_app() -> FastAPI:
             ui.label("Tournaments")
             for t in tournaments:
                 ui.label(f"{t.name} ({t.format})")
+
+    @ui.page("/messages")
+    async def messages_page(request: Request) -> None:
+        user_id = int(request.query_params.get("user_id", 0))
+        password = request.query_params.get("password", "")
+        with ui.column():
+            ui.label("Messages")
+            user = db.session.get(User, user_id) if user_id else None
+            if not user or not password:
+                ui.label("user_id and password query parameters required")
+                return
+            private_pem = user.decrypt_private_key(password)
+            if not private_pem:
+                ui.label("Cannot decrypt messages")
+                return
+            private_key = serialization.load_pem_private_key(private_pem, password=None)
+            msgs = (
+                db.session.query(Message)
+                .filter_by(recipient_id=user.id)
+                .order_by(Message.sent_at.desc())
+                .all()
+            )
+            for m in msgs:
+                try:
+                    aes_key = private_key.decrypt(
+                        m.key_encrypted,
+                        padding.OAEP(
+                            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
+                    aesgcm = AESGCM(aes_key)
+                    title = aesgcm.decrypt(m.title_nonce, m.title_encrypted, None).decode()
+                    body = aesgcm.decrypt(m.body_nonce, m.body_encrypted, None).decode()
+                    with ui.expansion(title):
+                        ui.label(body)
+                        ui.label(f"From: {m.sender.name} at {m.sent_at}")
+                except Exception:
+                    ui.label("Failed to decrypt message")
+
+    @ui.page("/messages/send")
+    def send_message_page() -> None:
+        recipient = ui.input("To (email)")
+        sender = ui.input("From (email)")
+        title = ui.input("Title")
+        body = ui.textarea("Body")
+
+        def do_send() -> None:
+            sender_user = db.session.query(User).filter_by(email=sender.value).first()
+            recipient_user = db.session.query(User).filter_by(email=recipient.value).first()
+            if not sender_user or not recipient_user or not recipient_user.public_key:
+                ui.notify("Invalid sender or recipient", color="negative")
+                return
+            public_key = serialization.load_pem_public_key(recipient_user.public_key)
+            aes_key = os.urandom(32)
+            aesgcm = AESGCM(aes_key)
+            nonce_title = os.urandom(12)
+            nonce_body = os.urandom(12)
+            title_enc = aesgcm.encrypt(nonce_title, title.value.encode(), None)
+            body_enc = aesgcm.encrypt(nonce_body, body.value.encode(), None)
+            key_enc = public_key.encrypt(
+                aes_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            msg = Message(
+                sender_id=sender_user.id,
+                recipient_id=recipient_user.id,
+                key_encrypted=key_enc,
+                title_encrypted=title_enc,
+                title_nonce=nonce_title,
+                body_encrypted=body_enc,
+                body_nonce=nonce_body,
+            )
+            db.session.add(msg)
+            db.session.commit()
+            ui.notify("Message sent", color="positive")
+
+        ui.button("Send", on_click=do_send)
 
     @app.get("/health")
     def health() -> dict:
