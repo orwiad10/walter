@@ -59,15 +59,17 @@ if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "127.0.0.1" }
 if([string]::IsNullOrEmpty($FlaskPort)){ $FlaskPort = 5000 }
 
 #check if server is already running and stop it if necessary
-$serverpid = try{
-    Get-NetTCPConnection -LocalPort $FlaskPort -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess
-}catch{
-    $null
-}
+<#
+    $serverpid = try{
+        Get-NetTCPConnection -LocalPort $FlaskPort -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess
+    }catch{
+        $null
+    }
 
-if($serverpid){
-    Get-Process -Id $serverpid | Stop-Process -Force -Confirm:$false
-}
+    if($null -ne $serverpid){
+        Get-Process -Id $serverpid | Stop-Process -Force -Confirm:$false
+    }
+#>
 
 Stop-Process -Name "uvicorn" -Force -ErrorAction SilentlyContinue | Out-Null
 
