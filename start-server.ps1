@@ -96,11 +96,7 @@ Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
 
 Write-Host "Initializing database..."
-python - <<'PY'
-from app.app import create_app, db
-create_app()
-db.create_all()
-PY
+python -c "from app.app import create_app, db; create_app(); db.create_all()"
 
 Write-Host "Starting FastAPI server..."
 Start-Process -NoNewWindow -FilePath "python" -ArgumentList "-m", "uvicorn", "app.app:app", "--reload", "--host=$FlaskIP", "--port=$FlaskPort"
