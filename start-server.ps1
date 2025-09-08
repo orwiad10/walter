@@ -1,6 +1,5 @@
 # PowerShell script to set up and run the MTG Tournament Swiss App.
-# Installs dependencies, initializes the database, creates an admin user,
-# and starts the Flask development server.
+# Installs dependencies, initializes the database, and starts the FastAPI/NiceGUI server.
 # Load settings from YAML config
 $configPath = Join-Path $PSScriptRoot "config.yaml"
 if(!(Test-Path $configPath)){
@@ -49,43 +48,36 @@ $DefaultLogDb = "mtg_tournament_logs.db"
 
 $DatabasePath = $cfg.db_file
 $LogDatabasePath = $cfg.log_db_file
-$FlaskSecret = $cfg.flask_secret
 $PasswordSeed = $cfg.password_seed
 $FlaskIP = $cfg.flask_ip
 $FlaskPort = $cfg.flask_port
-$newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 if([string]::IsNullOrEmpty($DatabasePath)){ $DatabasePath = $DefaultDb }
 if([string]::IsNullOrEmpty($LogDatabasePath)){ $LogDatabasePath = $DefaultLogDb }
-if([string]::IsNullOrEmpty($FlaskSecret)){ $FlaskSecret = "dev-secret-change-me" }
 if([string]::IsNullOrEmpty($PasswordSeed)){ $PasswordSeed = "dev-password-seed-change-me" }
 if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "127.0.0.1" }
 if([string]::IsNullOrEmpty($FlaskPort)){ $FlaskPort = 5000 }
 
-#check if Flask is already running and stop it if necessary
-$flaskpid = try{
-    Get-NetTCPConnection -LocalPort $FlaskPort -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess
-}catch{
-    $null
-}
+#check if server is already running and stop it if necessary
+<#
+    $serverpid = try{
+        Get-NetTCPConnection -LocalPort $FlaskPort -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess
+    }catch{
+        $null
+    }
 
-if($flaskpid){
-    Get-Process -Id $flaskpid | Stop-Process -Force -Confirm:$false
-}
+    if($null -ne $serverpid){
+        Get-Process -Id $serverpid | Stop-Process -Force -Confirm:$false
+    }
+#>
 
-Stop-Process -Name "flask" -Force -ErrorAction SilentlyContinue | Out-Null
+Stop-Process -Name "uvicorn" -Force -ErrorAction SilentlyContinue | Out-Null
 
 # Ensure the script runs from its own directory so relative paths work
 Set-Location -Path $PSScriptRoot
 
 # Configure password seed for AES encryption
 $env:PASSWORD_SEED = $PasswordSeed
-
-# Configure Flask secret
-$env:FLASK_SECRET = $FlaskSecret
-
-$env:FLASK_RUN_HOST = $FlaskIP
-$env:FLASK_RUN_PORT = $FlaskPort
 
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 
@@ -103,23 +95,19 @@ $env:MTG_DB_PATH = $DatabasePath
 $env:MTG_LOG_DB_PATH = $LogDatabasePath
 
 Write-Host "Installing dependencies..."
-python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
-
-Write-Host "Setting Flask environment..."
-$env:FLASK_APP = "app.app:app"
+python -m pip install -r "$PSScriptRoot/requirements.txt"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to install dependencies"
+    exit $LASTEXITCODE
+}
 
 Write-Host "Initializing database..."
-python -m flask --app app.app db-init
+python -c "from app.app import create_app, db; create_app(); db.create_all()"
 
-Write-Host "Creating default admin user..."
-python -m flask --app app.app create-admin --email $newadmin.UserName --password $newadmin.GetNetworkCredential().Password
-
-Write-Host "Starting Flask development server..."
-#python -m flask --app app.app run --debug
-
-Start-Process -NoNewWindow -FilePath "flask" -ArgumentList "--app app.app run --debug --host=$FlaskIP --port=$FlaskPort"
+Write-Host "Starting FastAPI server..."
+Start-Process -NoNewWindow -FilePath "python" -ArgumentList "-m", "uvicorn", "app.app:app", "--reload", "--host=$FlaskIP", "--port=$FlaskPort"
 
 Start-Sleep -Seconds 3
 
-#open the browser to the Flask app
+# open the browser to the app
 Start-Process "http://$($FlaskIP):$($FlaskPort)/"

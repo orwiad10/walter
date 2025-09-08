@@ -1,5 +1,4 @@
 from .app import db
-from flask_login import UserMixin
 from datetime import datetime
 from sqlalchemy import UniqueConstraint
 import uuid
@@ -61,6 +60,7 @@ DEFAULT_ROLE_PERMISSIONS = {
 
 
 class Role(db.Model):
+    __tablename__ = 'role'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), unique=True, nullable=False)
     permissions = db.Column(db.Text, nullable=False, default='{}')
@@ -69,7 +69,8 @@ class Role(db.Model):
         return json.loads(self.permissions or '{}')
 
 
-class User(db.Model, UserMixin):
+class User(db.Model):
+    __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
     # Email and password are optional to allow admin bulk registration without
     # requiring login credentials.
@@ -143,6 +144,7 @@ class User(db.Model, UserMixin):
 
 
 class Message(db.Model):
+    __tablename__ = 'message'
     id = db.Column(db.Integer, primary_key=True)
     sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -158,6 +160,7 @@ class Message(db.Model):
     recipient = db.relationship('User', foreign_keys=[recipient_id])
 
 class Tournament(db.Model):
+    __tablename__ = 'tournament'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     format = db.Column(db.String(50), nullable=False)  # Commander, Draft, Constructed
@@ -194,6 +197,7 @@ class Tournament(db.Model):
             return []
 
 class SiteLog(db.Model):
+    __tablename__ = 'site_log'
     __bind_key__ = 'logs'
     id = db.Column(db.Integer, primary_key=True)
     action = db.Column(db.String(200), nullable=False)
@@ -204,6 +208,7 @@ class SiteLog(db.Model):
     # relationship loaded manually to avoid cross-db foreign key
 
 class TournamentLog(db.Model):
+    __tablename__ = 'tournament_log'
     __bind_key__ = 'logs'
     id = db.Column(db.Integer, primary_key=True)
     tournament_id = db.Column(db.Integer, nullable=False)
@@ -215,6 +220,7 @@ class TournamentLog(db.Model):
     # relationship loaded manually to avoid cross-db foreign key
 
 class TournamentPlayer(db.Model):
+    __tablename__ = 'tournament_player'
     id = db.Column(db.Integer, primary_key=True)
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -237,6 +243,7 @@ class TournamentPlayer(db.Model):
     __table_args__ = (UniqueConstraint('tournament_id', 'user_id', name='_tournament_user_uc'),)
 
 class Round(db.Model):
+    __tablename__ = 'round'
     id = db.Column(db.Integer, primary_key=True)
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
     number = db.Column(db.Integer, nullable=False)
@@ -247,6 +254,7 @@ class Round(db.Model):
     )
 
 class MatchResult(db.Model):
+    __tablename__ = 'match_result'
     id = db.Column(db.Integer, primary_key=True)
     player1_wins = db.Column(db.Integer, default=0)
     player2_wins = db.Column(db.Integer, default=0)
@@ -259,6 +267,7 @@ class MatchResult(db.Model):
     is_draw = db.Column(db.Boolean, default=False)
 
 class Match(db.Model):
+    __tablename__ = 'match'
     id = db.Column(db.Integer, primary_key=True)
     round_id = db.Column(db.Integer, db.ForeignKey('round.id'), nullable=False)
     player1_id = db.Column(db.Integer, db.ForeignKey('tournament_player.id'), nullable=False)
