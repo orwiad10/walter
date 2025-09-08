@@ -89,6 +89,11 @@ def _clear_session() -> None:
     ui.cookie(_SESSION_COOKIE, "", max_age=0)
 
 
+def _goto(path: str) -> None:
+    """Navigate to ``path`` in the same browser tab."""
+    ui.open(path, new_tab=False)
+
+
 def _header() -> None:
     """Common navigation header used on all pages."""
     session = _get_session()
@@ -97,17 +102,17 @@ def _header() -> None:
         with ui.row().classes("items-center gap-2"):
             if "user_id" in session:
                 ui.label(f"Hi, {session['name']}")
-                ui.button("Messages", on_click=lambda: ui.open("/messages"))
-                ui.button("Logout", on_click=lambda: ui.open("/logout"))
+                ui.button("Messages", on_click=lambda: _goto("/messages"))
+                ui.button("Logout", on_click=lambda: _goto("/logout"))
             else:
-                ui.button("Login", on_click=lambda: ui.open("/login"))
-                ui.button("Register", on_click=lambda: ui.open("/register"))
+                ui.button("Login", on_click=lambda: _goto("/login"))
+                ui.button("Register", on_click=lambda: _goto("/register"))
 
 
 def _login_required() -> bool:
     """Redirect to the login page if no user session exists."""
     if "user_id" not in _get_session():
-        ui.open("/login")
+        _goto("/login")
         return False
     return True
 
@@ -133,7 +138,7 @@ def index_page() -> None:
                 ui.label(f"Players: {player_counts[t.id]}")
                 ui.button(
                     "View",
-                    on_click=lambda t_id=t.id: ui.open(f"/t/{t_id}"),
+                    on_click=lambda t_id=t.id: _goto(f"/t/{t_id}"),
                 )
 
 
@@ -163,7 +168,7 @@ def login_page() -> None:
             except Exception:
                 pass
             _set_session(data)
-        ui.open("/")
+        _goto("/")
 
     ui.button("Login", on_click=do_login)
 
@@ -171,7 +176,7 @@ def login_page() -> None:
 @ui.page("/logout")
 def logout_page() -> None:
     _clear_session()
-    ui.open("/")
+    _goto("/")
 
 
 @ui.page("/register")
@@ -225,7 +230,7 @@ def register_page() -> None:
                 db.session.add(tp)
                 db.session.commit()
 
-        ui.open("/login")
+        _goto("/login")
 
     ui.button("Create Account", on_click=do_register)
 
@@ -274,7 +279,7 @@ def view_tournament_page(tid: int) -> None:
                     )
                     db.session.add(tp)
                     db.session.commit()
-                ui.open(f"/t/{tid}")
+                _goto(f"/t/{tid}")
 
             ui.button("Join", on_click=do_join)
 
@@ -330,7 +335,7 @@ def messages_page() -> None:
                 ui.label(m["title"]).classes("text-h6")
                 ui.label(f"From: {m['sender']} at {m['sent_at']}")
                 ui.label(m["body"]).classes("mt-2")
-        ui.button("Compose", on_click=lambda: ui.open("/messages/send"))
+        ui.button("Compose", on_click=lambda: _goto("/messages/send"))
 
 
 @ui.page("/messages/send")
@@ -381,7 +386,7 @@ def send_message_page() -> None:
             )
             db.session.add(msg)
             db.session.commit()
-        ui.open("/messages")
+        _goto("/messages")
 
     ui.button("Send", on_click=do_send)
 
