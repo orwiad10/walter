@@ -57,7 +57,11 @@ def _get_session() -> Dict[str, str]:
     client = _current_client()
     if not client:
         return {}
-    token = client.cookies.get(_SESSION_COOKIE)
+    cookies = getattr(client, "cookies", None)
+    if cookies is None:
+        request = getattr(client, "request", None) or getattr(context, "request", None)
+        cookies = getattr(request, "cookies", {}) if request else {}
+    token = cookies.get(_SESSION_COOKIE)
     if token and token in _SESSIONS:
         return _SESSIONS[token]
     return {}
@@ -71,7 +75,13 @@ def _set_session(data: Dict[str, str]) -> None:
 
 def _clear_session() -> None:
     client = _current_client()
-    token = client.cookies.get(_SESSION_COOKIE) if client else None
+    cookies = {}
+    if client:
+        cookies = getattr(client, "cookies", None)
+        if cookies is None:
+            request = getattr(client, "request", None) or getattr(context, "request", None)
+            cookies = getattr(request, "cookies", {}) if request else {}
+    token = cookies.get(_SESSION_COOKIE)
     if token:
         _SESSIONS.pop(token, None)
     ui.cookie(_SESSION_COOKIE, "", max_age=0)
