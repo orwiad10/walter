@@ -25,6 +25,12 @@
 4) Run:
    flask --app app.app run --debug
 
+5) NiceGUI frontend:
+   # bootstrap on Windows with PowerShell
+   .\start-nicegui.ps1
+   # or run directly
+   python -m app.nicegui_ui
+
 ## Features
 - Player & Admin login
 - Tournaments: Commander, Draft, Constructed
