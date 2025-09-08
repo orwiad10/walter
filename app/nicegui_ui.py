@@ -170,7 +170,7 @@ def login_page() -> None:
             _set_session(data)
         _goto("/")
 
-    ui.button("Login", on_click=do_login)
+    ui.button("Login", on_click=lambda: do_login())
 
 
 @ui.page("/logout")
@@ -197,7 +197,7 @@ def register_page() -> None:
     select_items = {"": "-- None --"}
     select_items.update({str(t.id): t.name for t in tournaments})
     tournament_id = ui.select(select_items, label="Join Tournament", value="")
-    passcode = ui.input("Tournament Passcode", maxlength=4)
+    passcode = ui.input("Tournament Passcode").props("maxlength=4")
     error = ui.label().classes("text-red-500")
 
     def do_register() -> None:
@@ -264,7 +264,7 @@ def view_tournament_page(tid: int) -> None:
             ui.label(f"- {p.name}")
 
         if "user_id" in session and not is_player:
-            pass_input = ui.input("Passcode", maxlength=4)
+            pass_input = ui.input("Passcode").props("maxlength=4")
 
             def do_join() -> None:
                 if not _login_required():
