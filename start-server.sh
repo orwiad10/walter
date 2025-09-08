@@ -57,7 +57,13 @@ fi
 export MTG_DB_PATH="$DB_FILE"
 export MTG_LOG_DB_PATH="$LOG_DB_FILE"
 export PASSWORD_SEED="$PASSWORD_SEED"
-python -m pip install -r requirements.txt >/dev/null
+
+# install python dependencies and fail fast if it doesn't work
+if ! python -m pip install -r requirements.txt; then
+  echo "Failed to install dependencies"
+  exit 1
+fi
+
 python - <<'PY'
 from app.app import create_app, db
 create_app()
