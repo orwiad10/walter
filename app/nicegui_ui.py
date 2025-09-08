@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import base64
 import os
+import secrets
 from typing import Dict
 
-from nicegui import app as ng_app, ui
+from nicegui import ui
 
 from .app import create_app, db
 from .models import Message, Role, Tournament, TournamentPlayer, User
@@ -30,20 +31,42 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # Create the Flask app so we can access the database and models.
 flask_app = create_app()
 
-# Derive and apply a secret so NiceGUI's per-user storage works.
-_NG_SECRET = os.environ.get(
-    "STORAGE_SECRET", flask_app.config.get("SECRET_KEY", "dev-secret-change-me")
-)
-ng_app.storage.secret_key = _NG_SECRET
+
+# simple in-memory session storage keyed by a cookie value
+_SESSIONS: Dict[str, Dict[str, str]] = {}
+_SESSION_COOKIE = "walter_session"
+
+
+def _get_session() -> Dict[str, str]:
+    client = ui.get_client()
+    token = client.cookies.get(_SESSION_COOKIE)
+    if token and token in _SESSIONS:
+        return _SESSIONS[token]
+    return {}
+
+
+def _set_session(data: Dict[str, str]) -> None:
+    token = secrets.token_urlsafe(16)
+    _SESSIONS[token] = data
+    ui.cookie(_SESSION_COOKIE, token, max_age=7 * 24 * 3600)
+
+
+def _clear_session() -> None:
+    client = ui.get_client()
+    token = client.cookies.get(_SESSION_COOKIE)
+    if token:
+        _SESSIONS.pop(token, None)
+    ui.cookie(_SESSION_COOKIE, "", max_age=0)
 
 
 def _header() -> None:
     """Common navigation header used on all pages."""
+    session = _get_session()
     with ui.header().classes("justify-between items-center"):
         ui.link("WaLTER", "/").classes("text-h5")
         with ui.row().classes("items-center gap-2"):
-            if "user_id" in ng_app.storage.user:
-                ui.label(f"Hi, {ng_app.storage.user['name']}")
+            if "user_id" in session:
+                ui.label(f"Hi, {session['name']}")
                 ui.button("Messages", on_click=lambda: ui.open("/messages"))
                 ui.button("Logout", on_click=lambda: ui.open("/logout"))
             else:
@@ -53,7 +76,7 @@ def _header() -> None:
 
 def _login_required() -> bool:
     """Redirect to the login page if no user session exists."""
-    if "user_id" not in ng_app.storage.user:
+    if "user_id" not in _get_session():
         ui.open("/login")
         return False
     return True
@@ -102,14 +125,14 @@ def login_page() -> None:
             if not user or not user.check_password(password.value):
                 error.text = "Invalid credentials"
                 return
-            ng_app.storage.user["user_id"] = user.id
-            ng_app.storage.user["name"] = user.name
+            data = {"user_id": str(user.id), "name": user.name}
             try:
                 priv_pem = user.decrypt_private_key(password.value)
                 if priv_pem:
-                    ng_app.storage.user["private_key"] = base64.b64encode(priv_pem).decode()
+                    data["private_key"] = base64.b64encode(priv_pem).decode()
             except Exception:
-                ng_app.storage.user["private_key"] = None
+                pass
+            _set_session(data)
         ui.open("/")
 
     ui.button("Login", on_click=do_login)
@@ -117,7 +140,7 @@ def login_page() -> None:
 
 @ui.page("/logout")
 def logout_page() -> None:
-    ng_app.storage.user.clear()
+    _clear_session()
     ui.open("/")
 
 
@@ -187,11 +210,12 @@ def view_tournament_page(tid: int) -> None:
             ui.label("Tournament not found").classes("p-4")
             return
         players = [tp.user for tp in t.players]
+        session = _get_session()
         is_player = False
-        if "user_id" in ng_app.storage.user:
+        if "user_id" in session:
             is_player = (
                 db.session.query(TournamentPlayer)
-                .filter_by(tournament_id=tid, user_id=ng_app.storage.user["user_id"])
+                .filter_by(tournament_id=tid, user_id=int(session["user_id"]))
                 .first()
                 is not None
             )
@@ -204,7 +228,7 @@ def view_tournament_page(tid: int) -> None:
         for p in players:
             ui.label(f"- {p.name}")
 
-        if "user_id" in ng_app.storage.user and not is_player:
+        if "user_id" in session and not is_player:
             pass_input = ui.input("Passcode", maxlength=4)
 
             def do_join() -> None:
@@ -216,7 +240,7 @@ def view_tournament_page(tid: int) -> None:
                         ui.notify("Invalid passcode", type="negative")
                         return
                     tp = TournamentPlayer(
-                        tournament_id=tid, user_id=ng_app.storage.user["user_id"]
+                        tournament_id=tid, user_id=int(session["user_id"])
                     )
                     db.session.add(tp)
                     db.session.commit()
@@ -231,14 +255,15 @@ def messages_page() -> None:
     if not _login_required():
         return
     _header()
-    priv_b64 = ng_app.storage.user.get("private_key")
+    session = _get_session()
+    priv_b64 = session.get("private_key")
     with flask_app.app_context():
         msgs = []
         if priv_b64:
             priv = load_pem_private_key(base64.b64decode(priv_b64), password=None)
             msgs_db = (
                 db.session.query(Message)
-                .filter_by(recipient_id=ng_app.storage.user["user_id"])
+                .filter_by(recipient_id=int(session["user_id"]))
                 .order_by(Message.sent_at.desc())
                 .all()
             )
@@ -314,8 +339,9 @@ def send_message_page() -> None:
                     label=None,
                 ),
             )
+            session = _get_session()
             msg = Message(
-                sender_id=ng_app.storage.user["user_id"],
+                sender_id=int(session["user_id"]),
                 recipient_id=recipient.id,
                 key_encrypted=key_enc,
                 title_encrypted=title_enc,
@@ -334,7 +360,7 @@ def run() -> None:
     """Run the NiceGUI frontend application."""
     host = os.environ.get("FLASK_RUN_HOST", "127.0.0.1")
     port = int(os.environ.get("FLASK_RUN_PORT", "8080"))
-    ui.run(host=host, port=port, reload=False, storage_secret=_NG_SECRET)
+    ui.run(host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":
