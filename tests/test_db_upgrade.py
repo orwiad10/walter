@@ -22,12 +22,11 @@ def test_start_time_column_added(tmp_path, monkeypatch):
     monkeypatch.setenv("MTG_DB_PATH", str(db_path))
     monkeypatch.setenv("MTG_LOG_DB_PATH", str(log_path))
 
-    app = create_app()
-    with app.app_context():
-        inspector = inspect(db.engine)
-        cols = [c['name'] for c in inspector.get_columns('tournament')]
-        assert 'start_time' in cols
-        db.session.remove()
+    create_app()
+    inspector = inspect(db.engine)
+    cols = [c['name'] for c in inspector.get_columns('tournament')]
+    assert 'start_time' in cols
+    db.session.remove()
 
 
 def test_break_end_column_added(tmp_path, monkeypatch):
@@ -49,9 +48,8 @@ def test_break_end_column_added(tmp_path, monkeypatch):
     monkeypatch.setenv("MTG_DB_PATH", str(db_path))
     monkeypatch.setenv("MTG_LOG_DB_PATH", str(log_path))
 
-    app = create_app()
-    with app.app_context():
-        inspector = inspect(db.engine)
-        cols = [c['name'] for c in inspector.get_columns('user')]
-        assert 'break_end' in cols
-        db.session.remove()
+    create_app()
+    inspector = inspect(db.engine)
+    cols = [c['name'] for c in inspector.get_columns('user')]
+    assert 'break_end' in cols
+    db.session.remove()
