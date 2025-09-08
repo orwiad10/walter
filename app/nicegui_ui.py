@@ -13,7 +13,7 @@ import base64
 import os
 from typing import Dict
 
-from nicegui import ui
+from nicegui import app as ng_app, ui
 
 from .app import create_app, db
 from .models import Message, Role, Tournament, TournamentPlayer, User
@@ -36,8 +36,8 @@ def _header() -> None:
     with ui.header().classes("justify-between items-center"):
         ui.link("WaLTER", "/").classes("text-h5")
         with ui.row().classes("items-center gap-2"):
-            if "user_id" in ui.storage.user:
-                ui.label(f"Hi, {ui.storage.user['name']}")
+            if "user_id" in ng_app.storage.user:
+                ui.label(f"Hi, {ng_app.storage.user['name']}")
                 ui.button("Messages", on_click=lambda: ui.open("/messages"))
                 ui.button("Logout", on_click=lambda: ui.open("/logout"))
             else:
@@ -47,7 +47,7 @@ def _header() -> None:
 
 def _login_required() -> bool:
     """Redirect to the login page if no user session exists."""
-    if "user_id" not in ui.storage.user:
+    if "user_id" not in ng_app.storage.user:
         ui.open("/login")
         return False
     return True
@@ -96,14 +96,14 @@ def login_page() -> None:
             if not user or not user.check_password(password.value):
                 error.text = "Invalid credentials"
                 return
-            ui.storage.user["user_id"] = user.id
-            ui.storage.user["name"] = user.name
+            ng_app.storage.user["user_id"] = user.id
+            ng_app.storage.user["name"] = user.name
             try:
                 priv_pem = user.decrypt_private_key(password.value)
                 if priv_pem:
-                    ui.storage.user["private_key"] = base64.b64encode(priv_pem).decode()
+                    ng_app.storage.user["private_key"] = base64.b64encode(priv_pem).decode()
             except Exception:
-                ui.storage.user["private_key"] = None
+                ng_app.storage.user["private_key"] = None
         ui.open("/")
 
     ui.button("Login", on_click=do_login)
@@ -111,7 +111,7 @@ def login_page() -> None:
 
 @ui.page("/logout")
 def logout_page() -> None:
-    ui.storage.user.clear()
+    ng_app.storage.user.clear()
     ui.open("/")
 
 
@@ -182,10 +182,10 @@ def view_tournament_page(tid: int) -> None:
             return
         players = [tp.user for tp in t.players]
         is_player = False
-        if "user_id" in ui.storage.user:
+        if "user_id" in ng_app.storage.user:
             is_player = (
                 db.session.query(TournamentPlayer)
-                .filter_by(tournament_id=tid, user_id=ui.storage.user["user_id"])
+                .filter_by(tournament_id=tid, user_id=ng_app.storage.user["user_id"])
                 .first()
                 is not None
             )
@@ -198,7 +198,7 @@ def view_tournament_page(tid: int) -> None:
         for p in players:
             ui.label(f"- {p.name}")
 
-        if "user_id" in ui.storage.user and not is_player:
+        if "user_id" in ng_app.storage.user and not is_player:
             pass_input = ui.input("Passcode", maxlength=4)
 
             def do_join() -> None:
@@ -210,7 +210,7 @@ def view_tournament_page(tid: int) -> None:
                         ui.notify("Invalid passcode", type="negative")
                         return
                     tp = TournamentPlayer(
-                        tournament_id=tid, user_id=ui.storage.user["user_id"]
+                        tournament_id=tid, user_id=ng_app.storage.user["user_id"]
                     )
                     db.session.add(tp)
                     db.session.commit()
@@ -225,14 +225,14 @@ def messages_page() -> None:
     if not _login_required():
         return
     _header()
-    priv_b64 = ui.storage.user.get("private_key")
+    priv_b64 = ng_app.storage.user.get("private_key")
     with flask_app.app_context():
         msgs = []
         if priv_b64:
             priv = load_pem_private_key(base64.b64decode(priv_b64), password=None)
             msgs_db = (
                 db.session.query(Message)
-                .filter_by(recipient_id=ui.storage.user["user_id"])
+                .filter_by(recipient_id=ng_app.storage.user["user_id"])
                 .order_by(Message.sent_at.desc())
                 .all()
             )
@@ -309,7 +309,7 @@ def send_message_page() -> None:
                 ),
             )
             msg = Message(
-                sender_id=ui.storage.user["user_id"],
+                sender_id=ng_app.storage.user["user_id"],
                 recipient_id=recipient.id,
                 key_encrypted=key_enc,
                 title_encrypted=title_enc,
