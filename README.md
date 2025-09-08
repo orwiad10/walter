@@ -25,6 +25,16 @@
 4) Run:
    flask --app app.app run --debug
 
+### Optional NiceGUI interface
+For a modern web UI built with [NiceGUI](https://nicegui.io/), run:
+
+```
+python -m app.nicegui_app
+```
+
+This starts a separate server and mounts a NiceGUI page at `/nice` while reusing the
+existing Flask backend and database.
+
 ## Features
 - Player & Admin login
 - Tournaments: Commander, Draft, Constructed
