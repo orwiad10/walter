@@ -14,7 +14,7 @@ import os
 import secrets
 from typing import Dict
 
-from nicegui import ui
+from nicegui import context, ui
 
 from .app import create_app, db
 from .models import Message, Role, Tournament, TournamentPlayer, User
@@ -38,7 +38,7 @@ _SESSION_COOKIE = "walter_session"
 
 
 def _get_session() -> Dict[str, str]:
-    client = ui.get_client()
+    client = context.client
     token = client.cookies.get(_SESSION_COOKIE)
     if token and token in _SESSIONS:
         return _SESSIONS[token]
@@ -52,7 +52,7 @@ def _set_session(data: Dict[str, str]) -> None:
 
 
 def _clear_session() -> None:
-    client = ui.get_client()
+    client = context.client
     token = client.cookies.get(_SESSION_COOKIE)
     if token:
         _SESSIONS.pop(token, None)
