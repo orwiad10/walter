@@ -37,8 +37,24 @@ _SESSIONS: Dict[str, Dict[str, str]] = {}
 _SESSION_COOKIE = "walter_session"
 
 
+def _current_client():
+    """Return the active NiceGUI client if available.
+
+    Older NiceGUI versions expose the client via ``context.client`` while
+    newer releases provide a ``context.get_client`` helper which itself may
+    raise an ``AttributeError`` when no client is present.  This helper
+    normalises those variations and simply returns ``None`` if the client
+    is not accessible.
+    """
+
+    try:  # NiceGUI >= 1.3
+        return context.get_client()
+    except Exception:  # pragma: no cover - depends on NiceGUI internals
+        return getattr(context, "client", None)
+
+
 def _get_session() -> Dict[str, str]:
-    client = context.get_client()
+    client = _current_client()
     if not client:
         return {}
     token = client.cookies.get(_SESSION_COOKIE)
@@ -54,7 +70,7 @@ def _set_session(data: Dict[str, str]) -> None:
 
 
 def _clear_session() -> None:
-    client = context.get_client()
+    client = _current_client()
     token = client.cookies.get(_SESSION_COOKIE) if client else None
     if token:
         _SESSIONS.pop(token, None)
