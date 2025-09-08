@@ -53,14 +53,22 @@ def _current_client():
         return getattr(context, "client", None)
 
 
-def _get_session() -> Dict[str, str]:
+def _client_cookies() -> Dict[str, str]:
+    """Best-effort retrieval of cookies from the current request.
+
+    Some NiceGUI versions expose cookies directly on the client while others
+    only expose the underlying ``request`` object.  This helper looks up the
+    request and returns its cookies, falling back to an empty dictionary when
+    no cookies are available.
+    """
+
     client = _current_client()
-    if not client:
-        return {}
-    cookies = getattr(client, "cookies", None)
-    if cookies is None:
-        request = getattr(client, "request", None) or getattr(context, "request", None)
-        cookies = getattr(request, "cookies", {}) if request else {}
+    request = getattr(client, "request", None) if client else getattr(context, "request", None)
+    return getattr(request, "cookies", {}) if request else {}
+
+
+def _get_session() -> Dict[str, str]:
+    cookies = _client_cookies()
     token = cookies.get(_SESSION_COOKIE)
     if token and token in _SESSIONS:
         return _SESSIONS[token]
@@ -74,13 +82,7 @@ def _set_session(data: Dict[str, str]) -> None:
 
 
 def _clear_session() -> None:
-    client = _current_client()
-    cookies = {}
-    if client:
-        cookies = getattr(client, "cookies", None)
-        if cookies is None:
-            request = getattr(client, "request", None) or getattr(context, "request", None)
-            cookies = getattr(request, "cookies", {}) if request else {}
+    cookies = _client_cookies()
     token = cookies.get(_SESSION_COOKIE)
     if token:
         _SESSIONS.pop(token, None)
