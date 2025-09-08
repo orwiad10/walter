@@ -138,7 +138,7 @@ def index_page() -> None:
                 ui.label(f"Players: {player_counts[t.id]}")
                 ui.button(
                     "View",
-                    on_click=lambda t_id=t.id: _goto(f"/t/{t_id}"),
+                    on_click=lambda _, t_id=t.id: _goto(f"/t/{t_id}"),
                 )
 
 
@@ -170,7 +170,7 @@ def login_page() -> None:
             _set_session(data)
         _goto("/")
 
-    ui.button("Login", on_click=lambda: do_login())
+    ui.button("Login", on_click=lambda _: do_login())
 
 
 @ui.page("/logout")
@@ -232,7 +232,7 @@ def register_page() -> None:
 
         _goto("/login")
 
-    ui.button("Create Account", on_click=do_register)
+    ui.button("Create Account", on_click=lambda _: do_register())
 
 
 @ui.page("/t/{tid}")
@@ -281,7 +281,7 @@ def view_tournament_page(tid: int) -> None:
                     db.session.commit()
                 _goto(f"/t/{tid}")
 
-            ui.button("Join", on_click=do_join)
+            ui.button("Join", on_click=lambda _: do_join())
 
 
 @ui.page("/messages")
@@ -335,7 +335,7 @@ def messages_page() -> None:
                 ui.label(m["title"]).classes("text-h6")
                 ui.label(f"From: {m['sender']} at {m['sent_at']}")
                 ui.label(m["body"]).classes("mt-2")
-        ui.button("Compose", on_click=lambda: _goto("/messages/send"))
+        ui.button("Compose", on_click=lambda _: _goto("/messages/send"))
 
 
 @ui.page("/messages/send")
@@ -388,7 +388,7 @@ def send_message_page() -> None:
             db.session.commit()
         _goto("/messages")
 
-    ui.button("Send", on_click=do_send)
+    ui.button("Send", on_click=lambda _: do_send())
 
 
 def run() -> None:
