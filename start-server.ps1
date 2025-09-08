@@ -95,7 +95,11 @@ $env:MTG_DB_PATH = $DatabasePath
 $env:MTG_LOG_DB_PATH = $LogDatabasePath
 
 Write-Host "Installing dependencies..."
-python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
+python -m pip install -r "$PSScriptRoot/requirements.txt"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to install dependencies"
+    exit $LASTEXITCODE
+}
 
 Write-Host "Initializing database..."
 python -c "from app.app import create_app, db; create_app(); db.create_all()"
