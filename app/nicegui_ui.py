@@ -102,11 +102,11 @@ def _header() -> None:
         with ui.row().classes("items-center gap-2"):
             if "user_id" in session:
                 ui.label(f"Hi, {session['name']}")
-                ui.button("Messages", on_click=lambda: _goto("/messages"))
-                ui.button("Logout", on_click=lambda: _goto("/logout"))
+                ui.link("Messages", "/messages")
+                ui.link("Logout", "/logout")
             else:
-                ui.button("Login", on_click=lambda: _goto("/login"))
-                ui.button("Register", on_click=lambda: _goto("/register"))
+                ui.link("Login", "/login")
+                ui.link("Register", "/register")
 
 
 def _login_required() -> bool:
