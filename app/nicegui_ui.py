@@ -328,7 +328,8 @@ def run() -> None:
     """Run the NiceGUI frontend application."""
     host = os.environ.get("FLASK_RUN_HOST", "127.0.0.1")
     port = int(os.environ.get("FLASK_RUN_PORT", "8080"))
-    ui.run(host=host, port=port, reload=False)
+    secret = os.environ.get("STORAGE_SECRET", flask_app.config.get("SECRET_KEY", "dev-secret-change-me"))
+    ui.run(host=host, port=port, reload=False, storage_secret=secret)
 
 
 if __name__ == "__main__":

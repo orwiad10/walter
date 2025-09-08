@@ -42,5 +42,6 @@
 
 ## Notes
 - Default secret key is set for dev; change FLASK_SECRET in production.
+- The Flask secret is also used for NiceGUI's session storage; set `FLASK_SECRET` to persist user logins.
 - Passwords are stored encrypted with AES-256 using a seed specified via `PASSWORD_SEED`.
 - This is an MVP. You can extend forms, validation, and UI as needed.
