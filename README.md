@@ -25,6 +25,12 @@
 4) Run:
    flask --app app.app run --debug
 
+5) NiceGUI frontend:
+   # bootstrap on Windows with PowerShell
+   .\start-nicegui.ps1
+   # or run directly
+   python -m app.nicegui_ui
+
 ## Features
 - Player & Admin login
 - Tournaments: Commander, Draft, Constructed
@@ -36,5 +42,6 @@
 
 ## Notes
 - Default secret key is set for dev; change FLASK_SECRET in production.
+- NiceGUI keeps user sessions in a cookie-based in-memory store; `FLASK_SECRET` secures only the Flask backend.
 - Passwords are stored encrypted with AES-256 using a seed specified via `PASSWORD_SEED`.
 - This is an MVP. You can extend forms, validation, and UI as needed.
