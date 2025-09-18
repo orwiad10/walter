@@ -72,6 +72,10 @@ def create_app():
             if 'permission_overrides' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN permission_overrides TEXT'))
                 db.session.commit()
+        if 'report' not in inspector.get_table_names():
+            from .models import Report  # lazy import to avoid circular reference
+
+            Report.__table__.create(bind=db.engine)
 
     from .models import (
         User,
@@ -86,6 +90,7 @@ def create_app():
         SiteLog,
         TournamentLog,
         Message,
+        Report,
         all_permission_keys,
     )
     from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
@@ -300,13 +305,21 @@ def create_app():
     def send_message():
         from .models import User
         if request.method == 'POST':
-            to_email = request.form['to'].strip().lower()
+            recipient_id_raw = request.form.get('recipient_id', '').strip()
+            to_email = (request.form.get('to') or '').strip().lower()
             title = request.form['title'].strip()
             body = request.form['body'].strip()
             if not title or not body:
                 flash('Title and message are required.', 'error')
                 return redirect(url_for('send_message'))
-            recipient = db.session.query(User).filter_by(email=to_email).first()
+            recipient = None
+            if recipient_id_raw:
+                try:
+                    recipient = db.session.get(User, int(recipient_id_raw))
+                except (TypeError, ValueError):
+                    recipient = None
+            if not recipient and to_email:
+                recipient = db.session.query(User).filter_by(email=to_email).first()
             msg = create_encrypted_message(current_user.id, recipient, title, body)
             if not msg:
                 flash('Recipient not found or cannot receive messages', 'error')
@@ -402,6 +415,81 @@ def create_app():
                 flash('No recipients were able to receive this message.', 'error')
             return redirect(url_for('messages_admin'))
         return render_template('messages/admin.html', roles=roles)
+
+    @app.route('/api/users/search')
+    @login_required
+    def api_user_search():
+        term = (request.args.get('q') or '').strip()
+        results = []
+        if term:
+            pattern = f"%{term}%"
+            users = (
+                db.session.query(User)
+                .filter(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
+                .order_by(User.name)
+                .limit(10)
+                .all()
+            )
+            for user in users:
+                results.append({
+                    'id': user.id,
+                    'name': user.name,
+                    'email': user.email or '',
+                })
+        return {'results': results}
+
+    @app.route('/api/messages/unread')
+    @login_required
+    def api_unread_messages():
+        count = (
+            db.session.query(Message)
+            .filter_by(recipient_id=current_user.id, is_read=False)
+            .count()
+        )
+        return {'count': count}
+
+    @app.route('/reports', methods=['GET', 'POST'])
+    @login_required
+    def submit_report():
+        if request.method == 'POST':
+            report_type = request.form.get('report_type')
+            description = (request.form.get('description') or '').strip()
+            if not description:
+                flash('Description is required.', 'error')
+                return redirect(url_for('submit_report'))
+            if report_type not in ('bug', 'player'):
+                flash('Invalid report type.', 'error')
+                return redirect(url_for('submit_report'))
+            report = Report(report_type=report_type, description=description, reporter_id=current_user.id)
+            if report_type == 'player':
+                reported_user_id_raw = (request.form.get('reported_user_id') or '').strip()
+                if reported_user_id_raw:
+                    try:
+                        reported_user_id = int(reported_user_id_raw)
+                    except ValueError:
+                        flash('Select a valid user to report.', 'error')
+                        return redirect(url_for('submit_report'))
+                    target = db.session.get(User, reported_user_id)
+                    if not target:
+                        flash('Selected user could not be found.', 'error')
+                        return redirect(url_for('submit_report'))
+                    report.reported_user_id = target.id
+                else:
+                    flash('Select a user to report.', 'error')
+                    return redirect(url_for('submit_report'))
+            db.session.add(report)
+            db.session.commit()
+            log_site('report_submit', 'success', report_type)
+            flash('Report submitted. Thank you for your feedback!', 'success')
+            return redirect(url_for('submit_report'))
+        return render_template('reports/index.html')
+
+    @app.route('/admin/reports')
+    @login_required
+    def admin_reports():
+        require_admin()
+        reports = db.session.query(Report).order_by(Report.created_at.desc()).all()
+        return render_template('admin/reports.html', reports=reports)
 
     # ---------- Admin ----------
     def require_permission(perm):
@@ -602,7 +690,11 @@ def create_app():
             email = request.form['email'].strip().lower()
             name = request.form['name'].strip()
             password = request.form['password']
-            if db.session.query(User).filter_by(email=email).first():
+            password_confirm = request.form.get('password_confirm', '')
+            if password != password_confirm:
+                flash('Passwords do not match', 'error')
+                log_site('admin_register_player', 'failure', 'password mismatch')
+            elif db.session.query(User).filter_by(email=email).first():
                 flash("Email already registered", "error")
                 log_site('admin_register_player', 'failure', 'email exists')
             else:

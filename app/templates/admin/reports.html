@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Submitted Reports</h2>
+{% if not reports %}
+<p>No reports have been submitted.</p>
+{% else %}
+<table class="table">
+  <tr>
+    <th>Type</th>
+    <th>Reporter</th>
+    <th>Reported User</th>
+    <th>Submitted</th>
+    <th>Status</th>
+  </tr>
+  {% for report in reports %}
+  <tr>
+    <td>{{ 'Bug' if report.report_type == 'bug' else 'Player' }}</td>
+    <td>{{ report.reporter.name if report.reporter else 'Unknown' }}</td>
+    <td>{% if report.reported_user %}{{ report.reported_user.name }}{% else %}-{% endif %}</td>
+    <td>{{ report.created_at }}</td>
+    <td>{{ report.status|capitalize }}</td>
+  </tr>
+  <tr>
+    <td colspan="5">{{ report.description }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
