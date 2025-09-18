@@ -14,7 +14,8 @@ import os
 import secrets
 from typing import Dict
 
-from nicegui import context, ui
+from nicegui import app as ng_app
+from nicegui import ui
 
 from .app import create_app, db
 from .models import Message, Role, Tournament, TournamentPlayer, User
@@ -32,61 +33,50 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 flask_app = create_app()
 
 
-# simple in-memory session storage keyed by a cookie value
-_SESSIONS: Dict[str, Dict[str, str]] = {}
-_SESSION_COOKIE = "walter_session"
-
-
-def _current_client():
-    """Return the active NiceGUI client if available.
-
-    Older NiceGUI versions expose the client via ``context.client`` while
-    newer releases provide a ``context.get_client`` helper which itself may
-    raise an ``AttributeError`` when no client is present.  This helper
-    normalises those variations and simply returns ``None`` if the client
-    is not accessible.
-    """
-
-    try:  # NiceGUI >= 1.3
-        return context.get_client()
-    except Exception:  # pragma: no cover - depends on NiceGUI internals
-        return getattr(context, "client", None)
-
-
-def _client_cookies() -> Dict[str, str]:
-    """Best-effort retrieval of cookies from the current request.
-
-    Some NiceGUI versions expose cookies directly on the client while others
-    only expose the underlying ``request`` object.  This helper looks up the
-    request and returns its cookies, falling back to an empty dictionary when
-    no cookies are available.
-    """
-
-    client = _current_client()
-    request = getattr(client, "request", None) if client else getattr(context, "request", None)
-    return getattr(request, "cookies", {}) if request else {}
+_SESSION_KEY = "walter_session"
 
 
 def _get_session() -> Dict[str, str]:
-    cookies = _client_cookies()
-    token = cookies.get(_SESSION_COOKIE)
-    if token and token in _SESSIONS:
-        return _SESSIONS[token]
-    return {}
+    """Return a shallow copy of the current user storage.
+
+    NiceGUI persists ``app.storage.user`` per browser session once a
+    ``storage_secret`` is configured.  Accessing it outside of an active
+    request raises ``RuntimeError`` which can happen during tests or early in
+    application start-up.  We therefore guard the access and return an empty
+    dictionary when storage is not available.
+    """
+
+    try:
+        store = ng_app.storage.user
+    except Exception:
+        return {}
+
+    if _SESSION_KEY in store:
+        data = store.get(_SESSION_KEY)
+        return dict(data) if isinstance(data, dict) else {}
+
+    # Backwards compatibility for sessions stored without the namespace key.
+    return {
+        key: value
+        for key, value in store.items()
+        if isinstance(key, str) and isinstance(value, str)
+    }
 
 
 def _set_session(data: Dict[str, str]) -> None:
-    token = secrets.token_urlsafe(16)
-    _SESSIONS[token] = data
-    ui.cookie(_SESSION_COOKIE, token, max_age=7 * 24 * 3600)
+    try:
+        store = ng_app.storage.user
+    except Exception:
+        return
+    store.clear()
+    store[_SESSION_KEY] = dict(data)
 
 
 def _clear_session() -> None:
-    cookies = _client_cookies()
-    token = cookies.get(_SESSION_COOKIE)
-    if token:
-        _SESSIONS.pop(token, None)
-    ui.cookie(_SESSION_COOKIE, "", max_age=0)
+    try:
+        ng_app.storage.user.clear()
+    except Exception:
+        pass
 
 
 def _goto(path: str) -> None:
@@ -395,7 +385,12 @@ def run() -> None:
     """Run the NiceGUI frontend application."""
     host = os.environ.get("FLASK_RUN_HOST", "127.0.0.1")
     port = int(os.environ.get("FLASK_RUN_PORT", "8080"))
-    ui.run(host=host, port=port, reload=False)
+    storage_secret = (
+        os.environ.get("NICEGUI_STORAGE_SECRET")
+        or os.environ.get("FLASK_SECRET")
+        or secrets.token_hex(16)
+    )
+    ui.run(host=host, port=port, reload=False, storage_secret=storage_secret)
 
 
 if __name__ == "__main__":
