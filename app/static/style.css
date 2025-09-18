@@ -126,6 +126,30 @@ main { padding: 16px; }
   box-shadow:0 2px 6px rgba(0,0,0,0.1);
 }
 
+.user-search {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  margin-bottom:12px;
+}
+.user-search input[type="text"] {
+  flex:1 1 220px;
+}
+.message-nav {
+  margin-bottom:12px;
+}
+.message-nav a {
+  text-decoration:underline;
+}
+.message-form label {
+  display:block;
+  margin-bottom:8px;
+}
+.message-form textarea {
+  width:100%;
+}
+
 input, select, textarea {
   padding:6px 8px;
   border:1px solid var(--dark-grey);

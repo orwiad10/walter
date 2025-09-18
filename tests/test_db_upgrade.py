@@ -1,5 +1,8 @@
 import sqlite3
+import sqlite3
+
 from sqlalchemy import inspect
+
 from app.app import create_app, db
 
 
@@ -54,4 +57,5 @@ def test_break_end_column_added(tmp_path, monkeypatch):
         inspector = inspect(db.engine)
         cols = [c['name'] for c in inspector.get_columns('user')]
         assert 'break_end' in cols
+        assert 'permission_overrides' in cols
         db.session.remove()

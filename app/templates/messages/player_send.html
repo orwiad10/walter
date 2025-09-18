@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Compose Direct Message</h2>
+<p class="message-nav"><a href="{{ url_for('messages_inbox') }}">Back to Inbox</a></p>
+<form method="post" class="message-form">
+  <label>To (email)
+    <input type="email" name="to" required>
+  </label><br>
+  <label>Title
+    <input type="text" name="title" required>
+  </label><br>
+  <label>Message
+    <textarea name="body" rows="6" required></textarea>
+  </label><br>
+  <button class="btn" type="submit">Send Message</button>
+</form>
+{% endblock %}

@@ -15,7 +15,7 @@ import hashlib
 import psutil
 import json
 import base64
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, or_
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -69,6 +69,9 @@ def create_app():
             if 'break_end' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN break_end DATETIME'))
                 db.session.commit()
+            if 'permission_overrides' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN permission_overrides TEXT'))
+                db.session.commit()
 
     from .models import (
         User,
@@ -83,6 +86,7 @@ def create_app():
         SiteLog,
         TournamentLog,
         Message,
+        all_permission_keys,
     )
     from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
 
@@ -148,6 +152,11 @@ def create_app():
             email = request.form['email'].strip().lower()
             name = request.form['name'].strip()
             password = request.form['password']
+            confirm = request.form.get('password_confirm', '')
+            if password != confirm:
+                flash("Passwords do not match", "error")
+                log_site('register', 'failure', 'password mismatch')
+                return redirect(url_for('register'))
             if db.session.query(User).filter_by(email=email).first():
                 flash("Email already registered", "error")
                 log_site('register', 'failure', 'email exists')
@@ -202,7 +211,52 @@ def create_app():
         log_site('logout', 'success')
         return redirect(url_for('index'))
 
+    def create_encrypted_message(sender_id, recipient, title, body):
+        if not recipient or not recipient.public_key:
+            return None
+        try:
+            public_key = serialization.load_pem_public_key(recipient.public_key)
+        except Exception:
+            return None
+        aes_key = os.urandom(32)
+        aesgcm = AESGCM(aes_key)
+        nonce_title = os.urandom(12)
+        nonce_body = os.urandom(12)
+        try:
+            title_enc = aesgcm.encrypt(nonce_title, title.encode(), None)
+            body_enc = aesgcm.encrypt(nonce_body, body.encode(), None)
+        except Exception:
+            return None
+        try:
+            key_enc = public_key.encrypt(
+                aes_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+        except Exception:
+            return None
+        return Message(
+            sender_id=sender_id,
+            recipient_id=recipient.id,
+            key_encrypted=key_enc,
+            title_encrypted=title_enc,
+            title_nonce=nonce_title,
+            body_encrypted=body_enc,
+            body_nonce=nonce_body,
+        )
+
     @app.route('/messages')
+    @login_required
+    def messages_home():
+        judge_access = current_user.has_permission('tournaments.manage')
+        admin_access = current_user.has_permission('admin.panel')
+        return render_template('messages/index.html', judge_access=judge_access, admin_access=admin_access)
+
+    @app.route('/messages/player')
+    @app.route('/messages/inbox')
     @login_required
     def messages_inbox():
         from .models import Message
@@ -238,49 +292,116 @@ def create_app():
                 except Exception:
                     continue
             db.session.commit()
-        return render_template('messages.html', messages=msgs)
+        return render_template('messages/player.html', messages=msgs)
 
+    @app.route('/messages/player/send', methods=['GET', 'POST'])
     @app.route('/messages/send', methods=['GET', 'POST'])
     @login_required
     def send_message():
-        from .models import User, Message
+        from .models import User
         if request.method == 'POST':
             to_email = request.form['to'].strip().lower()
-            title = request.form['title']
-            body = request.form['body']
+            title = request.form['title'].strip()
+            body = request.form['body'].strip()
+            if not title or not body:
+                flash('Title and message are required.', 'error')
+                return redirect(url_for('send_message'))
             recipient = db.session.query(User).filter_by(email=to_email).first()
-            if not recipient or not recipient.public_key:
+            msg = create_encrypted_message(current_user.id, recipient, title, body)
+            if not msg:
                 flash('Recipient not found or cannot receive messages', 'error')
                 return redirect(url_for('send_message'))
-            public_key = serialization.load_pem_public_key(recipient.public_key)
-            aes_key = os.urandom(32)
-            aesgcm = AESGCM(aes_key)
-            nonce_title = os.urandom(12)
-            nonce_body = os.urandom(12)
-            title_enc = aesgcm.encrypt(nonce_title, title.encode(), None)
-            body_enc = aesgcm.encrypt(nonce_body, body.encode(), None)
-            key_enc = public_key.encrypt(
-                aes_key,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None,
-                ),
-            )
-            msg = Message(
-                sender_id=current_user.id,
-                recipient_id=recipient.id,
-                key_encrypted=key_enc,
-                title_encrypted=title_enc,
-                title_nonce=nonce_title,
-                body_encrypted=body_enc,
-                body_nonce=nonce_body,
-            )
             db.session.add(msg)
             db.session.commit()
             flash('Message sent', 'success')
             return redirect(url_for('messages_inbox'))
-        return render_template('send_message.html')
+        return render_template('messages/player_send.html')
+
+    @app.route('/messages/judge', methods=['GET', 'POST'])
+    @login_required
+    def messages_judge():
+        require_permission('tournaments.manage')
+        tournaments = db.session.query(Tournament).order_by(Tournament.name).all()
+        if request.method == 'POST':
+            tournament_id = request.form.get('tournament_id')
+            title = request.form['title'].strip()
+            body = request.form['body'].strip()
+            if not tournament_id:
+                flash('Select a tournament.', 'error')
+                return redirect(url_for('messages_judge'))
+            tournament = db.session.get(Tournament, int(tournament_id))
+            if not tournament:
+                flash('Tournament not found.', 'error')
+                return redirect(url_for('messages_judge'))
+            if not title or not body:
+                flash('Title and message are required.', 'error')
+                return redirect(url_for('messages_judge'))
+            delivered = 0
+            skipped = []
+            for tp in tournament.players:
+                recipient = tp.user
+                msg = create_encrypted_message(current_user.id, recipient, title, body)
+                if msg:
+                    db.session.add(msg)
+                    delivered += 1
+                elif recipient:
+                    skipped.append(recipient.name)
+            if delivered:
+                db.session.commit()
+                log_site('group_message', 'success', f'tournament:{tournament.id} recipients:{delivered}')
+                if skipped:
+                    flash(f'Message sent to {delivered} recipients; {len(skipped)} could not receive.', 'warning')
+                else:
+                    flash(f'Message sent to {delivered} recipients.', 'success')
+            else:
+                flash('No recipients were able to receive this message.', 'error')
+            return redirect(url_for('messages_judge'))
+        return render_template('messages/judge.html', tournaments=tournaments)
+
+    @app.route('/messages/admin', methods=['GET', 'POST'])
+    @login_required
+    def messages_admin():
+        require_admin()
+        roles = db.session.query(Role).order_by(Role.name).all()
+        if request.method == 'POST':
+            target = request.form.get('role_id')
+            title = request.form['title'].strip()
+            body = request.form['body'].strip()
+            recipients = []
+            target_label = ''
+            if not title or not body:
+                flash('Title and message are required.', 'error')
+                return redirect(url_for('messages_admin'))
+            if target == 'all':
+                recipients = db.session.query(User).all()
+                target_label = 'all users'
+            else:
+                role = db.session.get(Role, int(target)) if target else None
+                if not role:
+                    flash('Select a recipient group.', 'error')
+                    return redirect(url_for('messages_admin'))
+                recipients = db.session.query(User).filter(User.role_id == role.id).all()
+                target_label = role.name
+            delivered = 0
+            skipped = []
+            for recipient in recipients:
+                msg = create_encrypted_message(current_user.id, recipient, title, body)
+                if msg:
+                    db.session.add(msg)
+                    delivered += 1
+                elif recipient:
+                    skipped.append(recipient.name)
+            if delivered:
+                db.session.commit()
+                log_site('group_message_admin', 'success', f'{target_label}:{delivered}')
+                if skipped:
+                    flash(f'Message sent to {delivered} recipients; {len(skipped)} could not receive.', 'warning')
+                else:
+                    flash(f'Message sent to {delivered} recipients.', 'success')
+            else:
+                flash('No recipients were able to receive this message.', 'error')
+            return redirect(url_for('messages_admin'))
+        return render_template('messages/admin.html', roles=roles)
 
     # ---------- Admin ----------
     def require_permission(perm):
@@ -1259,15 +1380,28 @@ def create_app():
     def admin_users():
         require_permission('users.manage')
         from .models import User, Tournament, TournamentPlayer, Role
-        if current_user.has_permission('users.manage_admins'):
-            users = db.session.query(User).order_by(User.name).all()
-        else:
-            users = db.session.query(User).filter(User.is_admin == False).order_by(User.name).all()
+        q = request.args.get('q', '').strip()
+        query = db.session.query(User)
+        if not current_user.has_permission('users.manage_admins'):
+            query = query.filter(User.is_admin == False)
+        if q:
+            pattern = f"%{q}%"
+            query = query.filter(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
+        users = query.order_by(User.name).all()
         tournaments = db.session.query(Tournament).order_by(Tournament.name).all()
         roles = db.session.query(Role).order_by(Role.name).all()
         if not current_user.has_permission('users.manage_admins'):
             roles = [r for r in roles if r.name != 'admin']
-        return render_template('admin/users.html', users=users, tournaments=tournaments, roles=roles)
+        can_manage_overrides = current_user.has_permission('admin.permissions')
+        return render_template(
+            'admin/users.html',
+            users=users,
+            tournaments=tournaments,
+            roles=roles,
+            search_query=q,
+            can_manage_overrides=can_manage_overrides,
+            permission_groups=PERMISSION_GROUPS,
+        )
 
     @app.route('/admin/users/<int:uid>/add', methods=['POST'])
     def admin_add_user_to_tournament(uid):
@@ -1276,13 +1410,15 @@ def create_app():
         target = db.session.get(User, uid)
         if target.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
+        search_query = request.form.get('search_query', '').strip()
         tid = int(request.form['tournament_id'])
         if not db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first():
             tp = TournamentPlayer(user_id=uid, tournament_id=tid)
             db.session.add(tp)
             db.session.commit()
         flash('User added to tournament.', 'success')
-        return redirect(url_for('admin_users'))
+        redirect_url = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        return redirect(redirect_url)
 
     @app.route('/admin/users/<int:uid>/remove/<int:tid>', methods=['POST'])
     def admin_remove_user_from_tournament(uid, tid):
@@ -1291,12 +1427,14 @@ def create_app():
         target = db.session.get(User, uid)
         if target.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
+        search_query = request.form.get('search_query', '').strip()
         tp = db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first()
         if tp:
             db.session.delete(tp)
             db.session.commit()
         flash('User removed from tournament.', 'success')
-        return redirect(url_for('admin_users'))
+        redirect_url = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        return redirect(redirect_url)
 
     @app.route('/admin/users/<int:uid>/update', methods=['POST'])
     def admin_update_user(uid):
@@ -1307,10 +1445,22 @@ def create_app():
             abort(404)
         if u.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
+        search_query = request.form.get('search_query', '').strip()
         email = request.form.get('email', '').strip().lower() or None
         if email and db.session.query(User).filter(User.email == email, User.id != uid).first():
             flash('Email already registered.', 'error')
+            log_site('user_update', 'failure', 'email exists')
         else:
+            password = request.form.get('password', '')
+            password_confirm = request.form.get('password_confirm', '')
+            if password or password_confirm:
+                if password != password_confirm:
+                    flash('Passwords do not match.', 'error')
+                    log_site('user_update', 'failure', 'password mismatch')
+                    redirect_target = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+                    return redirect(redirect_target)
+                u.set_password(password)
+                u.generate_keys(password)
             u.email = email
             u.notes = request.form.get('notes', '').strip() or None
             role_id = request.form.get('role_id')
@@ -1321,10 +1471,19 @@ def create_app():
                 elif role and (role.name != 'admin' or current_user.has_permission('users.manage_admins')):
                     u.role = role
                     u.is_admin = (role.name == 'admin')
+            if current_user.has_permission('admin.permissions'):
+                overrides = {}
+                for key in all_permission_keys():
+                    field = f'perm_override_{key}'
+                    val = request.form.get(field)
+                    if val in ('allow', 'deny'):
+                        overrides[key] = val
+                u.permission_overrides = json.dumps(overrides) if overrides else None
             db.session.commit()
             log_site('user_update', 'success')
             flash('User updated.', 'success')
-        return redirect(url_for('admin_users'))
+        redirect_target = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        return redirect(redirect_target)
 
     @app.route('/admin/users/<int:uid>/delete', methods=['POST'])
     def admin_delete_user(uid):
@@ -1335,12 +1494,14 @@ def create_app():
             abort(404)
         if u.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
+        search_query = request.form.get('search_query', '').strip()
         for tp in list(u.tournament_entries):
             db.session.delete(tp)
         db.session.delete(u)
         db.session.commit()
         flash('User deleted.', 'success')
-        return redirect(url_for('admin_users'))
+        redirect_target = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        return redirect(redirect_target)
 
     return app
 
