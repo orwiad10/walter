@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Judge Broadcast</h2>
+<p class="message-nav"><a href="{{ url_for('messages_home') }}">Back to Messages</a></p>
+<p>Send an encrypted announcement to every registered player in a tournament. Players without keys are skipped.</p>
+<form method="post" class="message-form">
+  <label>Tournament
+    <select name="tournament_id" required>
+      <option value="">-- Select --</option>
+      {% for t in tournaments %}
+      <option value="{{ t.id }}">{{ t.name }}</option>
+      {% endfor %}
+    </select>
+  </label><br>
+  <label>Title
+    <input type="text" name="title" required>
+  </label><br>
+  <label>Message
+    <textarea name="body" rows="6" required></textarea>
+  </label><br>
+  <button class="btn" type="submit">Send Announcement</button>
+</form>
+{% endblock %}

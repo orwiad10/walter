@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Messages</h2>
+<p>Select the messaging option that matches what you need to do.</p>
+<ul class="message-nav">
+  <li><a href="{{ url_for('messages_inbox') }}">Player Inbox</a> – read your encrypted messages and compose direct replies.</li>
+  {% if judge_access %}
+  <li><a href="{{ url_for('messages_judge') }}">Judge Broadcast</a> – send announcements to all players in a tournament.</li>
+  {% endif %}
+  {% if admin_access %}
+  <li><a href="{{ url_for('messages_admin') }}">Admin Broadcast</a> – send announcements to everyone in a role or to all users.</li>
+  {% endif %}
+</ul>
+{% endblock %}

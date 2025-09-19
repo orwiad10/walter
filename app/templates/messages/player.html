@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Inbox</h2>
-<table>
+<h2>Direct Messages</h2>
+<p class="message-nav"><a href="{{ url_for('messages_home') }}">Back to Messages</a></p>
+<p><a class="btn" href="{{ url_for('send_message') }}">Compose Message</a></p>
+<table class="table">
   <tr><th>From</th><th>Title</th><th>Date</th></tr>
   {% for m in messages %}
   <tr>
@@ -16,5 +18,4 @@
   <tr><td colspan="3">No messages</td></tr>
   {% endfor %}
 </table>
-<p><a href="{{ url_for('send_message') }}">Compose Message</a></p>
 {% endblock %}

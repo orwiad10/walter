@@ -14,7 +14,8 @@
       {% if current_user.is_authenticated %}
         <span>Hi, {{ current_user.name }}</span>
         <a href="{{ url_for('index') }}">All Tournaments</a>
-        <a href="{{ url_for('messages_inbox') }}">Messages</a>
+        <a href="{{ url_for('messages_home') }}">Messages</a>
+        <a href="{{ url_for('submit_report') }}">Report Issue</a>
         {% if current_user.has_permission('tournaments.manage') %}
         <a href="{{ url_for('new_tournament') }}">New Tournament</a>
         <a href="{{ url_for('admin_register_player') }}">Register Player</a>
@@ -28,6 +29,7 @@
         {% if current_user.has_permission('admin.panel') %}
         <a href="{{ url_for('admin_panel') }}">Admin Panel</a>
         <a href="{{ url_for('site_logs') }}">Site Logs</a>
+        <a href="{{ url_for('admin_reports') }}">Reports</a>
         {% endif %}
         {% if current_user.has_permission('admin.permissions') %}
         <a href="{{ url_for('permissions') }}">Permissions</a>
@@ -108,6 +110,102 @@
       nav.classList.toggle('open');
     });
   }
+  const userSearchEndpoint = "{{ url_for('api_user_search') }}";
+  function attachUserLookup(searchInputId, resultsContainerId, hiddenInputId, emailInputId){
+    const searchInput = document.getElementById(searchInputId);
+    const resultsContainer = document.getElementById(resultsContainerId);
+    if(!searchInput || !resultsContainer){
+      return;
+    }
+    const hiddenInput = hiddenInputId ? document.getElementById(hiddenInputId) : null;
+    const emailInput = emailInputId ? document.getElementById(emailInputId) : null;
+    searchInput.addEventListener('input', function(){
+      const query = searchInput.value.trim();
+      if(query.length < 2){
+        resultsContainer.innerHTML = '';
+        resultsContainer.classList.remove('open');
+        if(hiddenInput){
+          hiddenInput.value = '';
+        }
+        return;
+      }
+      fetch(userSearchEndpoint + '?q=' + encodeURIComponent(query))
+        .then(function(resp){
+          if(!resp.ok){
+            throw new Error('search failed');
+          }
+          return resp.json();
+        })
+        .then(function(data){
+          resultsContainer.innerHTML = '';
+          const results = data.results || [];
+          if(!results.length){
+            const empty = document.createElement('div');
+            empty.className = 'user-lookup-empty';
+            empty.textContent = 'No matching users';
+            resultsContainer.appendChild(empty);
+            resultsContainer.classList.add('open');
+            return;
+          }
+          results.forEach(function(user){
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'user-lookup-option';
+            option.textContent = user.name + (user.email ? ' (' + user.email + ')' : '');
+            option.addEventListener('click', function(){
+              searchInput.value = user.name;
+              if(hiddenInput){
+                hiddenInput.value = user.id;
+              }
+              if(emailInput && user.email){
+                emailInput.value = user.email;
+              }
+              resultsContainer.innerHTML = '';
+              resultsContainer.classList.remove('open');
+            });
+            resultsContainer.appendChild(option);
+          });
+          resultsContainer.classList.add('open');
+        })
+        .catch(function(){
+          resultsContainer.innerHTML = '';
+          resultsContainer.classList.remove('open');
+        });
+    });
+  }
+  window.attachUserLookup = attachUserLookup;
+  {% if current_user.is_authenticated %}
+  (function(){
+    if(!window.sessionStorage){
+      return;
+    }
+    fetch("{{ url_for('api_unread_messages') }}")
+      .then(function(resp){
+        if(!resp.ok){
+          throw new Error('unread failed');
+        }
+        return resp.json();
+      })
+      .then(function(data){
+        if(!data || typeof data.count !== 'number'){
+          return;
+        }
+        const key = 'walter_unread_count';
+        if(data.count > 0){
+          const previous = sessionStorage.getItem(key);
+          if(previous !== String(data.count)){
+            alert('You have ' + data.count + ' unread message' + (data.count === 1 ? '' : 's') + '.');
+            sessionStorage.setItem(key, String(data.count));
+          }
+        }else{
+          sessionStorage.removeItem(key);
+        }
+      })
+      .catch(function(){
+        /* ignore errors */
+      });
+  })();
+  {% endif %}
   </script>
 </body>
 </html>

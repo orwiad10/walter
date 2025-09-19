@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Admin Broadcast</h2>
+<p class="message-nav"><a href="{{ url_for('messages_home') }}">Back to Messages</a></p>
+<p>Send an encrypted announcement to an entire role or to every user. Only users with encryption keys will receive the message.</p>
+<form method="post" class="message-form">
+  <label>Recipient Group
+    <select name="role_id" required>
+      <option value="">-- Select --</option>
+      <option value="all">All Users</option>
+      {% for role in roles %}
+      <option value="{{ role.id }}">{{ role.name }}</option>
+      {% endfor %}
+    </select>
+  </label><br>
+  <label>Title
+    <input type="text" name="title" required>
+  </label><br>
+  <label>Message
+    <textarea name="body" rows="6" required></textarea>
+  </label><br>
+  <button class="btn" type="submit">Send Announcement</button>
+</form>
+{% endblock %}

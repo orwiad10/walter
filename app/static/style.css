@@ -126,6 +126,77 @@ main { padding: 16px; }
   box-shadow:0 2px 6px rgba(0,0,0,0.1);
 }
 
+.user-search {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  margin-bottom:12px;
+}
+.user-search input[type="text"] {
+  flex:1 1 220px;
+}
+.message-nav {
+  margin-bottom:12px;
+}
+.message-nav a {
+  text-decoration:underline;
+}
+.message-form label {
+  display:block;
+  margin-bottom:8px;
+}
+.message-form textarea {
+  width:100%;
+}
+
+.report-section {
+  background:#fff;
+  padding:16px;
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.1);
+  margin-bottom:24px;
+}
+
+.user-lookup-results {
+  display:none;
+  border:1px solid var(--dark-grey);
+  border-radius:8px;
+  background:#fff;
+  margin:4px 0 12px;
+  max-width:420px;
+  overflow:hidden;
+}
+
+.user-lookup-results.open {
+  display:block;
+}
+
+.user-lookup-option {
+  display:block;
+  width:100%;
+  padding:8px 12px;
+  background:transparent;
+  border:none;
+  border-bottom:1px solid var(--light-green);
+  text-align:left;
+  cursor:pointer;
+}
+
+.user-lookup-option:last-child {
+  border-bottom:none;
+}
+
+.user-lookup-option:hover,
+.user-lookup-option:focus {
+  background:var(--light-green);
+}
+
+.user-lookup-empty {
+  padding:8px 12px;
+  color:var(--dark-grey);
+}
+
 input, select, textarea {
   padding:6px 8px;
   border:1px solid var(--dark-grey);

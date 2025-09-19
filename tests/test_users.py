@@ -37,3 +37,16 @@ def test_judge_roles_have_user_manage(session):
     for name in ('venue judge', 'event head judge', 'floor judge'):
         perms = json.loads(roles[name].permissions)
         assert perms.get('users.manage')
+
+
+def test_user_permission_overrides(session):
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    user = User(email='override@example.com', name='Override User', role=manager_role)
+    user.set_password('secret')
+    user.permission_overrides = json.dumps({'admin.panel': 'allow', 'users.manage': 'deny'})
+    session.add(user)
+    session.commit()
+
+    fetched = session.query(User).filter_by(email='override@example.com').one()
+    assert fetched.has_permission('admin.panel')
+    assert not fetched.has_permission('users.manage')

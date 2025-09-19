@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Compose Direct Message</h2>
+<p class="message-nav"><a href="{{ url_for('messages_inbox') }}">Back to Inbox</a></p>
+<form method="post" class="message-form">
+  <label>Look up recipient
+    <input type="text" id="message-user-search" placeholder="Search by name or email" autocomplete="off">
+  </label><br>
+  <div id="message-user-results" class="user-lookup-results" aria-live="polite"></div>
+  <input type="hidden" name="recipient_id" id="message-recipient-id">
+  <label>To (email)
+    <input type="email" name="to" id="to-email" required>
+  </label><br>
+  <label>Title
+    <input type="text" name="title" required>
+  </label><br>
+  <label>Message
+    <textarea name="body" rows="6" required></textarea>
+  </label><br>
+  <button class="btn" type="submit">Send Message</button>
+</form>
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    if(window.attachUserLookup){
+      window.attachUserLookup('message-user-search', 'message-user-results', 'message-recipient-id', 'to-email');
+    }
+  });
+</script>
+{% endblock %}

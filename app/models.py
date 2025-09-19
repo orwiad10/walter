@@ -87,6 +87,7 @@ class User(db.Model, UserMixin):
     private_key_encrypted = db.Column(db.LargeBinary, nullable=True)
     private_key_salt = db.Column(db.LargeBinary, nullable=True)
     private_key_nonce = db.Column(db.LargeBinary, nullable=True)
+    permission_overrides = db.Column(db.Text, nullable=True)
 
     def set_password(self, pw):
         self.salt = os.urandom(16).hex()
@@ -134,9 +135,18 @@ class User(db.Model, UserMixin):
         private_pem = aesgcm.decrypt(self.private_key_nonce, self.private_key_encrypted, None)
         return private_pem
 
+    def permission_overrides_dict(self):
+        try:
+            return json.loads(self.permission_overrides or '{}')
+        except Exception:
+            return {}
+
     def has_permission(self, key):
         if self.is_admin:
             return True
+        overrides = self.permission_overrides_dict()
+        if key in overrides:
+            return overrides.get(key) == 'allow'
         if not self.role:
             return False
         return self.role.permissions_dict().get(key, False)
@@ -156,6 +166,20 @@ class Message(db.Model):
 
     sender = db.relationship('User', foreign_keys=[sender_id])
     recipient = db.relationship('User', foreign_keys=[recipient_id])
+
+
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    reporter_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    reported_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    report_type = db.Column(db.String(20), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), default='open')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    reporter = db.relationship('User', foreign_keys=[reporter_id])
+    reported_user = db.relationship('User', foreign_keys=[reported_user_id])
+
 
 class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
