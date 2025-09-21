@@ -1,5 +1,5 @@
-db_file: mtg_tournament.db
-log_db_file: mtg_tournament_logs.db
+db_file: mtg_tournament_20250921114043.db
+log_db_file: mtg_tournament_20250921114043.db
 admin_email: admin@example.com
 admin_pass: admin123
 flask_secret: dev-secret-change-me
