@@ -1,21 +1,30 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Direct Messages</h2>
-<p class="message-nav"><a href="{{ url_for('messages_home') }}">Back to Messages</a></p>
-<p><a class="btn" href="{{ url_for('send_message') }}">Compose Message</a></p>
-<table class="table">
-  <tr><th>From</th><th>Title</th><th>Date</th></tr>
+<h2>Inbox</h2>
+<div class="message-actions">
+  <a class="btn" href="{{ url_for('send_message') }}">Compose</a>
+  <a class="btn" href="{{ url_for('messages_sent') }}">Sent</a>
+  <a class="btn" href="{{ url_for('messages_home') }}">Message Options</a>
+</div>
+{% if not messages %}
+<p>No messages yet.</p>
+{% else %}
+<table class="table message-table">
+  <thead>
+    <tr><th>From</th><th>Subject</th><th>Received</th></tr>
+  </thead>
+  <tbody>
   {% for m in messages %}
-  <tr>
-    <td>{{ m.sender.name }}</td>
-    <td>{{ m.title }}</td>
-    <td>{{ m.sent_at }}</td>
-  </tr>
-  <tr>
-    <td colspan="3">{{ m.body }}</td>
-  </tr>
-  {% else %}
-  <tr><td colspan="3">No messages</td></tr>
+    <tr class="message-row{% if m.was_unread %} unread{% endif %}">
+      <td data-label="From">{{ m.sender.name if m.sender else 'Unknown' }}</td>
+      <td data-label="Subject"><a href="{{ url_for('view_message', mid=m.id) }}">{{ m.title }}</a></td>
+      <td data-label="Received">{{ m.sent_at.strftime('%Y-%m-%d %H:%M') if m.sent_at else '' }}</td>
+    </tr>
+    <tr class="preview-row">
+      <td colspan="3">{{ m.body|truncate(200) }}</td>
+    </tr>
   {% endfor %}
+  </tbody>
 </table>
+{% endif %}
 {% endblock %}

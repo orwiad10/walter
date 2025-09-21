@@ -2,7 +2,8 @@
 {% block content %}
 <h2>Users</h2>
 <form method="get" class="user-search">
-  <input type="text" name="q" value="{{ search_query }}" placeholder="Search by name or email">
+  <input type="text" name="q" id="admin-user-search" value="{{ search_query }}" placeholder="Search by name or email" autocomplete="off">
+  <div id="admin-user-results" class="user-lookup-results" aria-live="polite"></div>
   <button class="btn" type="submit">Search</button>
   {% if search_query %}
   <a class="btn" href="{{ url_for('admin_users') }}">Clear</a>
@@ -96,4 +97,11 @@
   {% endfor %}
 </table>
 {% endif %}
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    if(window.attachUserLookup){
+      window.attachUserLookup('admin-user-search', 'admin-user-results');
+    }
+  });
+</script>
 {% endblock %}

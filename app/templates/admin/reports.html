@@ -1,6 +1,10 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>Submitted Reports</h2>
+<div class="toolbar">
+  <a class="btn" href="{{ url_for('export_reports_csv') }}">Export CSV</a>
+  <button class="btn" type="button" onclick="window.print()">Print</button>
+</div>
 {% if not reports %}
 <p>No reports have been submitted.</p>
 {% else %}

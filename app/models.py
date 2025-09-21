@@ -157,6 +157,7 @@ class Message(db.Model):
     sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     key_encrypted = db.Column(db.LargeBinary, nullable=False)
+    sender_key_encrypted = db.Column(db.LargeBinary, nullable=True)
     title_encrypted = db.Column(db.LargeBinary, nullable=False)
     title_nonce = db.Column(db.LargeBinary, nullable=False)
     body_encrypted = db.Column(db.LargeBinary, nullable=False)
@@ -187,6 +188,8 @@ class Tournament(db.Model):
     format = db.Column(db.String(50), nullable=False)  # Commander, Draft, Constructed
     structure = db.Column(db.String(20), default='swiss')  # swiss or single_elim
     cut = db.Column(db.String(10), default='none')     # none, top8, top4
+    rules_enforcement_level = db.Column(db.String(20), default='None')
+    is_cube = db.Column(db.Boolean, default=False)
     rounds_override = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     # Comma separated points for Commander: first, second, third, fourth, draw
@@ -309,3 +312,17 @@ class Match(db.Model):
     )
 
     __table_args__ = (UniqueConstraint('round_id', 'table_number', name='_round_table_uc'),)
+
+
+class LostFoundItem(db.Model):
+    __bind_key__ = 'media'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), default='unclaimed')
+    location = db.Column(db.String(200), nullable=True)
+    image_path = db.Column(db.String(500), nullable=True)
+    reporter_name = db.Column(db.String(120), nullable=True)
+    reporter_contact = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

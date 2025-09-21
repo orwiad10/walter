@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, abort, session
+from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, send_from_directory, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
@@ -15,10 +15,16 @@ import hashlib
 import psutil
 import json
 import base64
+import io
+import glob
+import secrets
+import csv
 from sqlalchemy import inspect, text, or_
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from werkzeug.utils import secure_filename
+from PIL import Image, ImageOps
 
 
 db = SQLAlchemy()
@@ -32,7 +38,26 @@ def create_app():
     db_file = os.environ.get('MTG_DB_PATH', 'mtg_tournament.db')
     log_db_file = os.environ.get('MTG_LOG_DB_PATH', db_file.replace('.db', '_logs.db'))
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_file}'
-    app.config['SQLALCHEMY_BINDS'] = {'logs': f'sqlite:///{log_db_file}'}
+    os.makedirs(app.instance_path, exist_ok=True)
+    db_base = os.path.splitext(os.path.basename(db_file))[0]
+    media_dir = os.path.join(app.instance_path, db_base)
+    os.makedirs(media_dir, exist_ok=True)
+    media_pattern = os.path.join(app.instance_path, f"{db_base}_media_*.db")
+    existing_media = sorted(glob.glob(media_pattern))
+    if existing_media:
+        media_db_path = existing_media[-1]
+    else:
+        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+        media_db_filename = f"{db_base}_media_{timestamp}.db"
+        media_db_path = os.path.join(app.instance_path, media_db_filename)
+    if not os.path.exists(media_db_path):
+        open(media_db_path, 'a').close()
+    app.config['SQLALCHEMY_BINDS'] = {
+        'logs': f'sqlite:///{log_db_file}',
+        'media': f'sqlite:///{media_db_path}',
+    }
+    app.config['MEDIA_STORAGE_DIR'] = media_dir
+    app.config['MEDIA_DB_PATH'] = media_db_path
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
@@ -64,6 +89,14 @@ def create_app():
             if 'start_time' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN start_time DATETIME'))
                 db.session.commit()
+            if 'rules_enforcement_level' not in columns:
+                db.session.execute(text("ALTER TABLE tournament ADD COLUMN rules_enforcement_level VARCHAR(20)"))
+                db.session.execute(text("UPDATE tournament SET rules_enforcement_level='None' WHERE rules_enforcement_level IS NULL"))
+                db.session.commit()
+            if 'is_cube' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN is_cube BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE tournament SET is_cube=0 WHERE is_cube IS NULL'))
+                db.session.commit()
         if 'user' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'break_end' not in columns:
@@ -72,10 +105,19 @@ def create_app():
             if 'permission_overrides' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN permission_overrides TEXT'))
                 db.session.commit()
+        if 'message' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('message')]
+            if 'sender_key_encrypted' not in columns:
+                db.session.execute(text('ALTER TABLE message ADD COLUMN sender_key_encrypted BLOB'))
+                db.session.commit()
         if 'report' not in inspector.get_table_names():
             from .models import Report  # lazy import to avoid circular reference
 
             Report.__table__.create(bind=db.engine)
+        from .models import LostFoundItem
+
+        media_engine = db.get_engine(app, bind='media')
+        LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
 
     from .models import (
         User,
@@ -91,6 +133,7 @@ def create_app():
         TournamentLog,
         Message,
         Report,
+        LostFoundItem,
         all_permission_keys,
     )
     from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
@@ -103,6 +146,7 @@ def create_app():
     @app.cli.command('db-init')
     def db_init():
         db.create_all()
+        db.create_all(bind='media')
         # Ensure default roles
         for name, perms in DEFAULT_ROLE_PERMISSIONS.items():
             if not db.session.query(Role).filter_by(name=name).first():
@@ -216,11 +260,14 @@ def create_app():
         log_site('logout', 'success')
         return redirect(url_for('index'))
 
-    def create_encrypted_message(sender_id, recipient, title, body):
+    def create_encrypted_message(sender, recipient, title, body):
         if not recipient or not recipient.public_key:
             return None
+        if not sender or not sender.public_key:
+            return None
         try:
-            public_key = serialization.load_pem_public_key(recipient.public_key)
+            recipient_key = serialization.load_pem_public_key(recipient.public_key)
+            sender_key = serialization.load_pem_public_key(sender.public_key)
         except Exception:
             return None
         aes_key = os.urandom(32)
@@ -233,7 +280,15 @@ def create_app():
         except Exception:
             return None
         try:
-            key_enc = public_key.encrypt(
+            key_enc = recipient_key.encrypt(
+                aes_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            sender_key_enc = sender_key.encrypt(
                 aes_key,
                 padding.OAEP(
                     mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -244,14 +299,53 @@ def create_app():
         except Exception:
             return None
         return Message(
-            sender_id=sender_id,
+            sender_id=sender.id,
             recipient_id=recipient.id,
             key_encrypted=key_enc,
+            sender_key_encrypted=sender_key_enc,
             title_encrypted=title_enc,
             title_nonce=nonce_title,
             body_encrypted=body_enc,
             body_nonce=nonce_body,
         )
+
+    def load_private_key_from_session():
+        priv_b64 = session.get('private_key')
+        if not priv_b64:
+            return None
+        try:
+            return serialization.load_pem_private_key(base64.b64decode(priv_b64), password=None)
+        except Exception:
+            return None
+
+    def decrypt_message_for_user(message, private_key, *, for_sender=False):
+        if not private_key:
+            return None
+        encrypted_key = message.sender_key_encrypted if for_sender else message.key_encrypted
+        if not encrypted_key:
+            return None
+        try:
+            aes_key = private_key.decrypt(
+                encrypted_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            aesgcm = AESGCM(aes_key)
+            title = aesgcm.decrypt(message.title_nonce, message.title_encrypted, None).decode()
+            body = aesgcm.decrypt(message.body_nonce, message.body_encrypted, None).decode()
+        except Exception:
+            return None
+        return {
+            'id': message.id,
+            'title': title,
+            'body': body,
+            'sender': message.sender,
+            'recipient': message.recipient,
+            'sent_at': message.sent_at,
+        }
 
     @app.route('/messages')
     @login_required
@@ -265,39 +359,67 @@ def create_app():
     @login_required
     def messages_inbox():
         from .models import Message
-        priv_b64 = session.get('private_key')
-        if not priv_b64:
+        private_key = load_private_key_from_session()
+        msgs = []
+        if not private_key:
             flash('Cannot decrypt messages', 'error')
-            msgs = []
         else:
-            private_key = serialization.load_pem_private_key(base64.b64decode(priv_b64), password=None)
             msgs_db = (
                 db.session.query(Message)
                 .filter_by(recipient_id=current_user.id)
                 .order_by(Message.sent_at.desc())
                 .all()
             )
-            msgs = []
+            updated = False
             for m in msgs_db:
-                try:
-                    aes_key = private_key.decrypt(
-                        m.key_encrypted,
-                        padding.OAEP(
-                            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                            algorithm=hashes.SHA256(),
-                            label=None,
-                        ),
-                    )
-                    aesgcm = AESGCM(aes_key)
-                    title = aesgcm.decrypt(m.title_nonce, m.title_encrypted, None).decode()
-                    body = aesgcm.decrypt(m.body_nonce, m.body_encrypted, None).decode()
-                    msgs.append({'id': m.id, 'title': title, 'body': body, 'sender': m.sender, 'sent_at': m.sent_at})
-                    if not m.is_read:
-                        m.is_read = True
-                except Exception:
+                payload = decrypt_message_for_user(m, private_key)
+                if not payload:
                     continue
-            db.session.commit()
+                was_read = m.is_read
+                if not was_read:
+                    m.is_read = True
+                    updated = True
+                payload['is_read'] = True
+                payload['was_unread'] = not was_read
+                msgs.append(payload)
+            if updated:
+                db.session.commit()
         return render_template('messages/player.html', messages=msgs)
+
+    @app.route('/messages/sent')
+    @login_required
+    def messages_sent():
+        from .models import Message
+
+        private_key = load_private_key_from_session()
+        msgs_db = (
+            db.session.query(Message)
+            .filter_by(sender_id=current_user.id)
+            .order_by(Message.sent_at.desc())
+            .all()
+        )
+        messages = []
+        if not private_key:
+            flash('Cannot decrypt sent messages', 'error')
+        for m in msgs_db:
+            payload = (
+                decrypt_message_for_user(m, private_key, for_sender=True)
+                if private_key
+                else None
+            )
+            title = payload['title'] if payload else 'Encrypted message'
+            body = payload['body'] if payload else ''
+            messages.append(
+                {
+                    'id': m.id,
+                    'recipient': m.recipient,
+                    'sent_at': m.sent_at,
+                    'title': title,
+                    'body': body,
+                    'can_view': payload is not None,
+                }
+            )
+        return render_template('messages/sent.html', messages=messages)
 
     @app.route('/messages/player/send', methods=['GET', 'POST'])
     @app.route('/messages/send', methods=['GET', 'POST'])
@@ -320,7 +442,7 @@ def create_app():
                     recipient = None
             if not recipient and to_email:
                 recipient = db.session.query(User).filter_by(email=to_email).first()
-            msg = create_encrypted_message(current_user.id, recipient, title, body)
+            msg = create_encrypted_message(current_user, recipient, title, body)
             if not msg:
                 flash('Recipient not found or cannot receive messages', 'error')
                 return redirect(url_for('send_message'))
@@ -329,6 +451,71 @@ def create_app():
             flash('Message sent', 'success')
             return redirect(url_for('messages_inbox'))
         return render_template('messages/player_send.html')
+
+    @app.route('/messages/view/<int:mid>')
+    @login_required
+    def view_message(mid):
+        from .models import Message
+
+        msg = db.session.get(Message, mid)
+        if not msg:
+            abort(404)
+        if msg.recipient_id != current_user.id and msg.sender_id != current_user.id:
+            abort(403)
+        is_sender = msg.sender_id == current_user.id
+        private_key = load_private_key_from_session()
+        payload = None
+        if private_key:
+            payload = decrypt_message_for_user(msg, private_key, for_sender=is_sender)
+        other_user = msg.sender if msg.recipient_id == current_user.id else msg.recipient
+        if msg.recipient_id == current_user.id and not msg.is_read:
+            msg.is_read = True
+            db.session.commit()
+        reply_subject = ''
+        can_reply = False
+        if payload:
+            subject = payload['title']
+            reply_subject = subject if subject.lower().startswith('re:') else f"Re: {subject}"
+            can_reply = other_user is not None
+        else:
+            flash('Unable to decrypt this message.', 'error')
+        return render_template(
+            'messages/view.html',
+            message=msg,
+            payload=payload,
+            is_sender=is_sender,
+            can_reply=can_reply,
+            reply_subject=reply_subject,
+            other_user=other_user,
+        )
+
+    @app.route('/messages/<int:mid>/reply', methods=['POST'])
+    @login_required
+    def reply_message(mid):
+        from .models import Message
+
+        msg = db.session.get(Message, mid)
+        if not msg:
+            abort(404)
+        if msg.recipient_id != current_user.id and msg.sender_id != current_user.id:
+            abort(403)
+        target_user = msg.sender if msg.recipient_id == current_user.id else msg.recipient
+        if not target_user:
+            flash('Cannot find the other participant for this message.', 'error')
+            return redirect(url_for('view_message', mid=mid))
+        title = request.form.get('title', '').strip()
+        body = request.form.get('body', '').strip()
+        if not title or not body:
+            flash('Title and message are required.', 'error')
+            return redirect(url_for('view_message', mid=mid))
+        reply = create_encrypted_message(current_user, target_user, title, body)
+        if not reply:
+            flash('Unable to send reply.', 'error')
+            return redirect(url_for('view_message', mid=mid))
+        db.session.add(reply)
+        db.session.commit()
+        flash('Reply sent.', 'success')
+        return redirect(url_for('view_message', mid=mid))
 
     @app.route('/messages/judge', methods=['GET', 'POST'])
     @login_required
@@ -353,7 +540,7 @@ def create_app():
             skipped = []
             for tp in tournament.players:
                 recipient = tp.user
-                msg = create_encrypted_message(current_user.id, recipient, title, body)
+                msg = create_encrypted_message(current_user, recipient, title, body)
                 if msg:
                     db.session.add(msg)
                     delivered += 1
@@ -398,7 +585,7 @@ def create_app():
             delivered = 0
             skipped = []
             for recipient in recipients:
-                msg = create_encrypted_message(current_user.id, recipient, title, body)
+                msg = create_encrypted_message(current_user, recipient, title, body)
                 if msg:
                     db.session.add(msg)
                     delivered += 1
@@ -448,6 +635,27 @@ def create_app():
         )
         return {'count': count}
 
+    @app.context_processor
+    def inject_navigation_counts():
+        unread = 0
+        open_reports = 0
+        if current_user.is_authenticated:
+            unread = (
+                db.session.query(Message)
+                .filter_by(recipient_id=current_user.id, is_read=False)
+                .count()
+            )
+            if current_user.has_permission('admin.panel'):
+                open_reports = (
+                    db.session.query(Report)
+                    .filter(Report.status != 'closed')
+                    .count()
+                )
+        return {
+            'nav_unread_messages': unread,
+            'nav_open_reports': open_reports,
+        }
+
     @app.route('/reports', methods=['GET', 'POST'])
     @login_required
     def submit_report():
@@ -484,12 +692,135 @@ def create_app():
             return redirect(url_for('submit_report'))
         return render_template('reports/index.html')
 
+    def can_manage_lost_found():
+        if not current_user.is_authenticated:
+            return False
+        return current_user.has_permission('tournaments.manage') or current_user.has_permission('admin.panel')
+
+    @app.route('/lost-and-found', methods=['GET', 'POST'])
+    @login_required
+    def lost_and_found():
+        manage_access = can_manage_lost_found()
+        status_options = [
+            ('unclaimed', 'Unclaimed'),
+            ('claimed', 'Claimed'),
+            ('returned', 'Returned'),
+        ]
+        if request.method == 'POST':
+            if not manage_access:
+                abort(403)
+            title = request.form.get('title', '').strip()
+            description = (request.form.get('description') or '').strip()
+            location = (request.form.get('location') or '').strip()
+            reporter_name = (request.form.get('reporter_name') or '').strip()
+            reporter_contact = (request.form.get('reporter_contact') or '').strip()
+            status = request.form.get('status', 'unclaimed')
+            if status not in dict(status_options):
+                status = 'unclaimed'
+            if not title:
+                flash('Item name is required.', 'error')
+                return redirect(url_for('lost_and_found'))
+            image_filename = None
+            upload = request.files.get('photo')
+            if upload and upload.filename:
+                image_filename = sanitize_image_upload(upload)
+                if not image_filename:
+                    flash('Image could not be processed. Please upload a different picture.', 'error')
+                    return redirect(url_for('lost_and_found'))
+            item = LostFoundItem(
+                title=title,
+                description=description,
+                location=location,
+                reporter_name=reporter_name,
+                reporter_contact=reporter_contact,
+                status=status,
+            )
+            if image_filename:
+                item.image_path = image_filename
+            db.session.add(item)
+            db.session.commit()
+            log_site('lost_found_create', 'success', title)
+            flash('Lost & Found entry created.', 'success')
+            return redirect(url_for('lost_and_found'))
+        items = (
+            db.session.query(LostFoundItem)
+            .order_by(LostFoundItem.created_at.desc())
+            .all()
+        )
+        return render_template(
+            'lost_found/index.html',
+            items=items,
+            manage_access=manage_access,
+            status_options=status_options,
+        )
+
+    @app.route('/lost-and-found/<int:item_id>/update', methods=['POST'])
+    @login_required
+    def update_lost_and_found(item_id):
+        if not can_manage_lost_found():
+            abort(403)
+        item = db.session.get(LostFoundItem, item_id)
+        if not item:
+            abort(404)
+        status_options = {'unclaimed', 'claimed', 'returned'}
+        status = request.form.get('status', item.status or 'unclaimed')
+        if status not in status_options:
+            status = item.status or 'unclaimed'
+        item.status = status
+        item.location = (request.form.get('location') or '').strip()
+        item.reporter_contact = (request.form.get('reporter_contact') or '').strip()
+        upload = request.files.get('photo')
+        if upload and upload.filename:
+            image_filename = sanitize_image_upload(upload)
+            if image_filename:
+                item.image_path = image_filename
+        db.session.commit()
+        log_site('lost_found_update', 'success', f'id={item_id}')
+        flash('Lost & Found entry updated.', 'success')
+        return redirect(url_for('lost_and_found'))
+
+    @app.route('/media/<path:filename>')
+    @login_required
+    def media_file(filename):
+        media_dir = app.config.get('MEDIA_STORAGE_DIR')
+        if not media_dir:
+            abort(404)
+        safe_name = secure_filename(os.path.basename(filename))
+        path = os.path.join(media_dir, safe_name)
+        if not os.path.exists(path):
+            abort(404)
+        return send_from_directory(media_dir, safe_name)
+
     @app.route('/admin/reports')
     @login_required
     def admin_reports():
         require_admin()
         reports = db.session.query(Report).order_by(Report.created_at.desc()).all()
         return render_template('admin/reports.html', reports=reports)
+
+    @app.route('/admin/reports/export.csv')
+    @login_required
+    def export_reports_csv():
+        require_admin()
+        reports = db.session.query(Report).order_by(Report.created_at.desc()).all()
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Type', 'Reporter', 'Reported User', 'Description', 'Status', 'Created At'])
+        for r in reports:
+            writer.writerow([
+                r.report_type,
+                r.reporter.name if r.reporter else '',
+                r.reported_user.name if r.reported_user else '',
+                r.description.replace('\n', ' ').strip(),
+                r.status,
+                r.created_at.isoformat() if r.created_at else '',
+            ])
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=reports.csv'},
+        )
 
     # ---------- Admin ----------
     def require_permission(perm):
@@ -511,6 +842,61 @@ def create_app():
                              user_id=current_user.id if current_user.is_authenticated else None)
         db.session.add(log)
         db.session.commit()
+
+    def parse_datetime_local(value):
+        if not value:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        candidates = [value]
+        if 'T' not in value and ' ' in value:
+            candidates.append(value.replace(' ', 'T'))
+        for candidate in candidates:
+            try:
+                return datetime.fromisoformat(candidate)
+            except ValueError:
+                continue
+        formats = (
+            '%Y-%m-%d %H:%M',
+            '%Y-%m-%d %H:%M:%S',
+            '%Y-%m-%dT%H:%M',
+            '%Y-%m-%dT%H:%M:%S',
+        )
+        for candidate in candidates:
+            for fmt in formats:
+                try:
+                    return datetime.strptime(candidate, fmt)
+                except ValueError:
+                    continue
+        return None
+
+    def sanitize_image_upload(file_storage):
+        if not file_storage or not file_storage.filename:
+            return None
+        storage_dir = app.config.get('MEDIA_STORAGE_DIR')
+        if not storage_dir:
+            return None
+        try:
+            file_storage.stream.seek(0)
+            image = Image.open(file_storage.stream)
+            image = ImageOps.exif_transpose(image)
+        except Exception:
+            return None
+        max_dim = 1600
+        image.thumbnail((max_dim, max_dim))
+        buffer = io.BytesIO()
+        try:
+            image.save(buffer, format='PNG')
+        except Exception:
+            return None
+        buffer.seek(0)
+        filename = f"lf_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}.png"
+        os.makedirs(storage_dir, exist_ok=True)
+        path = os.path.join(storage_dir, filename)
+        with open(path, 'wb') as handle:
+            handle.write(buffer.read())
+        return filename
 
     def estimate_end_time(t):
         """Estimate tournament end time based on start time and timers."""
@@ -538,13 +924,22 @@ def create_app():
             draft_time = request.form.get('draft_time')
             deck_build_time = request.form.get('deck_build_time')
             start_time_str = request.form.get('start_time')
-            start_time = datetime.fromisoformat(start_time_str) if start_time_str else None
+            start_time = parse_datetime_local(start_time_str)
+            if start_time_str and start_time is None:
+                flash('Invalid start time format.', 'error')
+                return render_template('admin/new_tournament.html')
+            rel = request.form.get('rules_enforcement_level', 'None') or 'None'
+            is_cube = request.form.get('is_cube') == '1'
+            if fmt != 'Draft':
+                is_cube = False
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            commander_points=commander_points,
                            round_length=round_length,
                            draft_time=int(draft_time) if draft_time else None,
                            deck_build_time=int(deck_build_time) if deck_build_time else None,
-                           start_time=start_time)
+                           start_time=start_time,
+                           rules_enforcement_level=rel,
+                           is_cube=is_cube)
             try:
                 db.session.add(t)
                 # warn on overlapping schedule
@@ -583,9 +978,16 @@ def create_app():
             draft_time = request.form.get('draft_time')
             deck_build_time = request.form.get('deck_build_time')
             start_time_str = request.form.get('start_time')
-            t.start_time = datetime.fromisoformat(start_time_str) if start_time_str else None
+            t.start_time = parse_datetime_local(start_time_str)
+            if start_time_str and t.start_time is None:
+                flash('Invalid start time format.', 'error')
+                return render_template('admin/edit_tournament.html', t=t)
             t.draft_time = int(draft_time) if draft_time else None
             t.deck_build_time = int(deck_build_time) if deck_build_time else None
+            rel = request.form.get('rules_enforcement_level', 'None') or 'None'
+            is_cube = request.form.get('is_cube') == '1'
+            t.rules_enforcement_level = rel
+            t.is_cube = is_cube if t.format == 'Draft' else False
             db.session.commit()
             flash('Tournament updated.', 'success')
             log_site('edit_tournament', 'success', t.name)
@@ -680,6 +1082,30 @@ def create_app():
         for t in tournaments:
             entries.append({'t': t, 'start': t.start_time, 'end': estimate_end_time(t)})
         return render_template('admin/schedule.html', entries=entries)
+
+    @app.route('/admin/schedule/export.csv')
+    @login_required
+    def export_schedule_csv():
+        require_permission('tournaments.manage')
+        tournaments = db.session.query(Tournament).order_by(Tournament.start_time).all()
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Tournament', 'Format', 'Rules Enforcement Level', 'Start Time', 'Estimated End'])
+        for t in tournaments:
+            est_end = estimate_end_time(t)
+            writer.writerow([
+                t.name,
+                'Draft (Cube)' if t.format == 'Draft' and t.is_cube else t.format,
+                t.rules_enforcement_level,
+                t.start_time.isoformat() if t.start_time else '',
+                est_end.isoformat() if est_end else '',
+            ])
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=schedule.csv'},
+        )
 
     @app.route('/admin/register-player', methods=['GET', 'POST'])
     def admin_register_player():
@@ -895,6 +1321,56 @@ def create_app():
             flash("Joined tournament", "success")
             log_tournament(tid, 'join', 'success')
             log_site('join_tournament', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/players/add', methods=['POST'])
+    @login_required
+    def add_player_to_tournament(tid):
+        require_permission('tournaments.manage')
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        user_id_raw = (request.form.get('user_id') or '').strip()
+        new_name = (request.form.get('new_player_name') or '').strip()
+        new_email = (request.form.get('new_player_email') or '').strip().lower()
+        player = None
+        created_user = False
+        if user_id_raw:
+            try:
+                player = db.session.get(User, int(user_id_raw))
+            except (TypeError, ValueError):
+                player = None
+            if not player:
+                flash('Selected user could not be found.', 'error')
+                return redirect(url_for('view_tournament', tid=tid))
+        elif new_name:
+            email_value = new_email or None
+            if email_value and db.session.query(User).filter_by(email=email_value).first():
+                flash('Email already registered.', 'error')
+                return redirect(url_for('view_tournament', tid=tid))
+            role_user = db.session.query(Role).filter_by(name='user').first()
+            player = User(name=new_name, email=email_value, role=role_user)
+            db.session.add(player)
+            db.session.flush()
+            created_user = True
+        else:
+            flash('Select an existing user or enter a name to add a new player.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        existing = (
+            db.session.query(TournamentPlayer)
+            .filter_by(tournament_id=tid, user_id=player.id)
+            .first()
+        )
+        if existing:
+            if created_user:
+                db.session.rollback()
+            flash('Player is already registered for this tournament.', 'warning')
+            return redirect(url_for('view_tournament', tid=tid))
+        tp = TournamentPlayer(tournament_id=tid, user_id=player.id)
+        db.session.add(tp)
+        db.session.commit()
+        log_tournament(tid, 'add_player_inline', 'success', f'user_id={player.id}')
+        flash('Player added to tournament.', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/logs')
