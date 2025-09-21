@@ -150,6 +150,172 @@ main { padding: 16px; }
   width:100%;
 }
 
+.message-actions {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:16px;
+}
+
+.message-table th,
+.message-table td {
+  text-align:left;
+}
+
+.message-row.unread {
+  font-weight:600;
+}
+
+.message-table .preview-row td {
+  text-align:left;
+  background:#fff;
+  font-size:0.9rem;
+  border-top:none;
+}
+
+.encrypted-note {
+  display:block;
+  margin-top:4px;
+  font-style:italic;
+  color:#555;
+}
+
+.message-detail,
+.message-reply {
+  background:#fff;
+  padding:16px;
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.1);
+  margin-bottom:24px;
+}
+
+.message-meta {
+  display:grid;
+  grid-template-columns: auto 1fr;
+  gap:4px 12px;
+  margin:0 0 12px;
+}
+
+.message-meta dt {
+  font-weight:600;
+}
+
+.message-body {
+  background:#fdf5e6;
+  border:1px solid var(--light-green);
+  border-radius:8px;
+  padding:12px;
+  line-height:1.4;
+}
+
+.nav-badge {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:24px;
+  padding:0 8px;
+  border-radius:12px;
+  background:var(--burnt-orange);
+  color:#fff;
+  font-size:0.85rem;
+  margin-left:4px;
+}
+
+.hidden {
+  display:none !important;
+}
+
+.lost-form,
+.lost-list {
+  margin-bottom:24px;
+}
+
+.lost-grid {
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap:16px;
+}
+
+.lost-card {
+  background:#fff;
+  padding:16px;
+  border-radius:12px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.08);
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.lost-card-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.lost-status {
+  padding:4px 8px;
+  border-radius:12px;
+  font-size:0.85rem;
+}
+
+.lost-status-unclaimed {
+  background:var(--light-green);
+  color:var(--dark-grey);
+}
+
+.lost-status-claimed {
+  background:#ffe082;
+  color:#5d4037;
+}
+
+.lost-status-returned {
+  background:#c5cae9;
+  color:#1a237e;
+}
+
+.lost-image img {
+  width:100%;
+  height:auto;
+  border-radius:10px;
+}
+
+.lost-meta {
+  font-size:0.85rem;
+  color:#555;
+}
+
+.lost-update summary {
+  cursor:pointer;
+  font-weight:600;
+  margin-bottom:8px;
+}
+
+.inline-add-player {
+  background:#fff;
+  padding:16px;
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.1);
+  margin-bottom:24px;
+}
+
+.inline-form-divider {
+  text-align:center;
+  margin:12px 0;
+  font-weight:600;
+  color:#555;
+}
+
+.add-player-form label {
+  display:block;
+  margin-bottom:8px;
+}
+
+.add-player-form input[type="text"],
+.add-player-form input[type="email"] {
+  width:100%;
+  max-width:320px;
+}
+
 .report-section {
   background:#fff;
   padding:16px;

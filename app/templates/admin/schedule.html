@@ -1,6 +1,10 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>Tournament Schedule</h2>
+<div class="toolbar">
+  <a class="btn" href="{{ url_for('export_schedule_csv') }}">Export CSV</a>
+  <button class="btn" type="button" onclick="window.print()">Print</button>
+</div>
 <table class="table center-table">
   <thead><tr><th>Name</th><th>Start</th><th>End (estimated)</th></tr></thead>
   <tbody>

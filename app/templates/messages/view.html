@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Message</h2>
+<div class="message-actions">
+  <a class="btn" href="{{ url_for('messages_inbox') }}">Inbox</a>
+  <a class="btn" href="{{ url_for('messages_sent') }}">Sent</a>
+  <a class="btn" href="{{ url_for('messages_home') }}">Message Options</a>
+</div>
+<section class="message-detail">
+  <dl class="message-meta">
+    <dt>From</dt><dd>{{ message.sender.name if message.sender else 'Unknown' }}</dd>
+    <dt>To</dt><dd>{{ message.recipient.name if message.recipient else 'Unknown' }}</dd>
+    <dt>Sent</dt><dd>{{ message.sent_at.strftime('%Y-%m-%d %H:%M') if message.sent_at else '' }}</dd>
+    {% if payload %}<dt>Subject</dt><dd>{{ payload.title }}</dd>{% endif %}
+  </dl>
+  {% if payload %}
+  <div class="message-body">{{ payload.body | e | replace('\n', '<br>') | safe }}</div>
+  {% else %}
+  <p class="encrypted-note">Unable to decrypt this message right now. Try logging out and back in to unlock your key.</p>
+  {% endif %}
+</section>
+{% if can_reply and payload %}
+<section class="message-reply">
+  <h3>Reply</h3>
+  <form method="post" action="{{ url_for('reply_message', mid=message.id) }}" class="message-form">
+    <label>Subject
+      <input type="text" name="title" value="{{ reply_subject }}" required>
+    </label><br>
+    <label>Message
+      <textarea name="body" rows="6" required></textarea>
+    </label><br>
+    <button class="btn" type="submit">Send Reply</button>
+  </form>
+</section>
+{% elif payload and not can_reply %}
+<p class="encrypted-note">Cannot reply because the other participant is unavailable.</p>
+{% endif %}
+{% endblock %}

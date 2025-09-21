@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Lost &amp; Found</h2>
+{% if manage_access %}
+<section class="lost-form">
+  <h3>Add an Item</h3>
+  <form method="post" enctype="multipart/form-data" class="message-form">
+    <label>Item Name
+      <input type="text" name="title" required>
+    </label><br>
+    <label>Description
+      <textarea name="description" rows="3" placeholder="Describe the item or how it can be identified."></textarea>
+    </label><br>
+    <label>Location
+      <input type="text" name="location" placeholder="Where the item is stored or was found.">
+    </label><br>
+    <label>Reporter Name
+      <input type="text" name="reporter_name" placeholder="Optional name of the person who reported it.">
+    </label><br>
+    <label>Contact Details
+      <input type="text" name="reporter_contact" placeholder="How to reach the reporter (optional).">
+    </label><br>
+    <label>Status
+      <select name="status">
+        {% for value, label in status_options %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label><br>
+    <label>Photo
+      <input type="file" name="photo" accept="image/*">
+    </label><br>
+    <button class="btn" type="submit">Save Item</button>
+  </form>
+</section>
+{% endif %}
+<section class="lost-list">
+  {% if not items %}
+  <p>No lost or found items have been recorded yet.</p>
+  {% else %}
+  <div class="lost-grid">
+    {% for item in items %}
+    <article class="lost-card">
+      <header class="lost-card-header">
+        <h3>{{ item.title }}</h3>
+        <span class="lost-status lost-status-{{ item.status }}">{{ item.status|capitalize }}</span>
+      </header>
+      {% if item.image_path %}
+      <div class="lost-image">
+        <img src="{{ url_for('media_file', filename=item.image_path) }}" alt="Photo of {{ item.title }}">
+      </div>
+      {% endif %}
+      <p class="lost-meta">Logged {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}</p>
+      {% if item.location %}
+      <p><strong>Location:</strong> {{ item.location }}</p>
+      {% endif %}
+      {% if item.description %}
+      <p>{{ item.description }}</p>
+      {% endif %}
+      {% if item.reporter_name or item.reporter_contact %}
+      <p class="lost-reporter">
+        {% if item.reporter_name %}<strong>Reporter:</strong> {{ item.reporter_name }}{% endif %}
+        {% if item.reporter_contact %}<br><strong>Contact:</strong> {{ item.reporter_contact }}{% endif %}
+      </p>
+      {% endif %}
+      {% if manage_access %}
+      <details class="lost-update">
+        <summary>Update Item</summary>
+        <form method="post" action="{{ url_for('update_lost_and_found', item_id=item.id) }}" enctype="multipart/form-data" class="message-form">
+          <label>Status
+            <select name="status">
+              {% for value, label in status_options %}
+              <option value="{{ value }}"{% if item.status == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label><br>
+          <label>Location
+            <input type="text" name="location" value="{{ item.location or '' }}">
+          </label><br>
+          <label>Contact Details
+            <input type="text" name="reporter_contact" value="{{ item.reporter_contact or '' }}">
+          </label><br>
+          <label>Replace Photo
+            <input type="file" name="photo" accept="image/*">
+          </label><br>
+          <button class="btn" type="submit">Update</button>
+        </form>
+      </details>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

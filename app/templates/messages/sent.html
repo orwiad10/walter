@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Sent Messages</h2>
+<div class="message-actions">
+  <a class="btn" href="{{ url_for('send_message') }}">Compose</a>
+  <a class="btn" href="{{ url_for('messages_inbox') }}">Inbox</a>
+  <a class="btn" href="{{ url_for('messages_home') }}">Message Options</a>
+</div>
+{% if not messages %}
+<p>No sent messages yet.</p>
+{% else %}
+<table class="table message-table">
+  <thead>
+    <tr><th>To</th><th>Subject</th><th>Sent</th></tr>
+  </thead>
+  <tbody>
+  {% for m in messages %}
+    <tr class="message-row">
+      <td data-label="To">{{ m.recipient.name if m.recipient else 'Unknown' }}</td>
+      <td data-label="Subject">
+        <a href="{{ url_for('view_message', mid=m.id) }}"{% if not m.can_view %} class="encrypted-link"{% endif %}>{{ m.title }}</a>
+        {% if not m.can_view %}<span class="encrypted-note">Unlock your private key to view the contents.</span>{% endif %}
+      </td>
+      <td data-label="Sent">{{ m.sent_at.strftime('%Y-%m-%d %H:%M') if m.sent_at else '' }}</td>
+    </tr>
+    <tr class="preview-row">
+      <td colspan="3">{% if m.can_view %}{{ m.body|truncate(200) }}{% else %}Message body encrypted.{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

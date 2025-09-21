@@ -14,7 +14,8 @@
       {% if current_user.is_authenticated %}
         <span>Hi, {{ current_user.name }}</span>
         <a href="{{ url_for('index') }}">All Tournaments</a>
-        <a href="{{ url_for('messages_home') }}">Messages</a>
+        <a href="{{ url_for('messages_home') }}">Messages <span id="nav-messages-count" class="nav-badge{% if not nav_unread_messages %} hidden{% endif %}">{{ nav_unread_messages }}</span></a>
+        <a href="{{ url_for('lost_and_found') }}">Lost &amp; Found</a>
         <a href="{{ url_for('submit_report') }}">Report Issue</a>
         {% if current_user.has_permission('tournaments.manage') %}
         <a href="{{ url_for('new_tournament') }}">New Tournament</a>
@@ -29,7 +30,7 @@
         {% if current_user.has_permission('admin.panel') %}
         <a href="{{ url_for('admin_panel') }}">Admin Panel</a>
         <a href="{{ url_for('site_logs') }}">Site Logs</a>
-        <a href="{{ url_for('admin_reports') }}">Reports</a>
+        <a href="{{ url_for('admin_reports') }}">Reports <span id="nav-reports-count" class="nav-badge{% if not nav_open_reports %} hidden{% endif %}">{{ nav_open_reports }}</span></a>
         {% endif %}
         {% if current_user.has_permission('admin.permissions') %}
         <a href="{{ url_for('permissions') }}">Permissions</a>
@@ -189,6 +190,16 @@
       .then(function(data){
         if(!data || typeof data.count !== 'number'){
           return;
+        }
+        const navBadge = document.getElementById('nav-messages-count');
+        if(navBadge){
+          if(data.count > 0){
+            navBadge.textContent = data.count;
+            navBadge.classList.remove('hidden');
+          }else{
+            navBadge.textContent = '';
+            navBadge.classList.add('hidden');
+          }
         }
         const key = 'walter_unread_count';
         if(data.count > 0){

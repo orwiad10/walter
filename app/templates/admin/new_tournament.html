@@ -11,11 +11,17 @@
       <tr>
         <td>Format</td>
         <td>
-          <select name="format" required>
+          <select name="format" id="tournament-format" required>
             <option>Commander</option>
             <option>Draft</option>
             <option>Constructed</option>
           </select>
+        </td>
+      </tr>
+      <tr class="cube-row">
+        <td>Cube Draft</td>
+        <td>
+          <label><input type="checkbox" name="is_cube" value="1"> Mark this draft as a cube event</label>
         </td>
       </tr>
       <tr>
@@ -24,6 +30,17 @@
           <select name="structure">
             <option value="swiss">Swiss / Cut</option>
             <option value="single_elim">Single Elimination</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>Rules Enforcement Level</td>
+        <td>
+          <select name="rules_enforcement_level">
+            <option value="None">None</option>
+            <option value="Casual">Casual</option>
+            <option value="Competitive">Competitive</option>
+            <option value="Professional">Professional</option>
           </select>
         </td>
       </tr>
@@ -67,8 +84,9 @@
   </table>
 </form>
 <script>
-const fmtSel = document.querySelector('select[name="format"]');
+const fmtSel = document.querySelector('#tournament-format');
 const cutSel = document.querySelector('select[name="cut"]');
+const cubeRow = document.querySelector('.cube-row');
 function updateCut(){
   const top8 = cutSel.querySelector('option[value="top8"]');
   if(fmtSel.value === 'Commander'){
@@ -76,6 +94,9 @@ function updateCut(){
     if(cutSel.value === 'top8'){ cutSel.value = 'top4'; }
   }else{
     top8.style.display = '';
+  }
+  if(cubeRow){
+    cubeRow.style.display = fmtSel.value === 'Draft' ? '' : 'none';
   }
 }
 fmtSel.addEventListener('change', updateCut);
