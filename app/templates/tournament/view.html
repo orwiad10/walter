@@ -21,14 +21,29 @@
 <div class="toolbar">
   <button class="btn" onclick="window.print()">Print</button>
   {% if not is_player %}
-  <form method="post" action="{{ url_for('join_tournament', tid=t.id) }}">
+  <div class="join-controls">
     {% if current_user.is_authenticated %}
-      <input type="text" name="passcode" maxlength="4" pattern="\d{4}" placeholder="Passcode" required>
-      <button class="btn" type="submit">Join</button>
+      {% set join_pending = user_join_request and user_join_request.status == 'pending' %}
+      {% set join_rejected = user_join_request and user_join_request.status == 'rejected' %}
+      {% if t.join_requires_approval %}
+        <div class="join-approval-note">Approval required before players may join this tournament.</div>
+      {% endif %}
+      {% if join_pending %}
+        <div class="join-request-status info">Your join request is pending approval.</div>
+      {% elif join_rejected %}
+        <div class="join-request-status error">Your previous join request was rejected{% if user_join_request.note %}: {{ user_join_request.note }}{% endif %}.</div>
+      {% endif %}
+      {% set allow_join_form = (not t.join_requires_approval) or (not join_pending) %}
+      {% if allow_join_form %}
+      <form method="post" action="{{ url_for('join_tournament', tid=t.id) }}" class="join-form">
+        <input type="text" name="passcode" maxlength="4" pattern="\d{4}" placeholder="Passcode" required>
+        <button class="btn" type="submit">{% if t.join_requires_approval %}Request Join{% else %}Join{% endif %}</button>
+      </form>
+      {% endif %}
     {% else %}
       <a class="btn" href="{{ url_for('login') }}">Login to Join</a>
     {% endif %}
-  </form>
+  </div>
   {% endif %}
   <a class="btn" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
   {% if t.cut.startswith('top') %}
@@ -50,6 +65,39 @@
     <a class="btn" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
   {% endif %}
 </div>
+
+{% if current_user.is_authenticated and current_user.has_permission('tournaments.approve_join') and t.join_requires_approval %}
+<section class="join-requests">
+  <h3>Join Requests</h3>
+  {% if pending_join_requests %}
+  <table class="table">
+    <tr><th>Player</th><th>Requested</th><th>Existing Note</th></tr>
+    {% for req in pending_join_requests %}
+    <tr>
+      <td>{{ req.user.name if req.user else 'Unknown' }}</td>
+      <td>{{ req.created_at }}</td>
+      <td>{{ req.note or '-' }}</td>
+    </tr>
+    <tr>
+      <td colspan="3">
+        <form method="post" action="{{ url_for('approve_join_request', tid=t.id, req_id=req.id) }}" class="join-request-form">
+          <label>Note
+            <textarea name="note" rows="2">{{ req.note or '' }}</textarea>
+          </label>
+          <div class="join-request-actions">
+            <button class="btn" type="submit">Approve</button>
+            <button class="btn" type="submit" formaction="{{ url_for('reject_join_request', tid=t.id, req_id=req.id) }}">Reject</button>
+          </div>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>No pending join requests.</p>
+  {% endif %}
+</section>
+{% endif %}
 
 {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
 <section class="inline-add-player">

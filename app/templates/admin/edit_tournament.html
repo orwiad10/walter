@@ -77,6 +77,12 @@
         <td><input type="datetime-local" name="start_time" value="{{ t.start_time.strftime('%Y-%m-%dT%H:%M') if t.start_time else '' }}"></td>
       </tr>
       <tr>
+        <td>Require Join Approval</td>
+        <td>
+          <label><input type="checkbox" name="join_requires_approval" value="1"{% if t.join_requires_approval %} checked{% endif %}> Require staff approval before players join</label>
+        </td>
+      </tr>
+      <tr>
         <td colspan="2"><button class="btn" type="submit">Save</button></td>
       </tr>
     </tbody>

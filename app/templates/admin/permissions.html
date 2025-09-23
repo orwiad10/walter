@@ -2,10 +2,11 @@
 {% block content %}
 <h2>Permissions</h2>
 <table class="table">
-  <tr><th>Role</th><th>Granted Permissions</th></tr>
+  <tr><th>Role</th><th>Level</th><th>Granted Permissions</th></tr>
   {% for role in roles %}
   <tr>
     <td>{{ role.name }}</td>
+    <td>{{ role.level }}</td>
     <td>
       {% for key, val in role.permissions_dict().items() %}
         {% if val %}<div>{{ key }}</div>{% endif %}
@@ -17,6 +18,9 @@
 <h3>Create Role</h3>
 <form method="post">
   <input type="text" name="name" placeholder="Role name" required><br>
+  <label>Role Level
+    <input type="number" name="level" value="500" step="50" min="0">
+  </label><br>
   {% for cat, perms in permission_groups.items() %}
   <fieldset>
     <legend>{{ cat|capitalize }}</legend>

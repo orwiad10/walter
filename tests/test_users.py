@@ -1,5 +1,7 @@
 import json
+
 from app.app import db
+
 from app.models import User, Role
 
 
@@ -50,3 +52,20 @@ def test_user_permission_overrides(session):
     fetched = session.query(User).filter_by(email='override@example.com').one()
     assert fetched.has_permission('admin.panel')
     assert not fetched.has_permission('users.manage')
+
+
+def test_default_role_levels(session):
+    levels = {r.name: r.level for r in session.query(Role).all()}
+    assert levels['admin'] == 0
+    assert levels['manager'] == 100
+    assert levels['venue judge'] == 200
+    assert levels['event head judge'] == 300
+    assert levels['floor judge'] == 400
+    assert levels['user'] == 500
+
+
+def test_roles_can_approve_join(session):
+    roles = {r.name: r for r in session.query(Role).all()}
+    for name in ('manager', 'venue judge', 'event head judge', 'floor judge'):
+        perms = json.loads(roles[name].permissions)
+        assert perms.get('tournaments.approve_join')

@@ -97,6 +97,10 @@ def create_app():
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN is_cube BOOLEAN DEFAULT 0'))
                 db.session.execute(text('UPDATE tournament SET is_cube=0 WHERE is_cube IS NULL'))
                 db.session.commit()
+            if 'join_requires_approval' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN join_requires_approval BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE tournament SET join_requires_approval=0 WHERE join_requires_approval IS NULL'))
+                db.session.commit()
         if 'user' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'break_end' not in columns:
@@ -110,10 +114,39 @@ def create_app():
             if 'sender_key_encrypted' not in columns:
                 db.session.execute(text('ALTER TABLE message ADD COLUMN sender_key_encrypted BLOB'))
                 db.session.commit()
-        if 'report' not in inspector.get_table_names():
-            from .models import Report  # lazy import to avoid circular reference
+        if 'role' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('role')]
+            if 'level' not in columns:
+                db.session.execute(text('ALTER TABLE role ADD COLUMN level INTEGER DEFAULT 500'))
+                db.session.execute(text('UPDATE role SET level=500 WHERE level IS NULL'))
+                db.session.commit()
+            from .models import DEFAULT_ROLE_LEVELS  # lazy import to avoid circular reference
 
+            for role_name, level in DEFAULT_ROLE_LEVELS.items():
+                db.session.execute(
+                    text(
+                        'UPDATE role SET level=:level WHERE name=:name AND (level IS NULL OR level != :level)'
+                    ),
+                    {'level': level, 'name': role_name},
+                )
+            db.session.commit()
+        from .models import Report, TournamentJoinRequest  # lazy import to avoid circular reference
+
+        if 'report' not in inspector.get_table_names():
             Report.__table__.create(bind=db.engine)
+        else:
+            columns = [c['name'] for c in inspector.get_columns('report')]
+            if 'is_read' not in columns:
+                db.session.execute(text('ALTER TABLE report ADD COLUMN is_read BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE report SET is_read=0 WHERE is_read IS NULL'))
+                db.session.commit()
+            if 'assigned_to_id' not in columns:
+                db.session.execute(text('ALTER TABLE report ADD COLUMN assigned_to_id INTEGER'))
+                db.session.commit()
+            if 'actions_taken' not in columns:
+                db.session.execute(text('ALTER TABLE report ADD COLUMN actions_taken TEXT'))
+                db.session.commit()
+        TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
         from .models import LostFoundItem
 
         media_engine = db.get_engine(app, bind='media')
@@ -129,10 +162,12 @@ def create_app():
         Role,
         PERMISSION_GROUPS,
         DEFAULT_ROLE_PERMISSIONS,
+        DEFAULT_ROLE_LEVELS,
         SiteLog,
         TournamentLog,
         Message,
         Report,
+        TournamentJoinRequest,
         LostFoundItem,
         all_permission_keys,
     )
@@ -149,9 +184,14 @@ def create_app():
         db.create_all(bind='media')
         # Ensure default roles
         for name, perms in DEFAULT_ROLE_PERMISSIONS.items():
-            if not db.session.query(Role).filter_by(name=name).first():
-                r = Role(name=name, permissions=json.dumps(perms))
+            level = DEFAULT_ROLE_LEVELS.get(name, 500)
+            existing = db.session.query(Role).filter_by(name=name).first()
+            if not existing:
+                r = Role(name=name, permissions=json.dumps(perms), level=level)
                 db.session.add(r)
+            else:
+                if existing.level != level:
+                    existing.level = level
         db.session.commit()
         # Ensure a default admin account exists for first-time login
         if not db.session.query(User).filter_by(
@@ -648,7 +688,7 @@ def create_app():
             if current_user.has_permission('admin.panel'):
                 open_reports = (
                     db.session.query(Report)
-                    .filter(Report.status != 'closed')
+                    .filter(or_(Report.is_read.is_(None), Report.is_read.is_(False)))
                     .count()
                 )
         return {
@@ -795,8 +835,58 @@ def create_app():
     @login_required
     def admin_reports():
         require_admin()
-        reports = db.session.query(Report).order_by(Report.created_at.desc()).all()
-        return render_template('admin/reports.html', reports=reports)
+        reports = (
+            db.session.query(Report)
+            .order_by(Report.is_read.asc(), Report.created_at.desc())
+            .all()
+        )
+        assignees = (
+            db.session.query(User)
+            .outerjoin(Role)
+            .filter(
+                or_(
+                    User.is_admin.is_(True),
+                    Role.level <= 400,
+                )
+            )
+            .order_by(Role.level, User.name)
+            .all()
+        )
+        status_options = ['open', 'in_progress', 'closed']
+        return render_template(
+            'admin/reports.html',
+            reports=reports,
+            assignees=assignees,
+            status_options=status_options,
+        )
+
+    @app.route('/admin/reports/<int:rid>/update', methods=['POST'])
+    @login_required
+    def update_report(rid):
+        require_admin()
+        report = db.session.get(Report, rid)
+        if not report:
+            abort(404)
+        status = request.form.get('status', report.status or 'open')
+        if status not in {'open', 'in_progress', 'closed'}:
+            status = report.status or 'open'
+        assigned_raw = (request.form.get('assigned_to_id') or '').strip()
+        assigned_user = None
+        if assigned_raw:
+            try:
+                assigned_id = int(assigned_raw)
+                assigned_user = db.session.get(User, assigned_id)
+            except (TypeError, ValueError):
+                assigned_user = None
+        report.status = status
+        report.assigned_to = assigned_user
+        report.is_read = request.form.get('is_read') == '1'
+        actions_taken = (request.form.get('actions_taken') or '').strip()
+        report.actions_taken = actions_taken or None
+        db.session.commit()
+        log_site('report_update', 'success', f'id={rid}')
+        flash('Report updated.', 'success')
+        return redirect(url_for('admin_reports'))
 
     @app.route('/admin/reports/export.csv')
     @login_required
@@ -805,7 +895,17 @@ def create_app():
         reports = db.session.query(Report).order_by(Report.created_at.desc()).all()
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['Type', 'Reporter', 'Reported User', 'Description', 'Status', 'Created At'])
+        writer.writerow([
+            'Type',
+            'Reporter',
+            'Reported User',
+            'Description',
+            'Status',
+            'Assigned To',
+            'Read',
+            'Actions Taken',
+            'Created At',
+        ])
         for r in reports:
             writer.writerow([
                 r.report_type,
@@ -813,6 +913,9 @@ def create_app():
                 r.reported_user.name if r.reported_user else '',
                 r.description.replace('\n', ' ').strip(),
                 r.status,
+                r.assigned_to.name if r.assigned_to else '',
+                'yes' if r.is_read else 'no',
+                (r.actions_taken or '').replace('\n', ' ').strip(),
                 r.created_at.isoformat() if r.created_at else '',
             ])
         output.seek(0)
@@ -932,14 +1035,16 @@ def create_app():
             is_cube = request.form.get('is_cube') == '1'
             if fmt != 'Draft':
                 is_cube = False
+            join_requires_approval = request.form.get('join_requires_approval') == '1'
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            commander_points=commander_points,
                            round_length=round_length,
                            draft_time=int(draft_time) if draft_time else None,
                            deck_build_time=int(deck_build_time) if deck_build_time else None,
                            start_time=start_time,
-                           rules_enforcement_level=rel,
-                           is_cube=is_cube)
+                            rules_enforcement_level=rel,
+                           is_cube=is_cube,
+                           join_requires_approval=join_requires_approval)
             try:
                 db.session.add(t)
                 # warn on overlapping schedule
@@ -988,6 +1093,7 @@ def create_app():
             is_cube = request.form.get('is_cube') == '1'
             t.rules_enforcement_level = rel
             t.is_cube = is_cube if t.format == 'Draft' else False
+            t.join_requires_approval = request.form.get('join_requires_approval') == '1'
             db.session.commit()
             flash('Tournament updated.', 'success')
             log_site('edit_tournament', 'success', t.name)
@@ -1212,18 +1318,23 @@ def create_app():
         log_site('view_permissions', 'success')
         if request.method == 'POST':
             name = request.form['name'].strip()
+            level_raw = (request.form.get('level') or '').strip()
+            try:
+                level = int(level_raw)
+            except ValueError:
+                level = 500
             perms = {}
             for cat, items in PERMISSION_GROUPS.items():
                 for perm in items:
                     key = f"{cat}.{perm}"
                     perms[key] = bool(request.form.get(key))
-            role = Role(name=name, permissions=json.dumps(perms))
+            role = Role(name=name, permissions=json.dumps(perms), level=level)
             db.session.add(role)
             db.session.commit()
             flash('Role created.', 'success')
             log_site('role_create', 'success', name)
             return redirect(url_for('permissions'))
-        roles = db.session.query(Role).order_by(Role.name).all()
+        roles = db.session.query(Role).order_by(Role.level, Role.name).all()
         return render_template('admin/permissions.html', roles=roles, permission_groups=PERMISSION_GROUPS)
 
     @app.route('/admin/logs')
@@ -1263,9 +1374,25 @@ def create_app():
             floor_judges = db.session.query(User).filter(User.id.in_(ids)).all()
         is_player = False
         show_passcode = False
+        pending_join_requests = []
+        user_join_request = None
         if current_user.is_authenticated:
             is_player = any(p.user_id == current_user.id for p in players)
             show_passcode = current_user.has_permission('tournaments.manage') or is_player
+            if t.join_requires_approval:
+                user_join_request = (
+                    db.session.query(TournamentJoinRequest)
+                    .filter_by(tournament_id=tid, user_id=current_user.id)
+                    .order_by(TournamentJoinRequest.created_at.desc())
+                    .first()
+                )
+            if current_user.has_permission('tournaments.approve_join'):
+                pending_join_requests = (
+                    db.session.query(TournamentJoinRequest)
+                    .filter_by(tournament_id=tid, status='pending')
+                    .order_by(TournamentJoinRequest.created_at.asc())
+                    .all()
+                )
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -1293,6 +1420,8 @@ def create_app():
                                timer_remaining=timer_remaining,
                                is_player=is_player, show_passcode=show_passcode,
                                floor_judges=floor_judges,
+                               pending_join_requests=pending_join_requests,
+                               user_join_request=user_join_request,
                                server_now=datetime.utcnow())
 
     @app.route('/t/<int:tid>/join', methods=['POST'])
@@ -1315,12 +1444,93 @@ def create_app():
                 log_tournament(tid, 'join', 'failure', 'invalid passcode')
                 log_site('join_tournament', 'failure', 'invalid passcode')
                 return redirect(url_for('view_tournament', tid=tid))
+            if t.join_requires_approval:
+                existing_request = (
+                    db.session.query(TournamentJoinRequest)
+                    .filter_by(tournament_id=tid, user_id=current_user.id, status='pending')
+                    .first()
+                )
+                if existing_request:
+                    flash('Your join request is pending approval.', 'info')
+                else:
+                    join_request = TournamentJoinRequest(
+                        tournament_id=tid,
+                        user_id=current_user.id,
+                    )
+                    db.session.add(join_request)
+                    db.session.commit()
+                    flash('Join request submitted for approval.', 'success')
+                    log_tournament(tid, 'join_request', 'submitted')
+                    log_site('join_request', 'submitted')
+                return redirect(url_for('view_tournament', tid=tid))
             tp = TournamentPlayer(tournament_id=tid, user_id=current_user.id)
             db.session.add(tp)
+            pending_requests = (
+                db.session.query(TournamentJoinRequest)
+                .filter_by(tournament_id=tid, user_id=current_user.id, status='pending')
+                .all()
+            )
+            for req in pending_requests:
+                req.status = 'approved'
+                req.note = 'Auto-approved when approval disabled.'
             db.session.commit()
             flash("Joined tournament", "success")
             log_tournament(tid, 'join', 'success')
             log_site('join_tournament', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/join-requests/<int:req_id>/approve', methods=['POST'])
+    @login_required
+    def approve_join_request(tid, req_id):
+        require_permission('tournaments.approve_join')
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        join_request = db.session.get(TournamentJoinRequest, req_id)
+        if not join_request or join_request.tournament_id != tid:
+            abort(404)
+        if join_request.status != 'pending':
+            flash('Request already processed.', 'info')
+            return redirect(url_for('view_tournament', tid=tid))
+        existing = (
+            db.session.query(TournamentPlayer)
+            .filter_by(tournament_id=tid, user_id=join_request.user_id)
+            .first()
+        )
+        if not existing:
+            tp = TournamentPlayer(tournament_id=tid, user_id=join_request.user_id)
+            db.session.add(tp)
+        note = (request.form.get('note') or '').strip()
+        join_request.status = 'approved'
+        join_request.approved_by_id = current_user.id
+        join_request.note = note or None
+        db.session.commit()
+        flash('Join request approved.', 'success')
+        log_tournament(tid, 'join_request', 'approved', f'user_id={join_request.user_id}')
+        log_site('join_request_approve', 'success', f'id={req_id}')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/join-requests/<int:req_id>/reject', methods=['POST'])
+    @login_required
+    def reject_join_request(tid, req_id):
+        require_permission('tournaments.approve_join')
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        join_request = db.session.get(TournamentJoinRequest, req_id)
+        if not join_request or join_request.tournament_id != tid:
+            abort(404)
+        if join_request.status != 'pending':
+            flash('Request already processed.', 'info')
+            return redirect(url_for('view_tournament', tid=tid))
+        note = (request.form.get('note') or '').strip()
+        join_request.status = 'rejected'
+        join_request.approved_by_id = current_user.id
+        join_request.note = note or None
+        db.session.commit()
+        flash('Join request rejected.', 'info')
+        log_tournament(tid, 'join_request', 'rejected', f'user_id={join_request.user_id}')
+        log_site('join_request_reject', 'success', f'id={req_id}')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/players/add', methods=['POST'])
