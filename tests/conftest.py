@@ -2,7 +2,7 @@ import os
 import json
 import pytest
 from app.app import create_app, db
-from app.models import Role, DEFAULT_ROLE_PERMISSIONS
+from app.models import Role, DEFAULT_ROLE_PERMISSIONS, DEFAULT_ROLE_LEVELS
 
 
 @pytest.fixture
@@ -16,7 +16,11 @@ def app(tmp_path, monkeypatch):
         db.create_all()
         # set up default roles
         for name, perms in DEFAULT_ROLE_PERMISSIONS.items():
-            role = Role(name=name, permissions=json.dumps(perms))
+            role = Role(
+                name=name,
+                permissions=json.dumps(perms),
+                level=DEFAULT_ROLE_LEVELS.get(name, 500),
+            )
             db.session.add(role)
         db.session.commit()
         yield application

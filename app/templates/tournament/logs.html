@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>{{ t.name }} Logs</h2>
+<p><a href="{{ url_for('view_tournament', tid=t.id) }}">&larr; Back to {{ t.name }}</a></p>
 <table>
   <tr><th>Time</th><th>User</th><th>Action</th><th>Result</th><th>Error</th></tr>
   {% for l in logs %}

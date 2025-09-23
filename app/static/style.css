@@ -113,6 +113,16 @@ main { padding: 16px; }
 .center-table { margin: 0 auto; width:auto; }
 .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:16px; }
 .toolbar form { display:inline-flex; gap:4px; align-items:center; }
+.join-controls { display:flex; flex-direction:column; gap:0.5rem; }
+.join-controls .join-form { display:inline-flex; gap:0.5rem; align-items:center; }
+.join-approval-note { font-size:0.9rem; font-style:italic; }
+.join-request-status { padding:6px 8px; border-radius:6px; font-weight:600; }
+.join-request-status.info { background:var(--light-green); color:var(--dark-grey); }
+.join-request-status.error { background:var(--burnt-orange); color:#fff; }
+.join-requests { margin:24px 0; }
+.join-request-form { display:flex; flex-direction:column; gap:0.5rem; align-items:flex-start; }
+.join-request-actions { display:flex; gap:0.5rem; }
+.join-request-form textarea { width:100%; }
 .players-table { width:100%; border-collapse:collapse; }
 .players-table tbody { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .players-table tr { display:contents; }

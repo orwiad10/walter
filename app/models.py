@@ -17,6 +17,7 @@ PERMISSION_GROUPS = {
     'tournaments': {
         'manage': 'Create and manage tournaments',
         'join': 'Join tournaments',
+        'approve_join': 'Approve tournament join requests',
     },
     'users': {
         'manage': 'Manage users',
@@ -42,17 +43,21 @@ DEFAULT_ROLE_PERMISSIONS = {
     'manager': {
         'tournaments.manage': True,
         'users.manage': True,
+        'tournaments.approve_join': True,
     },
     'venue judge': {
         'tournaments.manage': True,
         'users.manage': True,
+        'tournaments.approve_join': True,
     },
     'event head judge': {
         'tournaments.manage': True,
         'users.manage': True,
+        'tournaments.approve_join': True,
     },
     'floor judge': {
         'users.manage': True,
+        'tournaments.approve_join': True,
     },
     'user': {
         'tournaments.join': True,
@@ -60,10 +65,21 @@ DEFAULT_ROLE_PERMISSIONS = {
 }
 
 
+DEFAULT_ROLE_LEVELS = {
+    'admin': 0,
+    'manager': 100,
+    'venue judge': 200,
+    'event head judge': 300,
+    'floor judge': 400,
+    'user': 500,
+}
+
+
 class Role(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), unique=True, nullable=False)
     permissions = db.Column(db.Text, nullable=False, default='{}')
+    level = db.Column(db.Integer, nullable=False, default=500)
 
     def permissions_dict(self):
         return json.loads(self.permissions or '{}')
@@ -177,9 +193,13 @@ class Report(db.Model):
     description = db.Column(db.Text, nullable=False)
     status = db.Column(db.String(20), default='open')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+    assigned_to_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    actions_taken = db.Column(db.Text, nullable=True)
 
     reporter = db.relationship('User', foreign_keys=[reporter_id])
     reported_user = db.relationship('User', foreign_keys=[reported_user_id])
+    assigned_to = db.relationship('User', foreign_keys=[assigned_to_id])
 
 
 class Tournament(db.Model):
@@ -210,6 +230,7 @@ class Tournament(db.Model):
     draft_timer_remaining = db.Column(db.Integer, nullable=True)
     deck_timer_remaining = db.Column(db.Integer, nullable=True)
     passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
+    join_requires_approval = db.Column(db.Boolean, default=False)
 
     head_judge = db.relationship('User', foreign_keys=[head_judge_id])
 
@@ -262,6 +283,24 @@ class TournamentPlayer(db.Model):
     )
 
     __table_args__ = (UniqueConstraint('tournament_id', 'user_id', name='_tournament_user_uc'),)
+
+
+class TournamentJoinRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    note = db.Column(db.Text, nullable=True)
+    approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    tournament = db.relationship(
+        'Tournament',
+        backref=db.backref('join_requests', cascade='all, delete-orphan')
+    )
+    user = db.relationship('User', foreign_keys=[user_id])
+    approved_by = db.relationship('User', foreign_keys=[approved_by_id])
 
 class Round(db.Model):
     id = db.Column(db.Integer, primary_key=True)

@@ -8,26 +8,95 @@
 {% if not reports %}
 <p>No reports have been submitted.</p>
 {% else %}
-<table class="table">
+<table class="table reports-table">
   <tr>
+    <th>Status</th>
     <th>Type</th>
     <th>Reporter</th>
     <th>Reported User</th>
     <th>Submitted</th>
-    <th>Status</th>
+    <th>Assigned</th>
   </tr>
   {% for report in reports %}
-  <tr>
+  <tr class="{% if not report.is_read %}unread{% endif %}">
+    <td>{{ report.status.replace('_', ' ')|capitalize }}</td>
     <td>{{ 'Bug' if report.report_type == 'bug' else 'Player' }}</td>
     <td>{{ report.reporter.name if report.reporter else 'Unknown' }}</td>
     <td>{% if report.reported_user %}{{ report.reported_user.name }}{% else %}-{% endif %}</td>
     <td>{{ report.created_at }}</td>
-    <td>{{ report.status|capitalize }}</td>
+    <td>{{ report.assigned_to.name if report.assigned_to else 'Unassigned' }}</td>
   </tr>
-  <tr>
-    <td colspan="5">{{ report.description }}</td>
+  <tr class="report-details">
+    <td colspan="6">
+      <div class="report-description">{{ report.description | replace('\n', '<br>') | safe }}</div>
+      {% if report.actions_taken %}
+      <div class="report-actions-display"><strong>Actions Taken:</strong> {{ report.actions_taken | replace('\n', '<br>') | safe }}</div>
+      {% endif %}
+      <form class="report-update-form" method="post" action="{{ url_for('update_report', rid=report.id) }}">
+        <div class="form-row">
+          <label>Assigned To
+            <select name="assigned_to_id">
+              <option value="">Unassigned</option>
+              {% for user in assignees %}
+              <option value="{{ user.id }}"{% if report.assigned_to and report.assigned_to.id == user.id %} selected{% endif %}>{{ user.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Status
+            <select name="status">
+              {% for status in status_options %}
+              <option value="{{ status }}"{% if report.status == status %} selected{% endif %}>{{ status.replace('_', ' ')|capitalize }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="is_read" value="1"{% if report.is_read %} checked{% endif %}> Mark as read
+          </label>
+        </div>
+        <label>Actions Taken
+          <textarea name="actions_taken" rows="3">{{ report.actions_taken or '' }}</textarea>
+        </label>
+        <button class="btn" type="submit">Save Changes</button>
+      </form>
+    </td>
   </tr>
   {% endfor %}
 </table>
 {% endif %}
+<style>
+.reports-table .unread > td {
+  font-weight: bold;
+}
+.report-update-form {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fafafa;
+}
+.report-update-form .form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.report-update-form label {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+}
+.report-update-form .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+.report-update-form textarea {
+  width: 100%;
+}
+.report-description,
+.report-actions-display {
+  margin-bottom: 0.75rem;
+}
+</style>
 {% endblock %}
