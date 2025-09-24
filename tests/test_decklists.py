@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import os
 
 import pytest
 
@@ -94,10 +95,10 @@ def test_moxfield_import(client, session, user, monkeypatch, deck_url, expected_
         def json(self):
             return sample_payload
 
-    requested_urls = []
+    requests_made = []
 
     def fake_get(url, timeout=15, **kwargs):
-        requested_urls.append(url)
+        requests_made.append({'url': url, 'headers': kwargs.get('headers')})
         return DummyResponse()
 
     monkeypatch.setattr('app.app.requests.get', fake_get)
@@ -113,11 +114,64 @@ def test_moxfield_import(client, session, user, monkeypatch, deck_url, expected_
     assert deck is not None
     assert deck.source == 'moxfield'
     assert deck.moxfield_url == deck_url
-    assert requested_urls == [
-        f'https://api.moxfield.com/v2/decks/all/{expected_code}'
+    assert requests_made == [
+        {
+            'url': f'https://api.moxfield.com/v2/decks/all/{expected_code}',
+            'headers': {
+                'Accept': 'application/json',
+                'User-Agent': 'WalterDeckImporter/1.0',
+            },
+        }
     ]
     names = {card['name'] for card in deck.mainboard_cards()}
     assert {'Archon of Emeria', 'Black Lotus'} <= names
+
+
+def test_moxfield_import_retries_on_forbidden(client, session, user, monkeypatch):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    sample_payload = {
+        'mainboard': {
+            '1': {'quantity': 2, 'card': {'name': 'Archon of Emeria'}},
+        },
+        'sideboard': {},
+    }
+
+    class DummyResponse:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            if self._payload is None:
+                raise ValueError('no payload')
+            return self._payload
+
+    calls = []
+
+    def fake_get(url, timeout=15, headers=None, **kwargs):
+        calls.append({'url': url, 'headers': headers})
+        if len(calls) == 1:
+            return DummyResponse(403)
+        return DummyResponse(200, sample_payload)
+
+    monkeypatch.setattr('app.app.requests.get', fake_get)
+
+    response = client.post(
+        f'/t/{tournament.id}/deck/moxfield',
+        data={'moxfield_url': 'https://www.moxfield.com/decks/abc123'},
+    )
+    assert response.status_code == 302
+
+    session.refresh(tp)
+    deck = tp.deck
+    assert deck is not None
+    assert deck.source == 'moxfield'
+    assert len(calls) == 2
+    assert calls[0]['headers']['User-Agent'] == 'WalterDeckImporter/1.0'
+    assert calls[1]['headers']['User-Agent'] == 'Mozilla/5.0'
 
 
 def test_mtgo_deck_upload(client, session, user):
@@ -176,6 +230,37 @@ def test_deck_image_upload_for_draft(client, session, user):
         .first()
     )
     assert other_tp.deck is None
+
+
+def test_deck_image_delete_removes_file(client, session, user, app):
+    tournament = create_tournament(session, fmt='Draft')
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    png_bytes = base64.b64decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5lH2gAAAAASUVORK5CYII='
+    )
+    upload_response = client.post(
+        f'/t/{tournament.id}/deck/image',
+        data={'deck_image': (io.BytesIO(png_bytes), 'deck.png')},
+        content_type='multipart/form-data',
+    )
+    assert upload_response.status_code == 302
+
+    session.refresh(tp)
+    deck = tp.deck
+    assert deck is not None and deck.image_path
+    image_path = deck.image_path
+    media_dir = app.config['MEDIA_STORAGE_DIR']
+    file_path = os.path.join(media_dir, image_path)
+    assert os.path.exists(file_path)
+
+    response = client.post(f'/t/{tournament.id}/deck/image/delete')
+    assert response.status_code == 302
+
+    session.refresh(tp)
+    assert tp.deck.image_path is None
+    assert not os.path.exists(file_path)
 
 
 def test_card_search_endpoint(client, session, user):
