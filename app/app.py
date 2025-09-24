@@ -181,7 +181,7 @@ def create_app():
     @app.cli.command('db-init')
     def db_init():
         db.create_all()
-        db.create_all(bind='media')
+        db.create_all(bind_key='media')
         # Ensure default roles
         for name, perms in DEFAULT_ROLE_PERMISSIONS.items():
             level = DEFAULT_ROLE_LEVELS.get(name, 500)
