@@ -35,6 +35,7 @@ from collections import OrderedDict
 from urllib.parse import urlparse
 
 import requests
+import re
 from sqlalchemy import inspect, text, or_
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -83,7 +84,7 @@ def create_app():
     app.config['CARD_DB_URL'] = os.environ.get('MTG_CARD_DB_URL', card_db.ATOMIC_CARDS_URL)
     app.config['MOXFIELD_API_TEMPLATE'] = os.environ.get(
         'MOXFIELD_API_TEMPLATE',
-        'https://api.moxfield.com/v2/decks/all/{code}',
+        'https://api2.moxfield.com/v3/decks/all/{code}',
     )
     app.config['MOXFIELD_PRIMARY_USER_AGENT'] = os.environ.get(
         'MOXFIELD_PRIMARY_USER_AGENT',
@@ -1219,7 +1220,11 @@ def create_app():
     def parse_moxfield_section(section):
         entries = []
         if isinstance(section, dict):
-            for item in section.values():
+            if isinstance(section.get('cards'), dict):
+                items = section['cards'].values()
+            else:
+                items = section.values()
+            for item in items:
                 if not isinstance(item, dict):
                     continue
                 quantity = item.get('quantity', item.get('count'))
@@ -1243,12 +1248,124 @@ def create_app():
     def parse_moxfield_payload(payload):
         if not isinstance(payload, dict):
             raise ValueError('Unexpected response from Moxfield.')
+        boards = payload.get('boards')
+        if isinstance(boards, dict) and boards:
+            main_entries = []
+            for key in ('commanders', 'companions', 'signatureSpells', 'mainboard'):
+                main_entries.extend(parse_moxfield_section(boards.get(key)))
+            side_entries = parse_moxfield_section(boards.get('sideboard'))
+            return combine_card_entries(main_entries), combine_card_entries(side_entries)
         main_entries = []
         for key in ('mainboard', 'commanders', 'companions', 'signatureSpells'):
             section = payload.get(key)
             main_entries.extend(parse_moxfield_section(section))
         side_entries = parse_moxfield_section(payload.get('sideboard'))
+        if not main_entries and not side_entries:
+            raise ValueError('Unexpected response from Moxfield.')
         return combine_card_entries(main_entries), combine_card_entries(side_entries)
+
+    def extract_balanced_json(text, start_index):
+        start = text.find('{', start_index)
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start, len(text)):
+            char = text[idx]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == '\\':
+                    escape = True
+                elif char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char == '{':
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : idx + 1]
+        return None
+
+    def extract_moxfield_frontend_payload(html):
+        if not html:
+            raise ValueError('Empty response from Moxfield front end.')
+        script_marker = 'id="__NUXT_DATA__"'
+        marker_index = html.find(script_marker)
+        if marker_index != -1:
+            start = html.find('>', marker_index)
+            end = html.find('</script>', start + 1)
+            if start != -1 and end != -1:
+                raw_json = html[start + 1 : end].strip()
+                if raw_json:
+                    try:
+                        return json.loads(raw_json)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError('Invalid front-end payload.') from exc
+        window_marker = 'window.__NUXT__='
+        marker_index = html.find(window_marker)
+        if marker_index != -1:
+            json_text = extract_balanced_json(html, marker_index + len(window_marker))
+            if json_text:
+                try:
+                    return json.loads(json_text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError('Invalid front-end payload.') from exc
+        raise ValueError('Unable to locate deck data on Moxfield page.')
+
+    def find_moxfield_deck_payload(data):
+        if isinstance(data, dict):
+            boards = data.get('boards')
+            if isinstance(boards, dict):
+                return data
+            for value in data.values():
+                found = find_moxfield_deck_payload(value)
+                if found:
+                    return found
+        elif isinstance(data, list):
+            for item in data:
+                found = find_moxfield_deck_payload(item)
+                if found:
+                    return found
+        return None
+
+    def scrape_moxfield_deck(deck_id):
+        headers = {
+            'User-Agent': app.config.get('MOXFIELD_FALLBACK_USER_AGENT') or 'Mozilla/5.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+        front_end_urls = [
+            f'https://www.moxfield.com/decks/{deck_id}',
+            f'https://moxfield.com/decks/{deck_id}',
+        ]
+        last_error = None
+        for url in front_end_urls:
+            try:
+                response = requests.get(url, timeout=15, headers=headers)
+            except requests.RequestException as exc:
+                last_error = exc
+                continue
+            if response.status_code != 200:
+                last_error = RuntimeError(f'status {response.status_code}')
+                continue
+            html = response.text or ''
+            try:
+                payload = extract_moxfield_frontend_payload(html)
+            except ValueError as exc:
+                last_error = exc
+                continue
+            deck_payload = find_moxfield_deck_payload(payload)
+            if isinstance(deck_payload, dict):
+                return deck_payload
+            last_error = ValueError('Deck data not found in front-end payload.')
+        if last_error:
+            raise last_error
+        raise RuntimeError('Failed to scrape Moxfield deck page.')
 
     def save_player_deck(tp, source, main_cards, side_cards, raw_text=None, moxfield_url=None, submitted=False):
         from .models import TournamentPlayerDeck  # lazy import
@@ -1906,7 +2023,7 @@ def create_app():
         if not deck_id:
             flash('Enter a valid Moxfield deck link or ID.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
-        template = app.config.get('MOXFIELD_API_TEMPLATE', 'https://api.moxfield.com/v2/decks/all/{code}')
+        template = app.config.get('MOXFIELD_API_TEMPLATE', 'https://api2.moxfield.com/v3/decks/all/{code}')
         api_url = template.format(code=deck_id)
         header_candidates = []
         seen_user_agents = set()
@@ -1922,7 +2039,12 @@ def create_app():
             )
         if not header_candidates:
             header_candidates.append({'Accept': 'application/json'})
-        response = None
+        payload = None
+        used_frontend = False
+        last_response = None
+        last_exception = None
+        api_error_message = None
+        api_error_detail = None
         for headers in header_candidates:
             try:
                 candidate = requests.get(
@@ -1931,43 +2053,77 @@ def create_app():
                     headers=headers,
                 )
             except requests.RequestException as exc:
-                flash(f'Failed to contact Moxfield: {exc}', 'error')
-                log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
-                return redirect(url_for('view_tournament', tid=tid))
-            response = candidate
-            if response.status_code != 403:
-                break
-        if response is None:
-            flash('Failed to contact Moxfield.', 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', 'no response')
-            return redirect(url_for('view_tournament', tid=tid))
-        if response.status_code != 200:
-            error_message = None
-            try:
-                error_payload = response.json()
-                if isinstance(error_payload, dict):
-                    error_message = error_payload.get('error') or error_payload.get('message')
-            except ValueError:
+                last_exception = exc
+                api_error_message = f'Failed to contact Moxfield: {exc}'
+                continue
+            last_response = candidate
+            if candidate.status_code == 403:
+                continue
+            if candidate.status_code != 200:
                 error_message = None
-            msg = f"Moxfield returned an error.{(' ' + error_message) if error_message else ''}"
-            flash(msg.strip(), 'error')
-            detail = f'status {response.status_code}'
-            if error_message:
-                detail += f' message={error_message}'
-            log_tournament(tid, 'deck_moxfield', 'failure', detail)
-            return redirect(url_for('view_tournament', tid=tid))
-        try:
-            payload = response.json()
-        except ValueError:
-            flash('Invalid response from Moxfield.', 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', 'invalid json')
-            return redirect(url_for('view_tournament', tid=tid))
+                try:
+                    error_payload = candidate.json()
+                    if isinstance(error_payload, dict):
+                        error_message = error_payload.get('error') or error_payload.get('message')
+                except ValueError:
+                    error_message = None
+                msg = f"Moxfield returned an error.{(' ' + error_message) if error_message else ''}"
+                api_error_message = msg.strip()
+                api_error_detail = f'status {candidate.status_code}'
+                if error_message:
+                    api_error_detail += f' message={error_message}'
+                break
+            try:
+                payload = candidate.json()
+            except ValueError as exc:
+                last_exception = exc
+                api_error_message = 'Invalid response from Moxfield.'
+                api_error_detail = 'invalid json'
+                break
+            else:
+                break
+        if payload is None:
+            if api_error_message is None:
+                if last_response is not None:
+                    api_error_message = 'Moxfield returned an error.'
+                    api_error_detail = f'status {last_response.status_code}'
+                elif last_exception is not None:
+                    api_error_message = f'Failed to contact Moxfield: {last_exception}'
+                    api_error_detail = str(last_exception)
+                else:
+                    api_error_message = 'Failed to contact Moxfield.'
+                    api_error_detail = 'no response'
+            try:
+                payload = scrape_moxfield_deck(deck_id)
+                used_frontend = True
+            except Exception as exc:
+                detail_parts = []
+                if api_error_detail:
+                    detail_parts.append(api_error_detail)
+                if str(exc):
+                    detail_parts.append(f'frontend {exc}')
+                detail = '; '.join(detail_parts) if detail_parts else 'frontend failure'
+                flash(api_error_message, 'error')
+                log_tournament(tid, 'deck_moxfield', 'failure', detail)
+                return redirect(url_for('view_tournament', tid=tid))
         try:
             main_entries, side_entries = parse_moxfield_payload(payload)
         except ValueError as exc:
-            flash(str(exc), 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
-            return redirect(url_for('view_tournament', tid=tid))
+            parse_error = exc
+            if not used_frontend:
+                try:
+                    payload = scrape_moxfield_deck(deck_id)
+                    used_frontend = True
+                    main_entries, side_entries = parse_moxfield_payload(payload)
+                except Exception as scrape_exc:
+                    detail = f'parse {parse_error}; frontend {scrape_exc}'
+                    flash(str(parse_error), 'error')
+                    log_tournament(tid, 'deck_moxfield', 'failure', detail)
+                    return redirect(url_for('view_tournament', tid=tid))
+            else:
+                flash(str(parse_error), 'error')
+                log_tournament(tid, 'deck_moxfield', 'failure', str(parse_error))
+                return redirect(url_for('view_tournament', tid=tid))
         if not main_entries and not side_entries:
             flash('Moxfield deck appears to be empty.', 'error')
             log_tournament(tid, 'deck_moxfield', 'failure', 'empty deck')
@@ -1995,6 +2151,8 @@ def create_app():
         )
         flash('Deck imported from Moxfield.', 'success')
         log_detail = f'id={deck_id}'
+        if used_frontend:
+            log_detail += '; method=frontend'
         if missing_set:
             log_detail += '; missing=' + ', '.join(missing_set)
         log_tournament(tid, 'deck_moxfield', 'success', log_detail)

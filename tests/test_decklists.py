@@ -5,6 +5,8 @@ import os
 
 import pytest
 
+import json
+
 from app.app import db
 from app.models import (
     Role,
@@ -80,13 +82,19 @@ def test_moxfield_import(client, session, user, monkeypatch, deck_url, expected_
     login(client, user)
 
     sample_payload = {
-        'mainboard': {
-            '1': {'quantity': 2, 'card': {'name': 'Archon of Emeria'}},
-            '2': {'quantity': 1, 'card': {'name': 'Black Lotus'}},
-        },
-        'sideboard': {
-            'a': {'quantity': 1, 'card': {'name': 'Null Rod'}},
-        },
+        'boards': {
+            'mainboard': {
+                'cards': {
+                    '1': {'quantity': 2, 'card': {'name': 'Archon of Emeria'}},
+                    '2': {'quantity': 1, 'card': {'name': 'Black Lotus'}},
+                }
+            },
+            'sideboard': {
+                'cards': {
+                    'a': {'quantity': 1, 'card': {'name': 'Null Rod'}},
+                }
+            },
+        }
     }
 
     class DummyResponse:
@@ -116,7 +124,7 @@ def test_moxfield_import(client, session, user, monkeypatch, deck_url, expected_
     assert deck.moxfield_url == deck_url
     assert requests_made == [
         {
-            'url': f'https://api.moxfield.com/v2/decks/all/{expected_code}',
+            'url': f'https://api2.moxfield.com/v3/decks/all/{expected_code}',
             'headers': {
                 'Accept': 'application/json',
                 'User-Agent': 'WalterDeckImporter/1.0',
@@ -133,10 +141,14 @@ def test_moxfield_import_retries_on_forbidden(client, session, user, monkeypatch
     login(client, user)
 
     sample_payload = {
-        'mainboard': {
-            '1': {'quantity': 2, 'card': {'name': 'Archon of Emeria'}},
-        },
-        'sideboard': {},
+        'boards': {
+            'mainboard': {
+                'cards': {
+                    '1': {'quantity': 2, 'card': {'name': 'Archon of Emeria'}},
+                }
+            },
+            'sideboard': {'cards': {}},
+        }
     }
 
     class DummyResponse:
@@ -172,6 +184,75 @@ def test_moxfield_import_retries_on_forbidden(client, session, user, monkeypatch
     assert len(calls) == 2
     assert calls[0]['headers']['User-Agent'] == 'WalterDeckImporter/1.0'
     assert calls[1]['headers']['User-Agent'] == 'Mozilla/5.0'
+
+
+def test_moxfield_import_scrapes_frontend_when_api_fails(client, session, user, monkeypatch):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    frontend_payload = {
+        'data': [
+            {
+                'deck': {
+                    'boards': {
+                        'mainboard': {
+                            'cards': {
+                                '1': {'quantity': 1, 'card': {'name': 'Black Lotus'}},
+                            }
+                        },
+                        'sideboard': {
+                            'cards': {
+                                '2': {'quantity': 1, 'card': {'name': 'Null Rod'}},
+                            }
+                        },
+                    }
+                }
+            }
+        ]
+    }
+    frontend_html = (
+        '<html><body><script type="application/json" id="__NUXT_DATA__">'
+        + json.dumps(frontend_payload)
+        + '</script></body></html>'
+    )
+
+    class ApiErrorResponse:
+        status_code = 500
+
+        def json(self):
+            return {'error': 'server error'}
+
+    class FrontendResponse:
+        status_code = 200
+        text = frontend_html
+
+    requests_made = []
+
+    def fake_get(url, timeout=15, headers=None, **kwargs):
+        requests_made.append({'url': url, 'headers': headers})
+        if url.startswith('https://api2.moxfield.com'):
+            return ApiErrorResponse()
+        return FrontendResponse()
+
+    monkeypatch.setattr('app.app.requests.get', fake_get)
+
+    response = client.post(
+        f'/t/{tournament.id}/deck/moxfield',
+        data={'moxfield_url': 'https://www.moxfield.com/decks/abc123'},
+    )
+    assert response.status_code == 302
+
+    session.refresh(tp)
+    deck = tp.deck
+    assert deck is not None
+    assert deck.source == 'moxfield'
+    assert deck.total_sideboard() == 1
+    assert requests_made[0]['url'] == 'https://api2.moxfield.com/v3/decks/all/abc123'
+    assert requests_made[1]['url'] == 'https://www.moxfield.com/decks/abc123'
+    frontend_headers = requests_made[1]['headers']
+    assert frontend_headers['User-Agent'] == 'Mozilla/5.0'
+    assert 'text/html' in frontend_headers['Accept']
 
 
 def test_mtgo_deck_upload(client, session, user):
