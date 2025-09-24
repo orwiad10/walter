@@ -301,6 +301,8 @@ class TournamentPlayerDeck(db.Model):
     image_path = db.Column(db.String(200), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_submitted = db.Column(db.Boolean, default=False)
+    submitted_at = db.Column(db.DateTime, nullable=True)
 
     tournament_player = db.relationship(
         'TournamentPlayer',

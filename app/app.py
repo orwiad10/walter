@@ -178,6 +178,15 @@ def create_app():
 
         media_engine = db.get_engine(app, bind='media')
         LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
+        if 'tournament_player_deck' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('tournament_player_deck')]
+            if 'is_submitted' not in columns:
+                db.session.execute(text('ALTER TABLE tournament_player_deck ADD COLUMN is_submitted BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE tournament_player_deck SET is_submitted=0 WHERE is_submitted IS NULL'))
+                db.session.commit()
+            if 'submitted_at' not in columns:
+                db.session.execute(text('ALTER TABLE tournament_player_deck ADD COLUMN submitted_at DATETIME'))
+                db.session.commit()
         TournamentPlayerDeck.__table__.create(bind=db.engine, checkfirst=True)
 
     from .models import (
@@ -1060,6 +1069,7 @@ def create_app():
         main_entries = []
         side_entries = []
         current = main_entries
+        errors = []
         for raw_line in text.splitlines():
             line = (raw_line or '').strip()
             if not line:
@@ -1069,16 +1079,46 @@ def create_app():
                 continue
             parts = line.split(None, 1)
             if len(parts) != 2:
-                raise ValueError(f"Invalid deck line: '{raw_line}'")
+                errors.append(f"Invalid deck line: '{raw_line}'")
+                continue
             try:
                 count = int(parts[0])
-            except ValueError as exc:
-                raise ValueError(f"Invalid card count in line: '{raw_line}'") from exc
+            except ValueError:
+                errors.append(f"Invalid card count in line: '{raw_line}'")
+                continue
             card_name = parts[1].strip()
             if not card_name:
-                raise ValueError(f"Missing card name in line: '{raw_line}'")
+                errors.append(f"Missing card name in line: '{raw_line}'")
+                continue
             current.append({'name': card_name, 'count': count})
-        return combine_card_entries(main_entries), combine_card_entries(side_entries)
+        return combine_card_entries(main_entries), combine_card_entries(side_entries), errors
+
+    def parse_deck_json(payload):
+        errors = []
+
+        def parse_section(items):
+            entries = []
+            if not isinstance(items, list):
+                return entries
+            for item in items:
+                if not isinstance(item, dict):
+                    errors.append('Invalid entry in deck data.')
+                    continue
+                name = (item.get('name') or '').strip()
+                count_raw = item.get('count', 0)
+                try:
+                    count = int(count_raw)
+                except (TypeError, ValueError):
+                    errors.append(f"Invalid quantity for '{name or 'card'}' in deck data.")
+                    continue
+                if count <= 0 or not name:
+                    continue
+                entries.append({'name': name, 'count': count})
+            return combine_card_entries(entries)
+
+        main_entries = parse_section(payload.get('main') if isinstance(payload, dict) else [])
+        side_entries = parse_section(payload.get('side') if isinstance(payload, dict) else [])
+        return main_entries, side_entries, errors
 
     def canonicalize_card_group(card_entries, db_path=None):
         if not card_entries:
@@ -1147,7 +1187,7 @@ def create_app():
         side_entries = parse_moxfield_section(payload.get('sideboard'))
         return combine_card_entries(main_entries), combine_card_entries(side_entries)
 
-    def save_player_deck(tp, source, main_cards, side_cards, raw_text=None, moxfield_url=None):
+    def save_player_deck(tp, source, main_cards, side_cards, raw_text=None, moxfield_url=None, submitted=False):
         from .models import TournamentPlayerDeck  # lazy import
 
         deck = tp.deck
@@ -1158,6 +1198,11 @@ def create_app():
         deck.sideboard = json.dumps(side_cards, ensure_ascii=False)
         deck.raw_text = raw_text
         deck.moxfield_url = moxfield_url
+        deck.is_submitted = bool(submitted)
+        if deck.is_submitted:
+            deck.submitted_at = datetime.utcnow()
+        else:
+            deck.submitted_at = None
         db.session.add(deck)
         db.session.commit()
         return deck
@@ -1188,6 +1233,36 @@ def create_app():
     def parse_mtgo_deck_text(text):
         return parse_counted_sections(text)
 
+    def validate_deck_lists(main_cards, side_cards, db_path):
+        errors = []
+        total_main = sum(card.get('count', 0) for card in main_cards)
+        if total_main < 60:
+            errors.append('Mainboard must contain at least 60 cards.')
+        total_side = sum(card.get('count', 0) for card in side_cards)
+        if total_side > 15:
+            errors.append('Sideboard may contain at most 15 cards.')
+        combined = OrderedDict()
+        for card in main_cards + side_cards:
+            name = card.get('name')
+            count = int(card.get('count', 0))
+            if not name or count <= 0:
+                continue
+            combined[name] = combined.get(name, 0) + count
+        if not combined:
+            return errors
+        metadata = card_db.get_card_metadata(db_path, list(combined.keys()))
+        for name, total in combined.items():
+            info = metadata.get(name)
+            if not info:
+                continue
+            if info.get('is_land') and not info.get('is_basic_land') and total > 4:
+                errors.append(f"{name} exceeds the 4-copy limit for non-basic lands.")
+            if info.get('is_standard_banned'):
+                errors.append(f"{name} is banned in Standard.")
+            if info.get('is_vintage_restricted') and total > 1:
+                errors.append(f"{name} is restricted to a single copy.")
+        return errors
+
     def get_player_entry(tournament_id, user_id):
         from .models import TournamentPlayer  # lazy import
 
@@ -1195,6 +1270,16 @@ def create_app():
             db.session.query(TournamentPlayer)
             .filter_by(tournament_id=tournament_id, user_id=user_id)
             .first()
+        )
+
+    def deck_modifications_locked(tournament):
+        from .models import Round  # lazy import
+
+        return (
+            db.session.query(Round)
+            .filter_by(tournament_id=tournament.id, number=1)
+            .first()
+            is not None
         )
 
     def estimate_end_time(t):
@@ -1616,6 +1701,12 @@ def create_app():
         elif t.deck_timer_remaining:
             timer_type = 'deck'
             timer_remaining = t.deck_timer_remaining
+        deck_locked = any(r.number == 1 for r in rounds)
+        deck_state = {
+            'main': player_deck.mainboard_cards() if player_deck else [],
+            'side': player_deck.sideboard_cards() if player_deck else [],
+            'submitted': bool(player_deck and player_deck.is_submitted),
+        }
         return render_template('tournament/view.html', t=t, players=players, rounds=rounds,
                                standings=standings, rec_rounds=rec_rounds,
                                timer_end=timer_end, timer_type=timer_type,
@@ -1625,7 +1716,9 @@ def create_app():
                                pending_join_requests=pending_join_requests,
                                user_join_request=user_join_request,
                                player_deck=player_deck,
-                               deck_search_url=url_for('deck_card_search', tid=t.id) if is_player else None,
+                               deck_state=deck_state,
+                               deck_locked=deck_locked,
+                               deck_search_url=url_for('deck_card_search', tid=t.id) if is_player and not deck_locked else None,
                                server_now=datetime.utcnow())
 
     @app.route('/t/<int:tid>/deck/search')
@@ -1660,15 +1753,33 @@ def create_app():
         tp = get_player_entry(tid, current_user.id)
         if not tp:
             abort(403)
+        if deck_modifications_locked(t):
+            flash('Deck changes are locked after round one pairings.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        action = (request.form.get('action') or 'save').lower()
+        submission_requested = action == 'submit'
+        deck_json_raw = request.form.get('deck_json')
         deck_text = (request.form.get('deck_text') or '').strip()
-        if not deck_text:
-            flash('Deck list cannot be empty.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
-        try:
-            main_entries, side_entries = parse_counted_sections(deck_text)
-        except ValueError as exc:
-            flash(str(exc), 'error')
-            return redirect(url_for('view_tournament', tid=tid))
+        parse_errors = []
+        if deck_json_raw:
+            try:
+                deck_payload = json.loads(deck_json_raw)
+            except ValueError:
+                flash('Unable to read deck data.', 'error')
+                return redirect(url_for('view_tournament', tid=tid))
+            main_entries, side_entries, json_errors = parse_deck_json(deck_payload)
+            parse_errors.extend(json_errors)
+            raw_text = None
+        else:
+            if not deck_text:
+                flash('Deck list cannot be empty.', 'error')
+                return redirect(url_for('view_tournament', tid=tid))
+            main_entries, side_entries, text_errors = parse_counted_sections(deck_text)
+            parse_errors.extend(text_errors)
+            raw_text = deck_text
+        if parse_errors:
+            for message in parse_errors:
+                flash(message, 'error')
         try:
             db_path = ensure_card_database_ready()
         except Exception as exc:
@@ -1678,14 +1789,39 @@ def create_app():
         canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
         canonical_side, missing_side = canonicalize_card_group(side_entries, db_path=db_path)
         missing = missing_main + missing_side
-        if missing:
-            missing_set = sorted({name for name in missing})
-            flash('Unknown card(s): ' + ', '.join(missing_set), 'error')
-            log_tournament(tid, 'deck_manual', 'failure', 'missing: ' + ', '.join(missing_set))
-            return redirect(url_for('view_tournament', tid=tid))
-        save_player_deck(tp, 'manual', canonical_main, canonical_side, raw_text=deck_text)
-        flash('Deck list saved.', 'success')
-        log_tournament(tid, 'deck_manual', 'success')
+        missing_set = sorted({name for name in missing}) if missing else []
+        if missing_set:
+            flash('Unknown card(s) ignored: ' + ', '.join(missing_set), 'error')
+        validation_errors = []
+        submission_success = False
+        if submission_requested:
+            validation_errors = validate_deck_lists(canonical_main, canonical_side, db_path)
+            for message in validation_errors:
+                flash(message, 'error')
+            if parse_errors or missing_set or validation_errors:
+                flash('Deck saved but submission requirements not met.', 'error')
+            else:
+                submission_success = True
+        save_player_deck(
+            tp,
+            'manual',
+            canonical_main,
+            canonical_side,
+            raw_text=raw_text,
+            submitted=submission_success,
+        )
+        if submission_success:
+            flash('Deck submitted.', 'success')
+        else:
+            flash('Deck list saved.', 'success')
+        log_detail = 'submitted' if submission_success else 'saved'
+        if parse_errors:
+            log_detail += '; parse_errors'
+        if missing_set:
+            log_detail += '; missing=' + ', '.join(missing_set)
+        if validation_errors:
+            log_detail += '; validation=' + ' | '.join(validation_errors)
+        log_tournament(tid, 'deck_manual', 'success', log_detail)
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/deck/moxfield', methods=['POST'])
@@ -1699,6 +1835,9 @@ def create_app():
         tp = get_player_entry(tid, current_user.id)
         if not tp:
             abort(403)
+        if deck_modifications_locked(t):
+            flash('Deck changes are locked after round one pairings.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
         deck_input = (request.form.get('moxfield_url') or '').strip()
         deck_id = extract_moxfield_deck_id(deck_input)
         if not deck_id:
@@ -1707,14 +1846,29 @@ def create_app():
         template = app.config.get('MOXFIELD_API_TEMPLATE', 'https://api.moxfield.com/v2/decks/all/{code}')
         api_url = template.format(code=deck_id)
         try:
-            response = requests.get(api_url, timeout=15)
+            response = requests.get(
+                api_url,
+                timeout=15,
+                headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'},
+            )
         except requests.RequestException as exc:
             flash(f'Failed to contact Moxfield: {exc}', 'error')
             log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
             return redirect(url_for('view_tournament', tid=tid))
         if response.status_code != 200:
-            flash('Moxfield returned an error.', 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', f'status {response.status_code}')
+            error_message = None
+            try:
+                error_payload = response.json()
+                if isinstance(error_payload, dict):
+                    error_message = error_payload.get('error') or error_payload.get('message')
+            except ValueError:
+                error_message = None
+            msg = f"Moxfield returned an error.{(' ' + error_message) if error_message else ''}"
+            flash(msg.strip(), 'error')
+            detail = f'status {response.status_code}'
+            if error_message:
+                detail += f' message={error_message}'
+            log_tournament(tid, 'deck_moxfield', 'failure', detail)
             return redirect(url_for('view_tournament', tid=tid))
         try:
             payload = response.json()
@@ -1741,14 +1895,23 @@ def create_app():
         canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
         canonical_side, missing_side = canonicalize_card_group(side_entries, db_path=db_path)
         missing = missing_main + missing_side
-        if missing:
-            missing_set = sorted({name for name in missing})
+        missing_set = sorted({name for name in missing}) if missing else []
+        if missing_set:
             flash('Cards not found in local database: ' + ', '.join(missing_set), 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', 'missing: ' + ', '.join(missing_set))
-            return redirect(url_for('view_tournament', tid=tid))
-        save_player_deck(tp, 'moxfield', canonical_main, canonical_side, raw_text=None, moxfield_url=deck_input)
+        save_player_deck(
+            tp,
+            'moxfield',
+            canonical_main,
+            canonical_side,
+            raw_text=None,
+            moxfield_url=deck_input,
+            submitted=False,
+        )
         flash('Deck imported from Moxfield.', 'success')
-        log_tournament(tid, 'deck_moxfield', 'success', f'id={deck_id}')
+        log_detail = f'id={deck_id}'
+        if missing_set:
+            log_detail += '; missing=' + ', '.join(missing_set)
+        log_tournament(tid, 'deck_moxfield', 'success', log_detail)
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/deck/mtgo', methods=['POST'])
@@ -1762,6 +1925,9 @@ def create_app():
         tp = get_player_entry(tid, current_user.id)
         if not tp:
             abort(403)
+        if deck_modifications_locked(t):
+            flash('Deck changes are locked after round one pairings.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
         upload = request.files.get('mtgo_file')
         if not upload or not upload.filename:
             flash('Choose an MTGO deck file to upload.', 'error')
@@ -1774,11 +1940,10 @@ def create_app():
             text = file_bytes.decode('utf-8')
         except UnicodeDecodeError:
             text = file_bytes.decode('latin-1', errors='ignore')
-        try:
-            main_entries, side_entries = parse_mtgo_deck_text(text)
-        except ValueError as exc:
-            flash(str(exc), 'error')
-            return redirect(url_for('view_tournament', tid=tid))
+        main_entries, side_entries, parse_errors = parse_mtgo_deck_text(text)
+        if parse_errors:
+            for message in parse_errors:
+                flash(message, 'error')
         if not main_entries and not side_entries:
             flash('The uploaded deck file does not contain any cards.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
@@ -1791,14 +1956,17 @@ def create_app():
         canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
         canonical_side, missing_side = canonicalize_card_group(side_entries, db_path=db_path)
         missing = missing_main + missing_side
-        if missing:
-            missing_set = sorted({name for name in missing})
+        missing_set = sorted({name for name in missing}) if missing else []
+        if missing_set:
             flash('Cards not found in local database: ' + ', '.join(missing_set), 'error')
-            log_tournament(tid, 'deck_mtgo', 'failure', 'missing: ' + ', '.join(missing_set))
-            return redirect(url_for('view_tournament', tid=tid))
-        save_player_deck(tp, 'mtgo', canonical_main, canonical_side, raw_text=text)
+        save_player_deck(tp, 'mtgo', canonical_main, canonical_side, raw_text=text, submitted=False)
         flash('MTGO deck file imported.', 'success')
-        log_tournament(tid, 'deck_mtgo', 'success')
+        log_detail = 'imported'
+        if parse_errors:
+            log_detail += '; parse_errors'
+        if missing_set:
+            log_detail += '; missing=' + ', '.join(missing_set)
+        log_tournament(tid, 'deck_mtgo', 'success', log_detail)
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/deck/image', methods=['POST'])

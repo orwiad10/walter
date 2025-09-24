@@ -73,6 +73,13 @@
   <p class="deck-meta">
     Source: {{ player_deck.source|capitalize }}{% if player_deck.updated_at %} · Updated {{ player_deck.updated_at }}{% elif player_deck.created_at %} · Updated {{ player_deck.created_at }}{% endif %}
     {% if player_deck.moxfield_url %}· <a href="{{ player_deck.moxfield_url }}" target="_blank" rel="noopener">View on Moxfield</a>{% endif %}
+    <span class="deck-status {% if player_deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
+      {% if player_deck.is_submitted %}
+        Status: Submitted{% if player_deck.submitted_at %} · Submitted {{ player_deck.submitted_at }}{% endif %}
+      {% else %}
+        Status: Not submitted
+      {% endif %}
+    </span>
   </p>
   <div class="deck-lists">
     <div class="deck-list">
@@ -110,18 +117,60 @@
   {% endif %}
   {% else %}
   <p>No deck information submitted yet.</p>
+  <p class="deck-status deck-status-draft">Status: Not submitted</p>
   {% endif %}
 
+  {% if deck_locked %}
+  <p class="deck-locked-message">Deck changes are locked because round one has been paired.</p>
+  {% else %}
   <div class="deck-forms">
+    <form method="post" action="{{ url_for('upload_manual_deck', tid=t.id) }}" class="deck-form deck-builder-form" id="deck-builder-form" data-initial-deck='{{ deck_state|tojson }}' {% if deck_search_url %}data-search-url="{{ deck_search_url }}"{% endif %}>
+      <input type="hidden" name="deck_json" id="deck-json-field">
+      <div class="deck-builder">
+        <div class="deck-builder-controls">
+          {% if deck_search_url %}
+          <label>Search card database
+            <input type="text" id="card-search-input" placeholder="Card name" autocomplete="off">
+          </label>
+          <label>Quantity
+            <input type="number" id="card-quantity-input" min="1" value="1">
+          </label>
+          <div class="deck-destination">
+            <label><input type="radio" name="card-destination" value="main" checked> Mainboard</label>
+            <label><input type="radio" name="card-destination" value="side"> Sideboard</label>
+          </div>
+          <div id="card-search-results" class="card-search-results" aria-live="polite"></div>
+          {% endif %}
+        </div>
+        <div class="deck-builder-lists">
+          <div class="deck-builder-list" data-board="main">
+            <h4>Mainboard (<span data-board-count="main">0</span>)</h4>
+            <ul class="deck-builder-entries" data-board-entries="main"></ul>
+          </div>
+          <div class="deck-builder-list" data-board="side">
+            <h4>Sideboard (<span data-board-count="side">0</span>)</h4>
+            <ul class="deck-builder-entries" data-board-entries="side"></ul>
+          </div>
+        </div>
+      </div>
+      <div class="deck-builder-actions">
+        <button class="btn" type="submit" name="action" value="save">Save Deck</button>
+        <button class="btn primary" type="submit" name="action" value="submit">Submit Deck</button>
+      </div>
+    </form>
+
     <form method="post" action="{{ url_for('upload_manual_deck', tid=t.id) }}" class="deck-form">
-      <label>Enter deck list
+      <label>Paste deck list
         <textarea name="deck_text" rows="10" placeholder="4 Archon of Emeria
 4 Chrome Mox
 ...
 Sideboard
 2 March of Otherworldly Light"></textarea>
       </label>
-      <button class="btn" type="submit">Save Deck</button>
+      <div class="deck-builder-actions">
+        <button class="btn" type="submit" name="action" value="save">Save Deck</button>
+        <button class="btn" type="submit" name="action" value="submit">Submit Deck</button>
+      </div>
     </form>
 
     <form method="post" action="{{ url_for('import_moxfield_deck', tid=t.id) }}" class="deck-form">
@@ -148,53 +197,214 @@ Sideboard
     {% endif %}
   </div>
 
-  {% if deck_search_url %}
-  <div class="card-search-widget">
-    <label>Search card database
-      <input type="text" id="card-search-input" placeholder="Card name">
-    </label>
-    <div id="card-search-results" class="card-search-results" aria-live="polite"></div>
-  </div>
   <script>
     document.addEventListener('DOMContentLoaded', function(){
-      const searchUrl = {{ deck_search_url|tojson }};
-      const input = document.getElementById('card-search-input');
-      const results = document.getElementById('card-search-results');
-      if (!searchUrl || !input || !results) {
+      const form = document.getElementById('deck-builder-form');
+      if (!form) {
         return;
       }
-      let timer = null;
-      input.addEventListener('input', function(){
-        const query = input.value.trim();
-        if (timer) {
-          clearTimeout(timer);
-        }
-        if (query.length < 2) {
-          results.textContent = '';
+      const searchUrl = form.dataset.searchUrl;
+      let deckData;
+      try {
+        deckData = JSON.parse(form.dataset.initialDeck || '{}');
+      } catch (err) {
+        deckData = {};
+      }
+      const state = {
+        main: Array.isArray(deckData.main) ? deckData.main.map(function(item){
+          return {name: item.name, count: item.count};
+        }) : [],
+        side: Array.isArray(deckData.side) ? deckData.side.map(function(item){
+          return {name: item.name, count: item.count};
+        }) : [],
+      };
+      const hiddenField = document.getElementById('deck-json-field');
+      const quantityInput = document.getElementById('card-quantity-input');
+      const searchInput = document.getElementById('card-search-input');
+      const results = document.getElementById('card-search-results');
+      const destinationInputs = form.querySelectorAll('input[name="card-destination"]');
+      const listContainers = {
+        main: form.querySelector('[data-board-entries="main"]'),
+        side: form.querySelector('[data-board-entries="side"]'),
+      };
+      const countDisplays = {
+        main: form.querySelector('[data-board-count="main"]'),
+        side: form.querySelector('[data-board-count="side"]'),
+      };
+
+      function currentDestination() {
+        let value = 'main';
+        destinationInputs.forEach(function(input){
+          if (input.checked) {
+            value = input.value;
+          }
+        });
+        return value === 'side' ? 'side' : 'main';
+      }
+
+      function updateHiddenField() {
+        hiddenField.value = JSON.stringify({
+          main: state.main,
+          side: state.side,
+        });
+      }
+
+      function renderBoard(board) {
+        const container = listContainers[board];
+        if (!container) {
           return;
         }
-        timer = setTimeout(function(){
-          fetch(searchUrl + '?q=' + encodeURIComponent(query))
-            .then(function(resp){ return resp.json(); })
-            .then(function(data){
-              results.innerHTML = '';
-              if (!data || !Array.isArray(data.results) || data.results.length === 0) {
-                results.textContent = 'No results';
-                return;
-              }
-              const list = document.createElement('ul');
-              data.results.forEach(function(name){
-                const item = document.createElement('li');
-                item.textContent = name;
-                list.appendChild(item);
-              });
-              results.appendChild(list);
-            })
-            .catch(function(){
-              results.textContent = 'Search failed';
-            });
-        }, 250);
+        container.innerHTML = '';
+        const cards = state[board];
+        cards.forEach(function(card){
+          const item = document.createElement('li');
+          item.className = 'deck-builder-item';
+          item.dataset.board = board;
+          item.dataset.cardName = card.name;
+          const count = document.createElement('span');
+          count.className = 'deck-builder-count';
+          count.textContent = card.count + '×';
+          const name = document.createElement('span');
+          name.className = 'deck-builder-name';
+          name.textContent = card.name;
+          const actions = document.createElement('div');
+          actions.className = 'deck-builder-item-actions';
+          [['+', 'increment'], ['−', 'decrement'], ['Remove', 'remove']].forEach(function(pair){
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn-small';
+            button.dataset.action = pair[1];
+            button.dataset.board = board;
+            button.dataset.cardName = card.name;
+            button.textContent = pair[0];
+            actions.appendChild(button);
+          });
+          item.appendChild(count);
+          item.appendChild(name);
+          item.appendChild(actions);
+          container.appendChild(item);
+        });
+        const total = cards.reduce(function(sum, card){
+          return sum + (card.count || 0);
+        }, 0);
+        if (countDisplays[board]) {
+          countDisplays[board].textContent = total;
+        }
+      }
+
+      function renderAll() {
+        renderBoard('main');
+        renderBoard('side');
+        updateHiddenField();
+      }
+
+      function addCard(cardName, count, board) {
+        if (!cardName || count <= 0) {
+          return;
+        }
+        const cards = state[board];
+        const existing = cards.find(function(card){ return card.name === cardName; });
+        if (existing) {
+          existing.count += count;
+        } else {
+          cards.push({name: cardName, count: count});
+        }
+        renderAll();
+      }
+
+      function modifyCard(board, cardName, delta) {
+        const cards = state[board];
+        for (let i = 0; i < cards.length; i++) {
+          if (cards[i].name === cardName) {
+            cards[i].count += delta;
+            if (cards[i].count <= 0) {
+              cards.splice(i, 1);
+            }
+            break;
+          }
+        }
+        renderAll();
+      }
+
+      function removeCard(board, cardName) {
+        const cards = state[board];
+        const index = cards.findIndex(function(card){ return card.name === cardName; });
+        if (index >= 0) {
+          cards.splice(index, 1);
+          renderAll();
+        }
+      }
+
+      form.addEventListener('click', function(event){
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const action = target.dataset.action;
+        if (!action) {
+          return;
+        }
+        const board = target.dataset.board;
+        const cardName = target.dataset.cardName;
+        if (!board || !cardName) {
+          return;
+        }
+        if (action === 'increment') {
+          modifyCard(board, cardName, 1);
+        } else if (action === 'decrement') {
+          modifyCard(board, cardName, -1);
+        } else if (action === 'remove') {
+          removeCard(board, cardName);
+        }
       });
+
+      if (searchInput && results && searchUrl) {
+        let timer = null;
+        searchInput.addEventListener('input', function(){
+          const query = searchInput.value.trim();
+          if (timer) {
+            clearTimeout(timer);
+          }
+          if (query.length < 2) {
+            results.textContent = '';
+            return;
+          }
+          timer = setTimeout(function(){
+            fetch(searchUrl + '?q=' + encodeURIComponent(query))
+              .then(function(resp){ return resp.json(); })
+              .then(function(data){
+                results.innerHTML = '';
+                if (!data || !Array.isArray(data.results) || data.results.length === 0) {
+                  results.textContent = 'No results';
+                  return;
+                }
+                const list = document.createElement('ul');
+                data.results.forEach(function(name){
+                  const item = document.createElement('li');
+                  item.textContent = name;
+                  item.addEventListener('click', function(){
+                    let qty = parseInt(quantityInput.value, 10);
+                    if (Number.isNaN(qty) || qty <= 0) {
+                      qty = 1;
+                    }
+                    addCard(name, qty, currentDestination());
+                  });
+                  list.appendChild(item);
+                });
+                results.appendChild(list);
+              })
+              .catch(function(){
+                results.textContent = 'Search failed';
+              });
+          }, 250);
+        });
+      }
+
+      form.addEventListener('submit', function(){
+        updateHiddenField();
+      });
+
+      renderAll();
     });
   </script>
   {% endif %}
