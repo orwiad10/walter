@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>{{ t.name }} – {{ player.user.name }}'s Deck</h2>
+<p><a class="btn" href="{{ url_for('view_tournament', tid=t.id) }}">&larr; Back to Tournament</a></p>
+{% if deck %}
+<p class="deck-meta">
+  Source: {{ deck.source|capitalize }}{% if deck.updated_at %} · Updated {{ deck.updated_at }}{% elif deck.created_at %} · Updated {{ deck.created_at }}{% endif %}
+  {% if deck.moxfield_url %}· <a href="{{ deck.moxfield_url }}" target="_blank" rel="noopener">View on Moxfield</a>{% endif %}
+  <span class="deck-status {% if deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
+    {% if deck.is_submitted %}
+      Status: Submitted{% if deck.submitted_at %} · Submitted {{ deck.submitted_at }}{% endif %}
+    {% else %}
+      Status: Not submitted
+    {% endif %}
+  </span>
+</p>
+<div class="deck-lists">
+  <div class="deck-list">
+    <h3>Mainboard ({{ deck.total_mainboard() }})</h3>
+    {% set main_cards = deck.mainboard_cards() %}
+    {% if main_cards %}
+    <ul>
+      {% for card in main_cards %}
+      <li>{{ card.count }} × {{ card.name }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No mainboard cards submitted.</p>
+    {% endif %}
+  </div>
+  <div class="deck-list">
+    <h3>Sideboard ({{ deck.total_sideboard() }})</h3>
+    {% set side_cards = deck.sideboard_cards() %}
+    {% if side_cards %}
+    <ul>
+      {% for card in side_cards %}
+      <li>{{ card.count }} × {{ card.name }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No sideboard submitted.</p>
+    {% endif %}
+  </div>
+</div>
+{% if deck.image_path %}
+<div class="deck-image">
+  <h3>Deck Image</h3>
+  <img src="{{ url_for('media_file', filename=deck.image_path) }}" alt="Deck image" loading="lazy">
+</div>
+{% endif %}
+{% else %}
+<p>No deck information submitted.</p>
+{% endif %}
+{% endblock %}

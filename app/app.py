@@ -1452,6 +1452,20 @@ def create_app():
             .first()
         )
 
+    def user_can_view_player_decks(user, tournament, assigned_judge_ids=None):
+        """Return True if ``user`` may view decks for ``tournament``."""
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        if hasattr(user, 'has_permission') and user.has_permission('tournaments.manage'):
+            return True
+        if assigned_judge_ids is None:
+            assigned = set(tournament.floor_judge_ids() or [])
+            if tournament.head_judge_id:
+                assigned.add(tournament.head_judge_id)
+        else:
+            assigned = set(assigned_judge_ids)
+        return user.id in assigned
+
     def deck_modifications_locked(tournament):
         from .models import Round  # lazy import
 
@@ -1830,14 +1844,18 @@ def create_app():
         standings = compute_standings(t, db.session)
         rec_rounds = recommended_rounds(len(players))
         floor_judges = []
-        ids = t.floor_judge_ids()
-        if ids:
-            floor_judges = db.session.query(User).filter(User.id.in_(ids)).all()
+        floor_judge_ids = t.floor_judge_ids() or []
+        if floor_judge_ids:
+            floor_judges = db.session.query(User).filter(User.id.in_(floor_judge_ids)).all()
+        assigned_judge_ids = set(floor_judge_ids)
+        if t.head_judge_id:
+            assigned_judge_ids.add(t.head_judge_id)
         is_player = False
         show_passcode = False
         pending_join_requests = []
         user_join_request = None
         player_deck = None
+        can_view_player_decks = False
         if current_user.is_authenticated:
             is_player = any(p.user_id == current_user.id for p in players)
             show_passcode = current_user.has_permission('tournaments.manage') or is_player
@@ -1860,6 +1878,11 @@ def create_app():
                     if player.user_id == current_user.id:
                         player_deck = player.deck
                         break
+            can_view_player_decks = user_can_view_player_decks(
+                current_user,
+                t,
+                assigned_judge_ids=assigned_judge_ids,
+            )
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -1899,7 +1922,32 @@ def create_app():
                                deck_state=deck_state,
                                deck_locked=deck_locked,
                                deck_search_url=url_for('deck_card_search', tid=t.id) if is_player and not deck_locked else None,
+                               can_view_player_decks=can_view_player_decks,
                                server_now=datetime.utcnow())
+
+    @app.route('/t/<int:tid>/players/<int:player_id>/deck')
+    @login_required
+    def view_player_deck(tid, player_id):
+        from .models import TournamentPlayer
+
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        player = db.session.get(TournamentPlayer, player_id)
+        if not player or player.tournament_id != tid:
+            abort(404)
+        if not (
+            user_can_view_player_decks(current_user, t)
+            or current_user.id == player.user_id
+        ):
+            abort(403)
+        deck = player.deck
+        return render_template(
+            'tournament/player_deck.html',
+            t=t,
+            player=player,
+            deck=deck,
+        )
 
     @app.route('/t/<int:tid>/deck/search')
     @login_required

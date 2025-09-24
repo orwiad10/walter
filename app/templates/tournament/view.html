@@ -499,9 +499,39 @@ Sideboard
 
 <h3>Players ({{ players|length }})</h3>
 <table class="players-table">
+  <thead>
+    <tr>
+      <th>Player</th>
+      {% if can_view_player_decks %}
+      <th>Deck</th>
+      {% endif %}
+    </tr>
+  </thead>
   <tbody>
   {% for p in players %}
-    <tr><td>{{ p.user.name }}</td></tr>
+    <tr>
+      <td>{{ p.user.name }}</td>
+      {% if can_view_player_decks %}
+      {% set deck = p.deck %}
+      <td class="player-deck-cell">
+        {% if deck %}
+        <div class="player-deck-actions">
+          <a class="btn" href="{{ url_for('view_player_deck', tid=t.id, player_id=p.id) }}">View Deck</a>
+          <span class="deck-counts">Main {{ deck.total_mainboard() }} · Side {{ deck.total_sideboard() }}</span>
+          <span class="deck-status {% if deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
+            {% if deck.is_submitted %}
+              Submitted{% if deck.submitted_at %} {{ deck.submitted_at }}{% endif %}
+            {% else %}
+              Not submitted
+            {% endif %}
+          </span>
+        </div>
+        {% else %}
+        <span class="deck-status deck-status-draft">No deck submitted</span>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
   {% endfor %}
   </tbody>
 </table>
