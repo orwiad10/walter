@@ -535,3 +535,67 @@ def test_deck_changes_locked_prevents_updates(client, session, user):
     )
     session.refresh(tp)
     assert tp.deck is None
+
+
+def test_floor_judge_can_view_player_deck(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    deck = TournamentPlayerDeck(
+        tournament_player=tp,
+        source='manual',
+        mainboard=json.dumps([{'name': 'Black Lotus', 'count': 1}]),
+        sideboard=json.dumps([]),
+        is_submitted=True,
+    )
+    session.add(deck)
+    session.commit()
+
+    judge_role = session.query(Role).filter_by(name='floor judge').first()
+    judge = User(email='judge@example.com', name='Floor Judge', role=judge_role)
+    judge.set_password('secret')
+    session.add(judge)
+    session.commit()
+    tournament.floor_judges = json.dumps([judge.id])
+    session.commit()
+
+    login(client, judge)
+
+    listing = client.get(f'/t/{tournament.id}')
+    assert listing.status_code == 200
+    assert b'View Deck' in listing.data
+    assert b'Main 1' in listing.data
+
+    detail = client.get(f'/t/{tournament.id}/players/{tp.id}/deck')
+    assert detail.status_code == 200
+    assert b'Player One' in detail.data
+    assert b'Black Lotus' in detail.data
+    assert b'Mainboard (1)' in detail.data
+
+
+def test_regular_user_cannot_view_other_player_deck(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    deck = TournamentPlayerDeck(
+        tournament_player=tp,
+        source='manual',
+        mainboard=json.dumps([{'name': 'Black Lotus', 'count': 1}]),
+        sideboard=json.dumps([]),
+        is_submitted=False,
+    )
+    session.add(deck)
+    session.commit()
+
+    role = session.query(Role).filter_by(name='user').first()
+    other = User(email='other@example.com', name='Spectator', role=role)
+    other.set_password('secret')
+    session.add(other)
+    session.commit()
+
+    login(client, other)
+
+    listing = client.get(f'/t/{tournament.id}')
+    assert listing.status_code == 200
+    assert b'View Deck' not in listing.data
+
+    response = client.get(f'/t/{tournament.id}/players/{tp.id}/deck')
+    assert response.status_code == 403
