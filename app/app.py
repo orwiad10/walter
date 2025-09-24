@@ -1,4 +1,16 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, send_from_directory, Response
+from flask import (
+    Flask,
+    render_template,
+    redirect,
+    url_for,
+    request,
+    flash,
+    abort,
+    session,
+    send_from_directory,
+    Response,
+    jsonify,
+)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
@@ -19,12 +31,18 @@ import io
 import glob
 import secrets
 import csv
+from collections import OrderedDict
+from urllib.parse import urlparse
+
+import requests
 from sqlalchemy import inspect, text, or_
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
+
+from . import card_db
 
 
 db = SQLAlchemy()
@@ -58,6 +76,15 @@ def create_app():
     }
     app.config['MEDIA_STORAGE_DIR'] = media_dir
     app.config['MEDIA_DB_PATH'] = media_db_path
+    card_db_path = os.environ.get('MTG_CARD_DB_PATH')
+    if not card_db_path:
+        card_db_path = os.path.join(app.instance_path, f"{db_base}_cards.db")
+    app.config['CARD_DB_PATH'] = card_db_path
+    app.config['CARD_DB_URL'] = os.environ.get('MTG_CARD_DB_URL', card_db.ATOMIC_CARDS_URL)
+    app.config['MOXFIELD_API_TEMPLATE'] = os.environ.get(
+        'MOXFIELD_API_TEMPLATE',
+        'https://api.moxfield.com/v2/decks/all/{code}',
+    )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
@@ -147,10 +174,11 @@ def create_app():
                 db.session.execute(text('ALTER TABLE report ADD COLUMN actions_taken TEXT'))
                 db.session.commit()
         TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
-        from .models import LostFoundItem
+        from .models import LostFoundItem, TournamentPlayerDeck
 
         media_engine = db.get_engine(app, bind='media')
         LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
+        TournamentPlayerDeck.__table__.create(bind=db.engine, checkfirst=True)
 
     from .models import (
         User,
@@ -974,7 +1002,7 @@ def create_app():
                     continue
         return None
 
-    def sanitize_image_upload(file_storage):
+    def sanitize_image_upload(file_storage, prefix='lf'):
         if not file_storage or not file_storage.filename:
             return None
         storage_dir = app.config.get('MEDIA_STORAGE_DIR')
@@ -994,12 +1022,180 @@ def create_app():
         except Exception:
             return None
         buffer.seek(0)
-        filename = f"lf_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}.png"
+        safe_prefix = ''.join(ch for ch in prefix if ch.isalnum()) or 'deck'
+        filename = f"{safe_prefix}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}.png"
         os.makedirs(storage_dir, exist_ok=True)
         path = os.path.join(storage_dir, filename)
         with open(path, 'wb') as handle:
             handle.write(buffer.read())
         return filename
+
+    def get_card_database_path():
+        path = app.config.get('CARD_DB_PATH')
+        if not path:
+            base = os.path.join(app.instance_path, 'mtg_cards.db')
+            app.config['CARD_DB_PATH'] = base
+            path = base
+        return path
+
+    def ensure_card_database_ready():
+        path = get_card_database_path()
+        source_url = app.config.get('CARD_DB_URL', card_db.ATOMIC_CARDS_URL)
+        return card_db.ensure_card_database(path, source_url=source_url)
+
+    def combine_card_entries(entries):
+        combined = OrderedDict()
+        for entry in entries:
+            name = (entry.get('name') or '').strip()
+            count = int(entry.get('count') or 0)
+            if not name or count <= 0:
+                continue
+            if name in combined:
+                combined[name] += count
+            else:
+                combined[name] = count
+        return [{'name': name, 'count': count} for name, count in combined.items()]
+
+    def parse_counted_sections(text):
+        main_entries = []
+        side_entries = []
+        current = main_entries
+        for raw_line in text.splitlines():
+            line = (raw_line or '').strip()
+            if not line:
+                continue
+            if line.lower().startswith('sideboard'):
+                current = side_entries
+                continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                raise ValueError(f"Invalid deck line: '{raw_line}'")
+            try:
+                count = int(parts[0])
+            except ValueError as exc:
+                raise ValueError(f"Invalid card count in line: '{raw_line}'") from exc
+            card_name = parts[1].strip()
+            if not card_name:
+                raise ValueError(f"Missing card name in line: '{raw_line}'")
+            current.append({'name': card_name, 'count': count})
+        return combine_card_entries(main_entries), combine_card_entries(side_entries)
+
+    def canonicalize_card_group(card_entries, db_path=None):
+        if not card_entries:
+            return [], []
+        path = db_path or ensure_card_database_ready()
+        canonical_names = card_db.canonicalize_names(path, [c['name'] for c in card_entries])
+        resolved = []
+        missing = []
+        for entry, canonical in zip(card_entries, canonical_names):
+            if canonical:
+                resolved.append({'name': canonical, 'count': entry['count']})
+            else:
+                missing.append(entry['name'])
+        return resolved, missing
+
+    def extract_moxfield_deck_id(raw_value):
+        value = (raw_value or '').strip()
+        if not value:
+            return None
+        if value.startswith('http://') or value.startswith('https://'):
+            parsed = urlparse(value)
+            segments = [segment for segment in parsed.path.split('/') if segment]
+            if len(segments) < 2 or segments[0].lower() != 'decks':
+                return None
+            deck_id = segments[1]
+        else:
+            parts = [segment for segment in value.split('/') if segment]
+            if not parts:
+                deck_id = value
+            else:
+                deck_id = parts[-1]
+        deck_id = deck_id.split('?')[0].split('#')[0]
+        return deck_id or None
+
+    def parse_moxfield_section(section):
+        entries = []
+        if isinstance(section, dict):
+            for item in section.values():
+                if not isinstance(item, dict):
+                    continue
+                quantity = item.get('quantity', item.get('count'))
+                if quantity in (None, ''):
+                    continue
+                try:
+                    count = int(quantity)
+                except (TypeError, ValueError):
+                    continue
+                card_name = None
+                card_info = item.get('card')
+                if isinstance(card_info, dict):
+                    card_name = card_info.get('name')
+                if not card_name:
+                    card_name = item.get('name')
+                if not card_name:
+                    continue
+                entries.append({'name': card_name, 'count': count})
+        return entries
+
+    def parse_moxfield_payload(payload):
+        if not isinstance(payload, dict):
+            raise ValueError('Unexpected response from Moxfield.')
+        main_entries = []
+        for key in ('mainboard', 'commanders', 'companions', 'signatureSpells'):
+            section = payload.get(key)
+            main_entries.extend(parse_moxfield_section(section))
+        side_entries = parse_moxfield_section(payload.get('sideboard'))
+        return combine_card_entries(main_entries), combine_card_entries(side_entries)
+
+    def save_player_deck(tp, source, main_cards, side_cards, raw_text=None, moxfield_url=None):
+        from .models import TournamentPlayerDeck  # lazy import
+
+        deck = tp.deck
+        if not deck:
+            deck = TournamentPlayerDeck(tournament_player=tp, source=source)
+        deck.source = source
+        deck.mainboard = json.dumps(main_cards, ensure_ascii=False)
+        deck.sideboard = json.dumps(side_cards, ensure_ascii=False)
+        deck.raw_text = raw_text
+        deck.moxfield_url = moxfield_url
+        db.session.add(deck)
+        db.session.commit()
+        return deck
+
+    def update_deck_image(tp, filename):
+        from .models import TournamentPlayerDeck  # lazy import
+
+        deck = tp.deck
+        if not deck:
+            deck = TournamentPlayerDeck(tournament_player=tp, source='image', mainboard='[]', sideboard='[]')
+        if deck.source is None:
+            deck.source = 'image'
+        old_image = deck.image_path
+        deck.image_path = filename
+        db.session.add(deck)
+        db.session.commit()
+        storage_dir = app.config.get('MEDIA_STORAGE_DIR')
+        if storage_dir and old_image and old_image != filename:
+            old_safe = secure_filename(os.path.basename(old_image))
+            old_path = os.path.join(storage_dir, old_safe)
+            if os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+        return deck
+
+    def parse_mtgo_deck_text(text):
+        return parse_counted_sections(text)
+
+    def get_player_entry(tournament_id, user_id):
+        from .models import TournamentPlayer  # lazy import
+
+        return (
+            db.session.query(TournamentPlayer)
+            .filter_by(tournament_id=tournament_id, user_id=user_id)
+            .first()
+        )
 
     def estimate_end_time(t):
         """Estimate tournament end time based on start time and timers."""
@@ -1376,6 +1572,7 @@ def create_app():
         show_passcode = False
         pending_join_requests = []
         user_join_request = None
+        player_deck = None
         if current_user.is_authenticated:
             is_player = any(p.user_id == current_user.id for p in players)
             show_passcode = current_user.has_permission('tournaments.manage') or is_player
@@ -1393,6 +1590,11 @@ def create_app():
                     .order_by(TournamentJoinRequest.created_at.asc())
                     .all()
                 )
+            if is_player:
+                for player in players:
+                    if player.user_id == current_user.id:
+                        player_deck = player.deck
+                        break
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -1422,7 +1624,209 @@ def create_app():
                                floor_judges=floor_judges,
                                pending_join_requests=pending_join_requests,
                                user_join_request=user_join_request,
+                               player_deck=player_deck,
+                               deck_search_url=url_for('deck_card_search', tid=t.id) if is_player else None,
                                server_now=datetime.utcnow())
+
+    @app.route('/t/<int:tid>/deck/search')
+    @login_required
+    def deck_card_search(tid):
+        from .models import Tournament
+
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        tp = get_player_entry(tid, current_user.id)
+        if not tp and not current_user.has_permission('tournaments.manage'):
+            abort(403)
+        query = (request.args.get('q') or '').strip()
+        if len(query) < 2:
+            return jsonify(results=[])
+        try:
+            path = ensure_card_database_ready()
+        except Exception as exc:
+            return jsonify(error=str(exc), results=[]), 503
+        results = card_db.search_cards(path, query, limit=20)
+        return jsonify(results=results)
+
+    @app.route('/t/<int:tid>/deck/manual', methods=['POST'])
+    @login_required
+    def upload_manual_deck(tid):
+        from .models import Tournament
+
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        tp = get_player_entry(tid, current_user.id)
+        if not tp:
+            abort(403)
+        deck_text = (request.form.get('deck_text') or '').strip()
+        if not deck_text:
+            flash('Deck list cannot be empty.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        try:
+            main_entries, side_entries = parse_counted_sections(deck_text)
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        try:
+            db_path = ensure_card_database_ready()
+        except Exception as exc:
+            flash(f'Card database unavailable: {exc}', 'error')
+            log_tournament(tid, 'deck_manual', 'failure', str(exc))
+            return redirect(url_for('view_tournament', tid=tid))
+        canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
+        canonical_side, missing_side = canonicalize_card_group(side_entries, db_path=db_path)
+        missing = missing_main + missing_side
+        if missing:
+            missing_set = sorted({name for name in missing})
+            flash('Unknown card(s): ' + ', '.join(missing_set), 'error')
+            log_tournament(tid, 'deck_manual', 'failure', 'missing: ' + ', '.join(missing_set))
+            return redirect(url_for('view_tournament', tid=tid))
+        save_player_deck(tp, 'manual', canonical_main, canonical_side, raw_text=deck_text)
+        flash('Deck list saved.', 'success')
+        log_tournament(tid, 'deck_manual', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/deck/moxfield', methods=['POST'])
+    @login_required
+    def import_moxfield_deck(tid):
+        from .models import Tournament
+
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        tp = get_player_entry(tid, current_user.id)
+        if not tp:
+            abort(403)
+        deck_input = (request.form.get('moxfield_url') or '').strip()
+        deck_id = extract_moxfield_deck_id(deck_input)
+        if not deck_id:
+            flash('Enter a valid Moxfield deck link or ID.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        template = app.config.get('MOXFIELD_API_TEMPLATE', 'https://api.moxfield.com/v2/decks/all/{code}')
+        api_url = template.format(code=deck_id)
+        try:
+            response = requests.get(api_url, timeout=15)
+        except requests.RequestException as exc:
+            flash(f'Failed to contact Moxfield: {exc}', 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
+            return redirect(url_for('view_tournament', tid=tid))
+        if response.status_code != 200:
+            flash('Moxfield returned an error.', 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', f'status {response.status_code}')
+            return redirect(url_for('view_tournament', tid=tid))
+        try:
+            payload = response.json()
+        except ValueError:
+            flash('Invalid response from Moxfield.', 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', 'invalid json')
+            return redirect(url_for('view_tournament', tid=tid))
+        try:
+            main_entries, side_entries = parse_moxfield_payload(payload)
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
+            return redirect(url_for('view_tournament', tid=tid))
+        if not main_entries and not side_entries:
+            flash('Moxfield deck appears to be empty.', 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', 'empty deck')
+            return redirect(url_for('view_tournament', tid=tid))
+        try:
+            db_path = ensure_card_database_ready()
+        except Exception as exc:
+            flash(f'Card database unavailable: {exc}', 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
+            return redirect(url_for('view_tournament', tid=tid))
+        canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
+        canonical_side, missing_side = canonicalize_card_group(side_entries, db_path=db_path)
+        missing = missing_main + missing_side
+        if missing:
+            missing_set = sorted({name for name in missing})
+            flash('Cards not found in local database: ' + ', '.join(missing_set), 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', 'missing: ' + ', '.join(missing_set))
+            return redirect(url_for('view_tournament', tid=tid))
+        save_player_deck(tp, 'moxfield', canonical_main, canonical_side, raw_text=None, moxfield_url=deck_input)
+        flash('Deck imported from Moxfield.', 'success')
+        log_tournament(tid, 'deck_moxfield', 'success', f'id={deck_id}')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/deck/mtgo', methods=['POST'])
+    @login_required
+    def upload_mtgo_deck(tid):
+        from .models import Tournament
+
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        tp = get_player_entry(tid, current_user.id)
+        if not tp:
+            abort(403)
+        upload = request.files.get('mtgo_file')
+        if not upload or not upload.filename:
+            flash('Choose an MTGO deck file to upload.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        file_bytes = upload.read()
+        if not file_bytes:
+            flash('The uploaded deck file is empty.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        try:
+            text = file_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            text = file_bytes.decode('latin-1', errors='ignore')
+        try:
+            main_entries, side_entries = parse_mtgo_deck_text(text)
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        if not main_entries and not side_entries:
+            flash('The uploaded deck file does not contain any cards.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        try:
+            db_path = ensure_card_database_ready()
+        except Exception as exc:
+            flash(f'Card database unavailable: {exc}', 'error')
+            log_tournament(tid, 'deck_mtgo', 'failure', str(exc))
+            return redirect(url_for('view_tournament', tid=tid))
+        canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
+        canonical_side, missing_side = canonicalize_card_group(side_entries, db_path=db_path)
+        missing = missing_main + missing_side
+        if missing:
+            missing_set = sorted({name for name in missing})
+            flash('Cards not found in local database: ' + ', '.join(missing_set), 'error')
+            log_tournament(tid, 'deck_mtgo', 'failure', 'missing: ' + ', '.join(missing_set))
+            return redirect(url_for('view_tournament', tid=tid))
+        save_player_deck(tp, 'mtgo', canonical_main, canonical_side, raw_text=text)
+        flash('MTGO deck file imported.', 'success')
+        log_tournament(tid, 'deck_mtgo', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/deck/image', methods=['POST'])
+    @login_required
+    def upload_deck_image(tid):
+        from .models import Tournament
+
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        if (t.format or '').lower() != 'draft':
+            flash('Deck images are only available for draft events.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        tp = get_player_entry(tid, current_user.id)
+        if not tp:
+            abort(403)
+        upload = request.files.get('deck_image')
+        if not upload or not upload.filename:
+            flash('Select an image to upload.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        filename = sanitize_image_upload(upload, prefix=f'deck{tid}')
+        if not filename:
+            flash('Unable to process the image upload.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        update_deck_image(tp, filename)
+        flash('Deck image uploaded.', 'success')
+        log_tournament(tid, 'deck_image', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/join', methods=['POST'])
     @login_required

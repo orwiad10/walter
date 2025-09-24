@@ -285,6 +285,52 @@ class TournamentPlayer(db.Model):
     __table_args__ = (UniqueConstraint('tournament_id', 'user_id', name='_tournament_user_uc'),)
 
 
+class TournamentPlayerDeck(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_player_id = db.Column(
+        db.Integer,
+        db.ForeignKey('tournament_player.id'),
+        nullable=False,
+        unique=True,
+    )
+    source = db.Column(db.String(20), nullable=False)
+    mainboard = db.Column(db.Text, nullable=True)
+    sideboard = db.Column(db.Text, nullable=True)
+    raw_text = db.Column(db.Text, nullable=True)
+    moxfield_url = db.Column(db.Text, nullable=True)
+    image_path = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    tournament_player = db.relationship(
+        'TournamentPlayer',
+        backref=db.backref(
+            'deck',
+            cascade='all, delete-orphan',
+            uselist=False,
+            single_parent=True,
+        ),
+    )
+
+    def mainboard_cards(self):
+        try:
+            return json.loads(self.mainboard or '[]')
+        except Exception:
+            return []
+
+    def sideboard_cards(self):
+        try:
+            return json.loads(self.sideboard or '[]')
+        except Exception:
+            return []
+
+    def total_mainboard(self):
+        return sum(card.get('count', 0) for card in self.mainboard_cards())
+
+    def total_sideboard(self):
+        return sum(card.get('count', 0) for card in self.sideboard_cards())
+
+
 class TournamentJoinRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)

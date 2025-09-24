@@ -62,9 +62,144 @@
     {% if t.format == 'Draft' %}
     <a class="btn" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>
     {% endif %}
-    <a class="btn" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
-  {% endif %}
+  <a class="btn" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
+{% endif %}
 </div>
+
+{% if is_player %}
+<section class="player-deck">
+  <h3>Your Deck</h3>
+  {% if player_deck %}
+  <p class="deck-meta">
+    Source: {{ player_deck.source|capitalize }}{% if player_deck.updated_at %} · Updated {{ player_deck.updated_at }}{% elif player_deck.created_at %} · Updated {{ player_deck.created_at }}{% endif %}
+    {% if player_deck.moxfield_url %}· <a href="{{ player_deck.moxfield_url }}" target="_blank" rel="noopener">View on Moxfield</a>{% endif %}
+  </p>
+  <div class="deck-lists">
+    <div class="deck-list">
+      <h4>Mainboard ({{ player_deck.total_mainboard() }})</h4>
+      {% set main_cards = player_deck.mainboard_cards() %}
+      {% if main_cards %}
+      <ul>
+        {% for card in main_cards %}
+        <li>{{ card.count }} × {{ card.name }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>No mainboard cards submitted.</p>
+      {% endif %}
+    </div>
+    <div class="deck-list">
+      <h4>Sideboard ({{ player_deck.total_sideboard() }})</h4>
+      {% set side_cards = player_deck.sideboard_cards() %}
+      {% if side_cards %}
+      <ul>
+        {% for card in side_cards %}
+        <li>{{ card.count }} × {{ card.name }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>No sideboard submitted.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% if player_deck.image_path %}
+  <div class="deck-image">
+    <h4>Deck Image</h4>
+    <img src="{{ url_for('media_file', filename=player_deck.image_path) }}" alt="Deck image" loading="lazy">
+  </div>
+  {% endif %}
+  {% else %}
+  <p>No deck information submitted yet.</p>
+  {% endif %}
+
+  <div class="deck-forms">
+    <form method="post" action="{{ url_for('upload_manual_deck', tid=t.id) }}" class="deck-form">
+      <label>Enter deck list
+        <textarea name="deck_text" rows="10" placeholder="4 Archon of Emeria
+4 Chrome Mox
+...
+Sideboard
+2 March of Otherworldly Light"></textarea>
+      </label>
+      <button class="btn" type="submit">Save Deck</button>
+    </form>
+
+    <form method="post" action="{{ url_for('import_moxfield_deck', tid=t.id) }}" class="deck-form">
+      <label>Moxfield deck link or ID
+        <input type="text" name="moxfield_url" placeholder="https://www.moxfield.com/decks/abcdef" required>
+      </label>
+      <button class="btn" type="submit">Import from Moxfield</button>
+    </form>
+
+    <form method="post" action="{{ url_for('upload_mtgo_deck', tid=t.id) }}" enctype="multipart/form-data" class="deck-form">
+      <label>MTGO deck file (.txt)
+        <input type="file" name="mtgo_file" accept=".txt" required>
+      </label>
+      <button class="btn" type="submit">Upload MTGO Deck</button>
+    </form>
+
+    {% if t.format == 'Draft' %}
+    <form method="post" action="{{ url_for('upload_deck_image', tid=t.id) }}" enctype="multipart/form-data" class="deck-form">
+      <label>Deck image (PNG/JPG)
+        <input type="file" name="deck_image" accept="image/*" required>
+      </label>
+      <button class="btn" type="submit">Upload Deck Image</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if deck_search_url %}
+  <div class="card-search-widget">
+    <label>Search card database
+      <input type="text" id="card-search-input" placeholder="Card name">
+    </label>
+    <div id="card-search-results" class="card-search-results" aria-live="polite"></div>
+  </div>
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      const searchUrl = {{ deck_search_url|tojson }};
+      const input = document.getElementById('card-search-input');
+      const results = document.getElementById('card-search-results');
+      if (!searchUrl || !input || !results) {
+        return;
+      }
+      let timer = null;
+      input.addEventListener('input', function(){
+        const query = input.value.trim();
+        if (timer) {
+          clearTimeout(timer);
+        }
+        if (query.length < 2) {
+          results.textContent = '';
+          return;
+        }
+        timer = setTimeout(function(){
+          fetch(searchUrl + '?q=' + encodeURIComponent(query))
+            .then(function(resp){ return resp.json(); })
+            .then(function(data){
+              results.innerHTML = '';
+              if (!data || !Array.isArray(data.results) || data.results.length === 0) {
+                results.textContent = 'No results';
+                return;
+              }
+              const list = document.createElement('ul');
+              data.results.forEach(function(name){
+                const item = document.createElement('li');
+                item.textContent = name;
+                list.appendChild(item);
+              });
+              results.appendChild(list);
+            })
+            .catch(function(){
+              results.textContent = 'Search failed';
+            });
+        }, 250);
+      });
+    });
+  </script>
+  {% endif %}
+</section>
+{% endif %}
 
 {% if current_user.is_authenticated and current_user.has_permission('tournaments.approve_join') and t.join_requires_approval %}
 <section class="join-requests">
