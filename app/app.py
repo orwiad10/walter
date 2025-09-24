@@ -1138,19 +1138,74 @@ def create_app():
         value = (raw_value or '').strip()
         if not value:
             return None
+
+        def sanitize(segment):
+            if not segment:
+                return None
+            cleaned = segment.split('?')[0].split('#')[0].strip()
+            return cleaned or None
+
+        known_sections = {
+            'all',
+            'alchemy',
+            'artisan',
+            'brawl',
+            'cedh',
+            'commander',
+            'constructed',
+            'duel-commander',
+            'duelcommander',
+            'explorer',
+            'featured',
+            'gladiator',
+            'historic',
+            'historic-brawl',
+            'historicbrawl',
+            'legacy',
+            'modern',
+            'oathbreaker',
+            'oldschool',
+            'pauper',
+            'pauper-commander',
+            'paupercommander',
+            'penny',
+            'pioneer',
+            'premodern',
+            'predh',
+            'private',
+            'public',
+            'standard',
+            'tinyleaders',
+            'vintage',
+        }
+
         if value.startswith('http://') or value.startswith('https://'):
             parsed = urlparse(value)
             segments = [segment for segment in parsed.path.split('/') if segment]
-            if len(segments) < 2 or segments[0].lower() != 'decks':
+            deck_id = None
+            try:
+                decks_index = next(
+                    idx for idx, segment in enumerate(segments) if segment.lower() == 'decks'
+                )
+            except StopIteration:
                 return None
-            deck_id = segments[1]
+            candidates = [sanitize(segment) for segment in segments[decks_index + 1 :]]
+            candidates = [segment for segment in candidates if segment]
+            if not candidates:
+                return None
+            for candidate in candidates:
+                if candidate.lower() in known_sections:
+                    continue
+                deck_id = candidate
+                break
+            if deck_id is None:
+                return None
         else:
-            parts = [segment for segment in value.split('/') if segment]
+            parts = [sanitize(segment) for segment in value.split('/') if segment]
+            parts = [segment for segment in parts if segment]
             if not parts:
-                deck_id = value
-            else:
-                deck_id = parts[-1]
-        deck_id = deck_id.split('?')[0].split('#')[0]
+                return None
+            deck_id = parts[-1]
         return deck_id or None
 
     def parse_moxfield_section(section):

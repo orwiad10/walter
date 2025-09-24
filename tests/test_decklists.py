@@ -66,9 +66,14 @@ def test_manual_deck_submission(client, session, user):
     assert deck.source == 'manual'
     assert any(card['name'] == 'Black Lotus' for card in deck.mainboard_cards())
     assert deck.total_sideboard() == 2
-
-
-def test_moxfield_import(client, session, user, monkeypatch):
+@pytest.mark.parametrize(
+    ('deck_url', 'expected_code'),
+    [
+        ('https://www.moxfield.com/decks/abc123', 'abc123'),
+        ('https://www.moxfield.com/decks/commander/AbC123', 'AbC123'),
+    ],
+)
+def test_moxfield_import(client, session, user, monkeypatch, deck_url, expected_code):
     tournament = create_tournament(session)
     tp = register_player(session, tournament, user)
     login(client, user)
@@ -89,9 +94,14 @@ def test_moxfield_import(client, session, user, monkeypatch):
         def json(self):
             return sample_payload
 
-    monkeypatch.setattr('app.app.requests.get', lambda url, timeout=15, **kwargs: DummyResponse())
+    requested_urls = []
 
-    deck_url = 'https://www.moxfield.com/decks/abc123'
+    def fake_get(url, timeout=15, **kwargs):
+        requested_urls.append(url)
+        return DummyResponse()
+
+    monkeypatch.setattr('app.app.requests.get', fake_get)
+
     response = client.post(
         f'/t/{tournament.id}/deck/moxfield',
         data={'moxfield_url': deck_url},
@@ -103,6 +113,9 @@ def test_moxfield_import(client, session, user, monkeypatch):
     assert deck is not None
     assert deck.source == 'moxfield'
     assert deck.moxfield_url == deck_url
+    assert requested_urls == [
+        f'https://api.moxfield.com/v2/decks/all/{expected_code}'
+    ]
     names = {card['name'] for card in deck.mainboard_cards()}
     assert {'Archon of Emeria', 'Black Lotus'} <= names
 
