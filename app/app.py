@@ -85,6 +85,14 @@ def create_app():
         'MOXFIELD_API_TEMPLATE',
         'https://api.moxfield.com/v2/decks/all/{code}',
     )
+    app.config['MOXFIELD_PRIMARY_USER_AGENT'] = os.environ.get(
+        'MOXFIELD_PRIMARY_USER_AGENT',
+        'WalterDeckImporter/1.0',
+    )
+    app.config['MOXFIELD_FALLBACK_USER_AGENT'] = os.environ.get(
+        'MOXFIELD_FALLBACK_USER_AGENT',
+        'Mozilla/5.0',
+    )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
@@ -1900,15 +1908,38 @@ def create_app():
             return redirect(url_for('view_tournament', tid=tid))
         template = app.config.get('MOXFIELD_API_TEMPLATE', 'https://api.moxfield.com/v2/decks/all/{code}')
         api_url = template.format(code=deck_id)
-        try:
-            response = requests.get(
-                api_url,
-                timeout=15,
-                headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'},
+        header_candidates = []
+        seen_user_agents = set()
+        for user_agent in (
+            app.config.get('MOXFIELD_PRIMARY_USER_AGENT'),
+            app.config.get('MOXFIELD_FALLBACK_USER_AGENT'),
+        ):
+            if not user_agent or user_agent in seen_user_agents:
+                continue
+            seen_user_agents.add(user_agent)
+            header_candidates.append(
+                {'Accept': 'application/json', 'User-Agent': user_agent}
             )
-        except requests.RequestException as exc:
-            flash(f'Failed to contact Moxfield: {exc}', 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
+        if not header_candidates:
+            header_candidates.append({'Accept': 'application/json'})
+        response = None
+        for headers in header_candidates:
+            try:
+                candidate = requests.get(
+                    api_url,
+                    timeout=15,
+                    headers=headers,
+                )
+            except requests.RequestException as exc:
+                flash(f'Failed to contact Moxfield: {exc}', 'error')
+                log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
+                return redirect(url_for('view_tournament', tid=tid))
+            response = candidate
+            if response.status_code != 403:
+                break
+        if response is None:
+            flash('Failed to contact Moxfield.', 'error')
+            log_tournament(tid, 'deck_moxfield', 'failure', 'no response')
             return redirect(url_for('view_tournament', tid=tid))
         if response.status_code != 200:
             error_message = None
@@ -2049,6 +2080,29 @@ def create_app():
         update_deck_image(tp, filename)
         flash('Deck image uploaded.', 'success')
         log_tournament(tid, 'deck_image', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/deck/image/delete', methods=['POST'])
+    @login_required
+    def delete_deck_image(tid):
+        from .models import Tournament
+
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        if (t.format or '').lower() != 'draft':
+            flash('Deck images are only available for draft events.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        tp = get_player_entry(tid, current_user.id)
+        if not tp:
+            abort(403)
+        deck = tp.deck
+        if not deck or not deck.image_path:
+            flash('No deck image to delete.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        update_deck_image(tp, None)
+        flash('Deck image deleted.', 'success')
+        log_tournament(tid, 'deck_image', 'deleted')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/join', methods=['POST'])

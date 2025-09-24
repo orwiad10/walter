@@ -113,6 +113,11 @@
   <div class="deck-image">
     <h4>Deck Image</h4>
     <img src="{{ url_for('media_file', filename=player_deck.image_path) }}" alt="Deck image" loading="lazy">
+    {% if not deck_locked %}
+    <form method="post" action="{{ url_for('delete_deck_image', tid=t.id) }}" class="deck-form deck-image-delete-form">
+      <button class="btn danger" type="submit">Delete Deck Image</button>
+    </form>
+    {% endif %}
   </div>
   {% endif %}
   {% else %}
