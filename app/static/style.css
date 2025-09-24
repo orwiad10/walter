@@ -52,6 +52,13 @@ main { padding: 16px; }
   background:#b24400;
   transform:translateY(-2px);
 }
+.btn.danger {
+  background:#b13b2e;
+  border-color:#8d2f23;
+}
+.btn.danger:hover {
+  background:#8d2f23;
+}
 .btn:active {
   transform:translateY(0);
 }
@@ -356,6 +363,12 @@ main { padding: 16px; }
 }
 .btn-small:hover {
   background:var(--dark-green);
+}
+.btn-small.danger {
+  background:#b13b2e;
+}
+.btn-small.danger:hover {
+  background:#8d2f23;
 }
 .deck-builder-actions {
   display:flex;
