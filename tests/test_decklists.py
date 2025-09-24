@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 
 import pytest
 
@@ -9,6 +10,7 @@ from app.models import (
     Tournament,
     TournamentPlayer,
     TournamentPlayerDeck,
+    Round,
     User,
 )
 
@@ -87,7 +89,7 @@ def test_moxfield_import(client, session, user, monkeypatch):
         def json(self):
             return sample_payload
 
-    monkeypatch.setattr('app.app.requests.get', lambda url, timeout=15: DummyResponse())
+    monkeypatch.setattr('app.app.requests.get', lambda url, timeout=15, **kwargs: DummyResponse())
 
     deck_url = 'https://www.moxfield.com/decks/abc123'
     response = client.post(
@@ -173,3 +175,184 @@ def test_card_search_endpoint(client, session, user):
     data = response.get_json()
     assert 'results' in data
     assert any('Archon of Emeria' == name for name in data['results'])
+
+
+def test_manual_deck_ignores_unknown_cards(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    deck_text = '1 Black Lotus\n1 Imaginary Card\nSideboard\n1 Null Rod'
+    client.post(
+        f'/t/{tournament.id}/deck/manual',
+        data={'deck_text': deck_text},
+    )
+
+    session.refresh(tp)
+    deck = tp.deck
+    assert deck is not None
+    assert {card['name'] for card in deck.mainboard_cards()} == {'Black Lotus'}
+    assert {card['name'] for card in deck.sideboard_cards()} == {'Null Rod'}
+
+
+def test_manual_deck_accepts_single_face_name(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    deck_text = '1 Witch Enchanter'
+    client.post(
+        f'/t/{tournament.id}/deck/manual',
+        data={'deck_text': deck_text},
+    )
+
+    session.refresh(tp)
+    deck = tp.deck
+    assert deck is not None
+    names = {card['name'] for card in deck.mainboard_cards()}
+    assert 'Witch Enchanter // Witch-Blessed Meadow' in names
+
+
+def test_manual_deck_parse_errors_still_saved(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    deck_text = '1 Black Lotus\nBad Line\nSideboard\n1 Null Rod'
+    client.post(
+        f'/t/{tournament.id}/deck/manual',
+        data={'deck_text': deck_text},
+    )
+
+    session.refresh(tp)
+    deck = tp.deck
+    assert deck is not None
+    assert deck.total_mainboard() == 1
+    assert deck.total_sideboard() == 1
+
+
+def submit_deck(client, tournament_id, deck_json):
+    return client.post(
+        f'/t/{tournament_id}/deck/manual',
+        data={'deck_json': json.dumps(deck_json), 'action': 'submit'},
+    )
+
+
+def test_submit_requires_minimum_mainboard(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    submit_deck(
+        client,
+        tournament.id,
+        {'main': [{'name': 'Black Lotus', 'count': 1}], 'side': []},
+    )
+
+    session.refresh(tp)
+    assert tp.deck is not None
+    assert tp.deck.is_submitted is False
+
+
+def test_submit_valid_deck_marks_submitted(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    submit_deck(
+        client,
+        tournament.id,
+        {'main': [{'name': 'Plains', 'count': 60}], 'side': []},
+    )
+
+    session.refresh(tp)
+    assert tp.deck is not None
+    assert tp.deck.is_submitted is True
+
+
+def test_submit_non_basic_land_limit(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    submit_deck(
+        client,
+        tournament.id,
+        {
+            'main': [
+                {'name': 'Ancient Tomb', 'count': 5},
+                {'name': 'Plains', 'count': 55},
+            ],
+            'side': [],
+        },
+    )
+
+    session.refresh(tp)
+    assert tp.deck is not None
+    assert tp.deck.is_submitted is False
+
+
+def test_submit_restricted_card_limit(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    submit_deck(
+        client,
+        tournament.id,
+        {
+            'main': [
+                {'name': 'Black Lotus', 'count': 2},
+                {'name': 'Plains', 'count': 58},
+            ],
+            'side': [],
+        },
+    )
+
+    session.refresh(tp)
+    assert tp.deck is not None
+    assert tp.deck.is_submitted is False
+
+
+def test_submit_banned_card_rejected(client, session, user):
+    tournament = create_tournament(session)
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    submit_deck(
+        client,
+        tournament.id,
+        {
+            'main': [
+                {'name': 'Hopeless Nightmare', 'count': 4},
+                {'name': 'Plains', 'count': 56},
+            ],
+            'side': [],
+        },
+    )
+
+    session.refresh(tp)
+    assert tp.deck is not None
+    assert tp.deck.is_submitted is False
+
+
+def test_deck_changes_locked_prevents_updates(client, session, user):
+    tournament = create_tournament(session)
+    register_player(session, tournament, user)
+    session.add(Round(tournament_id=tournament.id, number=1))
+    session.commit()
+    login(client, user)
+
+    response = client.post(
+        f'/t/{tournament.id}/deck/manual',
+        data={'deck_text': '1 Black Lotus'},
+    )
+    assert response.status_code == 302
+
+    tp = (
+        session.query(TournamentPlayer)
+        .filter_by(tournament_id=tournament.id, user_id=user.id)
+        .first()
+    )
+    session.refresh(tp)
+    assert tp.deck is None
