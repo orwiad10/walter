@@ -154,6 +154,7 @@
         </div>
       </div>
       <div class="deck-builder-actions">
+        <button class="btn danger" type="button" id="deck-clear-button">Clear Deck</button>
         <button class="btn" type="submit" name="action" value="save">Save Deck</button>
         <button class="btn primary" type="submit" name="action" value="submit">Submit Deck</button>
       </div>
@@ -277,6 +278,9 @@ Sideboard
             button.dataset.board = board;
             button.dataset.cardName = card.name;
             button.textContent = pair[0];
+            if (pair[1] === 'remove') {
+              button.classList.add('danger');
+            }
             actions.appendChild(button);
           });
           item.appendChild(count);
@@ -335,6 +339,15 @@ Sideboard
         }
       }
 
+      function clearDeck() {
+        if (state.main.length === 0 && state.side.length === 0) {
+          return;
+        }
+        state.main = [];
+        state.side = [];
+        renderAll();
+      }
+
       form.addEventListener('click', function(event){
         const target = event.target;
         if (!(target instanceof HTMLElement)) {
@@ -357,6 +370,13 @@ Sideboard
           removeCard(board, cardName);
         }
       });
+
+      const clearButton = document.getElementById('deck-clear-button');
+      if (clearButton) {
+        clearButton.addEventListener('click', function(){
+          clearDeck();
+        });
+      }
 
       if (searchInput && results && searchUrl) {
         let timer = null;
