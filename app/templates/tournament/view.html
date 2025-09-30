@@ -72,7 +72,6 @@
   {% if player_deck %}
   <p class="deck-meta">
     Source: {{ player_deck.source|capitalize }}{% if player_deck.updated_at %} · Updated {{ player_deck.updated_at }}{% elif player_deck.created_at %} · Updated {{ player_deck.created_at }}{% endif %}
-    {% if player_deck.moxfield_url %}· <a href="{{ player_deck.moxfield_url }}" target="_blank" rel="noopener">View on Moxfield</a>{% endif %}
     <span class="deck-status {% if player_deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
       {% if player_deck.is_submitted %}
         Status: Submitted{% if player_deck.submitted_at %} · Submitted {{ player_deck.submitted_at }}{% endif %}
@@ -177,13 +176,6 @@ Sideboard
         <button class="btn" type="submit" name="action" value="save">Save Deck</button>
         <button class="btn" type="submit" name="action" value="submit">Submit Deck</button>
       </div>
-    </form>
-
-    <form method="post" action="{{ url_for('import_moxfield_deck', tid=t.id) }}" class="deck-form">
-      <label>Moxfield deck link or ID
-        <input type="text" name="moxfield_url" placeholder="https://www.moxfield.com/decks/abcdef" required>
-      </label>
-      <button class="btn" type="submit">Import from Moxfield</button>
     </form>
 
     <form method="post" action="{{ url_for('upload_mtgo_deck', tid=t.id) }}" enctype="multipart/form-data" class="deck-form">
