@@ -1,15 +1,52 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Messages</h2>
-<p>Select the messaging option that matches what you need to do.</p>
-<ul class="message-nav">
-  <li><a href="{{ url_for('messages_inbox') }}">Player Inbox</a> – read your encrypted messages and compose direct replies.</li>
-  <li><a href="{{ url_for('messages_sent') }}">Sent Messages</a> – review anything you have sent.</li>
+<section class="page-header">
+  <div class="page-header__title">
+    <h2>Messages</h2>
+    <p class="page-description">Choose how you want to communicate with your players, judges, or staff.</p>
+  </div>
+</section>
+
+<ul class="cards message-options">
+  <li class="card">
+    <div class="card-header">
+      <h3 class="card-title">Player Inbox</h3>
+    </div>
+    <p class="card-description">Read encrypted messages from players and compose direct replies.</p>
+    <div class="card-actions">
+      <a class="btn" href="{{ url_for('messages_inbox') }}">Open Inbox</a>
+    </div>
+  </li>
+  <li class="card">
+    <div class="card-header">
+      <h3 class="card-title">Sent Messages</h3>
+    </div>
+    <p class="card-description">Review every announcement or direct message you have previously sent.</p>
+    <div class="card-actions">
+      <a class="btn secondary" href="{{ url_for('messages_sent') }}">View Sent Items</a>
+    </div>
+  </li>
   {% if judge_access %}
-  <li><a href="{{ url_for('messages_judge') }}">Judge Broadcast</a> – send announcements to all players in a tournament.</li>
+  <li class="card">
+    <div class="card-header">
+      <h3 class="card-title">Judge Broadcast</h3>
+    </div>
+    <p class="card-description">Send an announcement to every registered player in a selected tournament.</p>
+    <div class="card-actions">
+      <a class="btn" href="{{ url_for('messages_judge') }}">Compose Broadcast</a>
+    </div>
+  </li>
   {% endif %}
   {% if admin_access %}
-  <li><a href="{{ url_for('messages_admin') }}">Admin Broadcast</a> – send announcements to everyone in a role or to all users.</li>
+  <li class="card">
+    <div class="card-header">
+      <h3 class="card-title">Admin Broadcast</h3>
+    </div>
+    <p class="card-description">Reach everyone in a role—or your entire user base—with one secure message.</p>
+    <div class="card-actions">
+      <a class="btn" href="{{ url_for('messages_admin') }}">Send Admin Message</a>
+    </div>
+  </li>
   {% endif %}
 </ul>
 {% endblock %}
