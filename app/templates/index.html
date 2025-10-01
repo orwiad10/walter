@@ -1,28 +1,46 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Tournaments</h2>
-<p><a class="btn" href="{{ url_for('new_tournament') }}" {% if not current_user.is_authenticated or not current_user.has_permission('tournaments.manage') %}style="display:none"{% endif %}>Create Tournament</a></p>
+<section class="page-header">
+  <div class="page-header__title">
+    <h2>Active Tournaments</h2>
+    <p class="page-description">Track live timers, manage players, and jump into any event with a single tap.</p>
+  </div>
+  {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
+  <div class="page-header__actions">
+    <a class="btn" href="{{ url_for('new_tournament') }}">Create Tournament</a>
+  </div>
+  {% endif %}
+</section>
+
 <ul class="cards">
   {% for t in tournaments %}
     <li class="card">
-      <h3><a href="{{ url_for('view_tournament', tid=t.id) }}">{{ t.name }}</a></h3>
-      <div>Format: {{ t.format }}</div>
-      <div>Cut: {{ t.cut|upper }}</div>
-      <div>Players: {{ player_counts[t.id] }}</div>
-      {% set end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end %}
-      {% if t.round_timer_end %}{% set ttype = 'round' %}{% elif t.draft_timer_end %}{% set ttype = 'draft' %}{% elif t.deck_timer_end %}{% set ttype = 'deck' %}{% endif %}
-      {% if end %}
-      <div>Timer: <span class="timer" data-timer-end="{{ end.isoformat() }}Z" data-server-now="{{ server_now.isoformat() }}Z" data-tournament-id="{{ t.id }}" data-tournament-name="{{ t.name }}"{% if ttype %} data-timer-type="{{ ttype }}"{% endif %}></span></div>
-      {% endif %}
+      <div class="card-header">
+        <h3 class="card-title"><a href="{{ url_for('view_tournament', tid=t.id) }}">{{ t.name }}</a></h3>
+      </div>
+      <div class="card-meta">
+        <span><strong>Format</strong>{{ t.format }}</span>
+        <span><strong>Cut</strong>{{ t.cut|upper }}</span>
+        <span><strong>Players</strong>{{ player_counts[t.id] }}</span>
+        {% set end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end %}
+        {% if t.round_timer_end %}{% set ttype = 'round' %}{% elif t.draft_timer_end %}{% set ttype = 'draft' %}{% elif t.deck_timer_end %}{% set ttype = 'deck' %}{% endif %}
+        {% if end %}
+        <span><strong>Timer</strong><span class="timer" data-timer-end="{{ end.isoformat() }}Z" data-server-now="{{ server_now.isoformat() }}Z" data-tournament-id="{{ t.id }}" data-tournament-name="{{ t.name }}"{% if ttype %} data-timer-type="{{ ttype }}"{% endif %}></span></span>
+        {% endif %}
+      </div>
       {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
-        <a class="btn" href="{{ url_for('edit_tournament', tid=t.id) }}">Edit</a>
+      <div class="card-actions">
+        <a class="btn secondary" href="{{ url_for('edit_tournament', tid=t.id) }}">Edit</a>
         <form method="post" action="{{ url_for('delete_tournament', tid=t.id) }}" onsubmit="return confirm('Delete this tournament?');">
-          <button class="btn" type="submit">Delete</button>
+          <button class="btn danger" type="submit">Delete</button>
         </form>
+      </div>
       {% endif %}
     </li>
   {% else %}
-    <li>No tournaments yet.</li>
+    <li class="card">
+      <p class="page-description">No tournaments yet. When a tournament is created, it will appear here with its live status.</p>
+    </li>
   {% endfor %}
 </ul>
 {% endblock %}

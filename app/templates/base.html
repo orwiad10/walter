@@ -7,41 +7,63 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header>
-    <h1><a href="{{ url_for('index') }}">WaLTER</a></h1>
-    <button class="menu-toggle" aria-label="Toggle navigation">Menu</button>
-    <nav>
-      {% if current_user.is_authenticated %}
-        <span>Hi, {{ current_user.name }}</span>
-        <a href="{{ url_for('index') }}">All Tournaments</a>
-        <a href="{{ url_for('messages_home') }}">Messages <span id="nav-messages-count" class="nav-badge{% if not nav_unread_messages %} hidden{% endif %}">{{ nav_unread_messages }}</span></a>
-        <a href="{{ url_for('lost_and_found') }}">Lost &amp; Found</a>
-        <a href="{{ url_for('submit_report') }}">Report Issue</a>
-        {% if current_user.has_permission('tournaments.manage') %}
-        <a href="{{ url_for('new_tournament') }}">New Tournament</a>
-        <a href="{{ url_for('admin_register_player') }}">Register Player</a>
-        <a href="{{ url_for('admin_bulk_register') }}">Bulk Register Players</a>
-        <a href="{{ url_for('staff_management') }}">Staff</a>
-        <a href="{{ url_for('schedule') }}">Schedule</a>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <h1 class="brand"><a href="{{ url_for('index') }}">WaLTER</a></h1>
+        {% if current_user.is_authenticated %}
+        <span class="nav-chip">Hi, {{ current_user.name }}</span>
         {% endif %}
-        {% if current_user.has_permission('users.manage') %}
-        <a href="{{ url_for('admin_users') }}">Manage Users</a>
-        {% endif %}
-        {% if current_user.has_permission('admin.panel') %}
-        <a href="{{ url_for('admin_panel') }}">Admin Panel</a>
-        <a href="{{ url_for('site_logs') }}">Site Logs</a>
-        <a href="{{ url_for('admin_reports') }}">Reports <span id="nav-reports-count" class="nav-badge{% if not nav_open_reports %} hidden{% endif %}">{{ nav_open_reports }}</span></a>
-        {% endif %}
-        {% if current_user.has_permission('admin.permissions') %}
-        <a href="{{ url_for('permissions') }}">Permissions</a>
-        {% endif %}
-        <a href="{{ url_for('logout') }}">Logout</a>
-      {% else %}
-        <a href="{{ url_for('index') }}">All Tournaments</a>
-        <a href="{{ url_for('login') }}">Login</a>
-        <a href="{{ url_for('register') }}">Register</a>
-      {% endif %}
-    </nav>
+      </div>
+      <button class="menu-toggle" type="button" aria-label="Toggle navigation" aria-controls="main-nav" aria-expanded="false">
+        <span class="menu-toggle__icon" aria-hidden="true"></span>
+        Menu
+      </button>
+      <nav class="app-nav" id="main-nav">
+        <ul class="nav-list">
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">All Tournaments</a></li>
+          {% if current_user.is_authenticated %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('messages_home') }}">Messages <span id="nav-messages-count" class="nav-badge{% if not nav_unread_messages %} hidden{% endif %}">{{ nav_unread_messages }}</span></a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('lost_and_found') }}">Lost &amp; Found</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('submit_report') }}">Report Issue</a></li>
+          {% if current_user.has_permission('tournaments.manage') %}
+          <li class="nav-item has-dropdown">
+            <button class="nav-link" type="button" data-dropdown-toggle aria-expanded="false">Tournament Tools</button>
+            <div class="dropdown-menu" role="menu">
+              <a class="dropdown-item" href="{{ url_for('new_tournament') }}">New Tournament</a>
+              <a class="dropdown-item" href="{{ url_for('admin_register_player') }}">Register Player</a>
+              <a class="dropdown-item" href="{{ url_for('admin_bulk_register') }}">Bulk Register Players</a>
+              <a class="dropdown-item" href="{{ url_for('staff_management') }}">Staff</a>
+              <a class="dropdown-item" href="{{ url_for('schedule') }}">Schedule</a>
+            </div>
+          </li>
+          {% endif %}
+          {% if current_user.has_permission('users.manage') or current_user.has_permission('admin.panel') or current_user.has_permission('admin.permissions') %}
+          <li class="nav-item has-dropdown">
+            <button class="nav-link" type="button" data-dropdown-toggle aria-expanded="false">Admin</button>
+            <div class="dropdown-menu" role="menu">
+              {% if current_user.has_permission('users.manage') %}
+              <a class="dropdown-item" href="{{ url_for('admin_users') }}">Manage Users</a>
+              {% endif %}
+              {% if current_user.has_permission('admin.panel') %}
+              <a class="dropdown-item" href="{{ url_for('admin_panel') }}">Admin Panel</a>
+              <a class="dropdown-item" href="{{ url_for('site_logs') }}">Site Logs</a>
+              <a class="dropdown-item" href="{{ url_for('admin_reports') }}">Reports <span id="nav-reports-count" class="nav-badge{% if not nav_open_reports %} hidden{% endif %}">{{ nav_open_reports }}</span></a>
+              {% endif %}
+              {% if current_user.has_permission('admin.permissions') %}
+              <a class="dropdown-item" href="{{ url_for('permissions') }}">Permissions</a>
+              {% endif %}
+            </div>
+          </li>
+          {% endif %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Logout</a></li>
+          {% else %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Login</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">Register</a></li>
+          {% endif %}
+        </ul>
+      </nav>
+    </div>
   </header>
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -52,8 +74,10 @@
       </ul>
     {% endif %}
   {% endwith %}
-  <main>
-    {% block content %}{% endblock %}
+  <main class="app-main">
+    <div class="content-wrapper">
+      {% block content %}{% endblock %}
+    </div>
   </main>
   <script>
   function formatTime(seconds){
@@ -105,12 +129,57 @@
     }
   });
   const menuToggle = document.querySelector('.menu-toggle');
-  const nav = document.querySelector('header nav');
+  const nav = document.querySelector('.app-nav');
   if(menuToggle && nav){
     menuToggle.addEventListener('click', function(){
-      nav.classList.toggle('open');
+      const isOpen = nav.classList.toggle('open');
+      menuToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      if(!isOpen){
+        closeDropdowns();
+      }
     });
   }
+  const dropdownButtons = Array.prototype.slice.call(document.querySelectorAll('[data-dropdown-toggle]'));
+  function closeDropdowns(){
+    dropdownButtons.forEach(function(btn){
+      const parent = btn.closest('.has-dropdown');
+      const menu = btn.nextElementSibling;
+      if(parent){
+        parent.classList.remove('open');
+      }
+      if(menu){
+        menu.classList.remove('open');
+      }
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  }
+  dropdownButtons.forEach(function(btn){
+    const parent = btn.closest('.has-dropdown');
+    const menu = btn.nextElementSibling;
+    if(!menu){
+      return;
+    }
+    btn.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      const isOpen = menu.classList.contains('open');
+      closeDropdowns();
+      if(!isOpen){
+        if(parent){
+          parent.classList.add('open');
+        }
+        menu.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+  document.addEventListener('click', function(){
+    closeDropdowns();
+  });
+  document.addEventListener('keydown', function(ev){
+    if(ev.key === 'Escape'){
+      closeDropdowns();
+    }
+  });
   const userSearchEndpoint = "{{ url_for('api_user_search') }}";
   function attachUserLookup(searchInputId, resultsContainerId, hiddenInputId, emailInputId){
     const searchInput = document.getElementById(searchInputId);

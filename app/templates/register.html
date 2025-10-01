@@ -1,20 +1,41 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Register</h2>
-<form method="post" class="centered-form">
-  <label>Name <input name="name" required></label><br>
-  <label>Email <input name="email" type="email" required></label><br>
-  <label>Password <input name="password" type="password" required></label><br>
-  <label>Confirm Password <input name="password_confirm" type="password" required></label><br>
-  <label>Join Tournament
-    <select name="tournament_id">
-      <option value="">-- None --</option>
-      {% for t in tournaments %}
+<section class="auth-card">
+  <h2 class="auth-card__title">Create your account</h2>
+  <p class="auth-card__subtitle">Register once to manage decks, join tournaments, and stay connected with staff.</p>
+  <form method="post" class="form-stacked">
+    <div class="form-field">
+      <label for="name">Name</label>
+      <input id="name" name="name" required>
+    </div>
+    <div class="form-field">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" required>
+    </div>
+    <div class="form-field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required>
+    </div>
+    <div class="form-field">
+      <label for="password_confirm">Confirm Password</label>
+      <input id="password_confirm" name="password_confirm" type="password" required>
+    </div>
+    <div class="form-field">
+      <label for="tournament_id">Join Tournament</label>
+      <select id="tournament_id" name="tournament_id">
+        <option value="">-- None --</option>
+        {% for t in tournaments %}
         <option value="{{t.id}}">{{t.name}}</option>
-      {% endfor %}
-    </select>
-  </label><br>
-  <label>Tournament Passcode <input name="passcode" maxlength="4"></label><br>
-  <button class="btn" type="submit">Create Account</button>
-</form>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-field">
+      <label for="passcode">Tournament Passcode</label>
+      <input id="passcode" name="passcode" maxlength="4">
+    </div>
+    <div class="form-actions">
+      <button class="btn" type="submit">Create Account</button>
+    </div>
+  </form>
+</section>
 {% endblock %}
