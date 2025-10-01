@@ -21,7 +21,13 @@
       <div class="card-meta">
         <span><strong>Format</strong>{{ t.format }}</span>
         <span><strong>Cut</strong>{{ t.cut|upper }}</span>
+        {% if t.rules_enforcement_level %}
+        <span><strong>REL</strong>{{ t.rules_enforcement_level }}</span>
+        {% endif %}
         <span><strong>Players</strong>{{ player_counts[t.id] }}</span>
+        {% if t.head_judge %}
+        <span><strong>Head Judge</strong>{{ t.head_judge.name }}</span>
+        {% endif %}
         {% set end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end %}
         {% if t.round_timer_end %}{% set ttype = 'round' %}{% elif t.draft_timer_end %}{% set ttype = 'draft' %}{% elif t.deck_timer_end %}{% set ttype = 'deck' %}{% endif %}
         {% if end %}
