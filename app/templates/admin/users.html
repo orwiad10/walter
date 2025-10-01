@@ -13,88 +13,19 @@
 <p>No users found.</p>
 {% else %}
 <table class="table">
-  <tr><th>Name</th><th>Details</th><th>Tournaments</th><th>Add to Tournament</th><th>Delete</th></tr>
-  {% for u in users %}
-  {% set overrides = u.permission_overrides_dict() %}
-  <tr>
-    <td>{{ u.name }}</td>
-    <td>
-      <form method="post" action="{{ url_for('admin_update_user', uid=u.id) }}">
-        <input type="hidden" name="search_query" value="{{ search_query }}">
-        <label>Email<br>
-          <input type="email" name="email" value="{{ u.email or '' }}">
-        </label><br>
-        <label>Notes<br>
-          <textarea name="notes" rows="2" cols="20">{{ u.notes or '' }}</textarea>
-        </label><br>
-        <label>Role<br>
-          <select name="role_id">
-            {% for r in roles %}
-            <option value="{{ r.id }}" {% if u.role_id == r.id %}selected{% endif %}>{{ r.name }}</option>
-            {% endfor %}
-          </select>
-        </label><br>
-        <label>Set Password<br>
-          <input type="password" name="password" placeholder="New password">
-        </label><br>
-        <label>Confirm Password<br>
-          <input type="password" name="password_confirm" placeholder="Confirm password">
-        </label><br>
-        {% if can_manage_overrides %}
-        <details>
-          <summary>Permission Overrides</summary>
-          {% for cat, perms in permission_groups.items() %}
-          <fieldset>
-            <legend>{{ cat|capitalize }}</legend>
-            {% for perm, desc in perms.items() %}
-            {% set key = cat ~ '.' ~ perm %}
-            {% set value = overrides.get(key) %}
-            <label>{{ desc }}
-              <select name="perm_override_{{ key }}">
-                <option value="" {% if not value %}selected{% endif %}>Inherit</option>
-                <option value="allow" {% if value == 'allow' %}selected{% endif %}>Allow</option>
-                <option value="deny" {% if value == 'deny' %}selected{% endif %}>Deny</option>
-              </select>
-            </label><br>
-            {% endfor %}
-          </fieldset>
-          {% endfor %}
-        </details>
-        {% endif %}
-        <button class="btn" type="submit">Save</button>
-      </form>
-    </td>
-    <td>
-      <ul>
-        {% for tp in u.tournament_entries %}
-        <li>{{ tp.tournament.name }}
-          <form method="post" action="{{ url_for('admin_remove_user_from_tournament', uid=u.id, tid=tp.tournament_id) }}" style="display:inline;">
-            <input type="hidden" name="search_query" value="{{ search_query }}">
-            <button class="btn" type="submit">Remove</button>
-          </form>
-        </li>
-        {% endfor %}
-      </ul>
-    </td>
-    <td>
-      <form method="post" action="{{ url_for('admin_add_user_to_tournament', uid=u.id) }}">
-        <input type="hidden" name="search_query" value="{{ search_query }}">
-        <select name="tournament_id">
-          {% for t in tournaments %}
-          <option value="{{ t.id }}">{{ t.name }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn" type="submit">Add</button>
-      </form>
-    </td>
-    <td>
-      <form method="post" action="{{ url_for('admin_delete_user', uid=u.id) }}" onsubmit="return confirm('Delete user?');">
-        <input type="hidden" name="search_query" value="{{ search_query }}">
-        <button class="btn" type="submit">Delete</button>
-      </form>
-    </td>
-  </tr>
-  {% endfor %}
+  <thead>
+    <tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.name }}</td>
+      <td>{{ u.email or '—' }}</td>
+      <td>{{ u.role.name if u.role else 'None' }}</td>
+      <td><a class="btn" href="{{ url_for('admin_user_detail', uid=u.id, q=search_query) }}">Manage</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
 </table>
 {% endif %}
 <script>

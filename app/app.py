@@ -33,9 +33,6 @@ import secrets
 import csv
 from collections import OrderedDict
 from urllib.parse import urlparse
-
-import requests
-import re
 from sqlalchemy import inspect, text, or_
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -82,18 +79,6 @@ def create_app():
         card_db_path = os.path.join(app.instance_path, f"{db_base}_cards.db")
     app.config['CARD_DB_PATH'] = card_db_path
     app.config['CARD_DB_URL'] = os.environ.get('MTG_CARD_DB_URL', card_db.ATOMIC_CARDS_URL)
-    app.config['MOXFIELD_API_TEMPLATE'] = os.environ.get(
-        'MOXFIELD_API_TEMPLATE',
-        'https://api2.moxfield.com/v3/decks/all/{code}',
-    )
-    app.config['MOXFIELD_PRIMARY_USER_AGENT'] = os.environ.get(
-        'MOXFIELD_PRIMARY_USER_AGENT',
-        'WalterDeckImporter/1.0',
-    )
-    app.config['MOXFIELD_FALLBACK_USER_AGENT'] = os.environ.get(
-        'MOXFIELD_FALLBACK_USER_AGENT',
-        'Mozilla/5.0',
-    )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
@@ -1143,231 +1128,7 @@ def create_app():
                 missing.append(entry['name'])
         return resolved, missing
 
-    def extract_moxfield_deck_id(raw_value):
-        value = (raw_value or '').strip()
-        if not value:
-            return None
-
-        def sanitize(segment):
-            if not segment:
-                return None
-            cleaned = segment.split('?')[0].split('#')[0].strip()
-            return cleaned or None
-
-        known_sections = {
-            'all',
-            'alchemy',
-            'artisan',
-            'brawl',
-            'cedh',
-            'commander',
-            'constructed',
-            'duel-commander',
-            'duelcommander',
-            'explorer',
-            'featured',
-            'gladiator',
-            'historic',
-            'historic-brawl',
-            'historicbrawl',
-            'legacy',
-            'modern',
-            'oathbreaker',
-            'oldschool',
-            'pauper',
-            'pauper-commander',
-            'paupercommander',
-            'penny',
-            'pioneer',
-            'premodern',
-            'predh',
-            'private',
-            'public',
-            'standard',
-            'tinyleaders',
-            'vintage',
-        }
-
-        if value.startswith('http://') or value.startswith('https://'):
-            parsed = urlparse(value)
-            segments = [segment for segment in parsed.path.split('/') if segment]
-            deck_id = None
-            try:
-                decks_index = next(
-                    idx for idx, segment in enumerate(segments) if segment.lower() == 'decks'
-                )
-            except StopIteration:
-                return None
-            candidates = [sanitize(segment) for segment in segments[decks_index + 1 :]]
-            candidates = [segment for segment in candidates if segment]
-            if not candidates:
-                return None
-            for candidate in candidates:
-                if candidate.lower() in known_sections:
-                    continue
-                deck_id = candidate
-                break
-            if deck_id is None:
-                return None
-        else:
-            parts = [sanitize(segment) for segment in value.split('/') if segment]
-            parts = [segment for segment in parts if segment]
-            if not parts:
-                return None
-            deck_id = parts[-1]
-        return deck_id or None
-
-    def parse_moxfield_section(section):
-        entries = []
-        if isinstance(section, dict):
-            if isinstance(section.get('cards'), dict):
-                items = section['cards'].values()
-            else:
-                items = section.values()
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                quantity = item.get('quantity', item.get('count'))
-                if quantity in (None, ''):
-                    continue
-                try:
-                    count = int(quantity)
-                except (TypeError, ValueError):
-                    continue
-                card_name = None
-                card_info = item.get('card')
-                if isinstance(card_info, dict):
-                    card_name = card_info.get('name')
-                if not card_name:
-                    card_name = item.get('name')
-                if not card_name:
-                    continue
-                entries.append({'name': card_name, 'count': count})
-        return entries
-
-    def parse_moxfield_payload(payload):
-        if not isinstance(payload, dict):
-            raise ValueError('Unexpected response from Moxfield.')
-        boards = payload.get('boards')
-        if isinstance(boards, dict) and boards:
-            main_entries = []
-            for key in ('commanders', 'companions', 'signatureSpells', 'mainboard'):
-                main_entries.extend(parse_moxfield_section(boards.get(key)))
-            side_entries = parse_moxfield_section(boards.get('sideboard'))
-            return combine_card_entries(main_entries), combine_card_entries(side_entries)
-        main_entries = []
-        for key in ('mainboard', 'commanders', 'companions', 'signatureSpells'):
-            section = payload.get(key)
-            main_entries.extend(parse_moxfield_section(section))
-        side_entries = parse_moxfield_section(payload.get('sideboard'))
-        if not main_entries and not side_entries:
-            raise ValueError('Unexpected response from Moxfield.')
-        return combine_card_entries(main_entries), combine_card_entries(side_entries)
-
-    def extract_balanced_json(text, start_index):
-        start = text.find('{', start_index)
-        if start == -1:
-            return None
-        depth = 0
-        in_string = False
-        escape = False
-        for idx in range(start, len(text)):
-            char = text[idx]
-            if in_string:
-                if escape:
-                    escape = False
-                elif char == '\\':
-                    escape = True
-                elif char == '"':
-                    in_string = False
-            else:
-                if char == '"':
-                    in_string = True
-                elif char == '{':
-                    depth += 1
-                elif char == '}':
-                    depth -= 1
-                    if depth == 0:
-                        return text[start : idx + 1]
-        return None
-
-    def extract_moxfield_frontend_payload(html):
-        if not html:
-            raise ValueError('Empty response from Moxfield front end.')
-        script_marker = 'id="__NUXT_DATA__"'
-        marker_index = html.find(script_marker)
-        if marker_index != -1:
-            start = html.find('>', marker_index)
-            end = html.find('</script>', start + 1)
-            if start != -1 and end != -1:
-                raw_json = html[start + 1 : end].strip()
-                if raw_json:
-                    try:
-                        return json.loads(raw_json)
-                    except json.JSONDecodeError as exc:
-                        raise ValueError('Invalid front-end payload.') from exc
-        window_marker = 'window.__NUXT__='
-        marker_index = html.find(window_marker)
-        if marker_index != -1:
-            json_text = extract_balanced_json(html, marker_index + len(window_marker))
-            if json_text:
-                try:
-                    return json.loads(json_text)
-                except json.JSONDecodeError as exc:
-                    raise ValueError('Invalid front-end payload.') from exc
-        raise ValueError('Unable to locate deck data on Moxfield page.')
-
-    def find_moxfield_deck_payload(data):
-        if isinstance(data, dict):
-            boards = data.get('boards')
-            if isinstance(boards, dict):
-                return data
-            for value in data.values():
-                found = find_moxfield_deck_payload(value)
-                if found:
-                    return found
-        elif isinstance(data, list):
-            for item in data:
-                found = find_moxfield_deck_payload(item)
-                if found:
-                    return found
-        return None
-
-    def scrape_moxfield_deck(deck_id):
-        headers = {
-            'User-Agent': app.config.get('MOXFIELD_FALLBACK_USER_AGENT') or 'Mozilla/5.0',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-        }
-        front_end_urls = [
-            f'https://www.moxfield.com/decks/{deck_id}',
-            f'https://moxfield.com/decks/{deck_id}',
-        ]
-        last_error = None
-        for url in front_end_urls:
-            try:
-                response = requests.get(url, timeout=15, headers=headers)
-            except requests.RequestException as exc:
-                last_error = exc
-                continue
-            if response.status_code != 200:
-                last_error = RuntimeError(f'status {response.status_code}')
-                continue
-            html = response.text or ''
-            try:
-                payload = extract_moxfield_frontend_payload(html)
-            except ValueError as exc:
-                last_error = exc
-                continue
-            deck_payload = find_moxfield_deck_payload(payload)
-            if isinstance(deck_payload, dict):
-                return deck_payload
-            last_error = ValueError('Deck data not found in front-end payload.')
-        if last_error:
-            raise last_error
-        raise RuntimeError('Failed to scrape Moxfield deck page.')
-
-    def save_player_deck(tp, source, main_cards, side_cards, raw_text=None, moxfield_url=None, submitted=False):
+    def save_player_deck(tp, source, main_cards, side_cards, raw_text=None, submitted=False):
         from .models import TournamentPlayerDeck  # lazy import
 
         deck = tp.deck
@@ -1377,7 +1138,8 @@ def create_app():
         deck.mainboard = json.dumps(main_cards, ensure_ascii=False)
         deck.sideboard = json.dumps(side_cards, ensure_ascii=False)
         deck.raw_text = raw_text
-        deck.moxfield_url = moxfield_url
+        if hasattr(deck, 'moxfield_url'):
+            deck.moxfield_url = None
         deck.is_submitted = bool(submitted)
         if deck.is_submitted:
             deck.submitted_at = datetime.utcnow()
@@ -2050,160 +1812,6 @@ def create_app():
         if validation_errors:
             log_detail += '; validation=' + ' | '.join(validation_errors)
         log_tournament(tid, 'deck_manual', 'success', log_detail)
-        return redirect(url_for('view_tournament', tid=tid))
-
-    @app.route('/t/<int:tid>/deck/moxfield', methods=['POST'])
-    @login_required
-    def import_moxfield_deck(tid):
-        from .models import Tournament
-
-        t = db.session.get(Tournament, tid)
-        if not t:
-            abort(404)
-        tp = get_player_entry(tid, current_user.id)
-        if not tp:
-            abort(403)
-        if deck_modifications_locked(t):
-            flash('Deck changes are locked after round one pairings.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
-        deck_input = (request.form.get('moxfield_url') or '').strip()
-        deck_id = extract_moxfield_deck_id(deck_input)
-        if not deck_id:
-            flash('Enter a valid Moxfield deck link or ID.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
-        template = app.config.get('MOXFIELD_API_TEMPLATE', 'https://api2.moxfield.com/v3/decks/all/{code}')
-        api_url = template.format(code=deck_id)
-        header_candidates = []
-        seen_user_agents = set()
-        for user_agent in (
-            app.config.get('MOXFIELD_PRIMARY_USER_AGENT'),
-            app.config.get('MOXFIELD_FALLBACK_USER_AGENT'),
-        ):
-            if not user_agent or user_agent in seen_user_agents:
-                continue
-            seen_user_agents.add(user_agent)
-            header_candidates.append(
-                {'Accept': 'application/json', 'User-Agent': user_agent}
-            )
-        if not header_candidates:
-            header_candidates.append({'Accept': 'application/json'})
-        payload = None
-        used_frontend = False
-        last_response = None
-        last_exception = None
-        api_error_message = None
-        api_error_detail = None
-        for headers in header_candidates:
-            try:
-                candidate = requests.get(
-                    api_url,
-                    timeout=15,
-                    headers=headers,
-                )
-            except requests.RequestException as exc:
-                last_exception = exc
-                api_error_message = f'Failed to contact Moxfield: {exc}'
-                continue
-            last_response = candidate
-            if candidate.status_code == 403:
-                continue
-            if candidate.status_code != 200:
-                error_message = None
-                try:
-                    error_payload = candidate.json()
-                    if isinstance(error_payload, dict):
-                        error_message = error_payload.get('error') or error_payload.get('message')
-                except ValueError:
-                    error_message = None
-                msg = f"Moxfield returned an error.{(' ' + error_message) if error_message else ''}"
-                api_error_message = msg.strip()
-                api_error_detail = f'status {candidate.status_code}'
-                if error_message:
-                    api_error_detail += f' message={error_message}'
-                break
-            try:
-                payload = candidate.json()
-            except ValueError as exc:
-                last_exception = exc
-                api_error_message = 'Invalid response from Moxfield.'
-                api_error_detail = 'invalid json'
-                break
-            else:
-                break
-        if payload is None:
-            if api_error_message is None:
-                if last_response is not None:
-                    api_error_message = 'Moxfield returned an error.'
-                    api_error_detail = f'status {last_response.status_code}'
-                elif last_exception is not None:
-                    api_error_message = f'Failed to contact Moxfield: {last_exception}'
-                    api_error_detail = str(last_exception)
-                else:
-                    api_error_message = 'Failed to contact Moxfield.'
-                    api_error_detail = 'no response'
-            try:
-                payload = scrape_moxfield_deck(deck_id)
-                used_frontend = True
-            except Exception as exc:
-                detail_parts = []
-                if api_error_detail:
-                    detail_parts.append(api_error_detail)
-                if str(exc):
-                    detail_parts.append(f'frontend {exc}')
-                detail = '; '.join(detail_parts) if detail_parts else 'frontend failure'
-                flash(api_error_message, 'error')
-                log_tournament(tid, 'deck_moxfield', 'failure', detail)
-                return redirect(url_for('view_tournament', tid=tid))
-        try:
-            main_entries, side_entries = parse_moxfield_payload(payload)
-        except ValueError as exc:
-            parse_error = exc
-            if not used_frontend:
-                try:
-                    payload = scrape_moxfield_deck(deck_id)
-                    used_frontend = True
-                    main_entries, side_entries = parse_moxfield_payload(payload)
-                except Exception as scrape_exc:
-                    detail = f'parse {parse_error}; frontend {scrape_exc}'
-                    flash(str(parse_error), 'error')
-                    log_tournament(tid, 'deck_moxfield', 'failure', detail)
-                    return redirect(url_for('view_tournament', tid=tid))
-            else:
-                flash(str(parse_error), 'error')
-                log_tournament(tid, 'deck_moxfield', 'failure', str(parse_error))
-                return redirect(url_for('view_tournament', tid=tid))
-        if not main_entries and not side_entries:
-            flash('Moxfield deck appears to be empty.', 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', 'empty deck')
-            return redirect(url_for('view_tournament', tid=tid))
-        try:
-            db_path = ensure_card_database_ready()
-        except Exception as exc:
-            flash(f'Card database unavailable: {exc}', 'error')
-            log_tournament(tid, 'deck_moxfield', 'failure', str(exc))
-            return redirect(url_for('view_tournament', tid=tid))
-        canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
-        canonical_side, missing_side = canonicalize_card_group(side_entries, db_path=db_path)
-        missing = missing_main + missing_side
-        missing_set = sorted({name for name in missing}) if missing else []
-        if missing_set:
-            flash('Cards not found in local database: ' + ', '.join(missing_set), 'error')
-        save_player_deck(
-            tp,
-            'moxfield',
-            canonical_main,
-            canonical_side,
-            raw_text=None,
-            moxfield_url=deck_input,
-            submitted=False,
-        )
-        flash('Deck imported from Moxfield.', 'success')
-        log_detail = f'id={deck_id}'
-        if used_frontend:
-            log_detail += '; method=frontend'
-        if missing_set:
-            log_detail += '; missing=' + ', '.join(missing_set)
-        log_tournament(tid, 'deck_moxfield', 'success', log_detail)
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/deck/mtgo', methods=['POST'])
@@ -3044,7 +2652,8 @@ def create_app():
     @app.route('/admin/users')
     def admin_users():
         require_permission('users.manage')
-        from .models import User, Tournament, TournamentPlayer, Role
+        from .models import User
+
         q = request.args.get('q', '').strip()
         query = db.session.query(User)
         if not current_user.has_permission('users.manage_admins'):
@@ -3053,17 +2662,46 @@ def create_app():
             pattern = f"%{q}%"
             query = query.filter(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
         users = query.order_by(User.name).all()
+        return render_template(
+            'admin/users.html',
+            users=users,
+            search_query=q,
+        )
+
+    def resolve_redirect_target(default_url, candidate):
+        if candidate:
+            parsed = urlparse(candidate)
+            if not parsed.scheme and not parsed.netloc:
+                return candidate
+        return default_url
+
+    @app.route('/admin/users/<int:uid>')
+    def admin_user_detail(uid):
+        require_permission('users.manage')
+        from .models import User, Tournament, Role
+
+        target = db.session.get(User, uid)
+        if not target:
+            abort(404)
+        if target.is_admin and not current_user.has_permission('users.manage_admins'):
+            abort(403)
+
+        q = request.args.get('q', '').strip()
+        back_url = url_for('admin_users', q=q) if q else url_for('admin_users')
+
         tournaments = db.session.query(Tournament).order_by(Tournament.name).all()
         roles = db.session.query(Role).order_by(Role.name).all()
         if not current_user.has_permission('users.manage_admins'):
             roles = [r for r in roles if r.name != 'admin']
         can_manage_overrides = current_user.has_permission('admin.permissions')
+
         return render_template(
-            'admin/users.html',
-            users=users,
+            'admin/user_detail.html',
+            user=target,
             tournaments=tournaments,
             roles=roles,
             search_query=q,
+            back_url=back_url,
             can_manage_overrides=can_manage_overrides,
             permission_groups=PERMISSION_GROUPS,
         )
@@ -3076,14 +2714,15 @@ def create_app():
         if target.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
+        next_candidate = request.form.get('next')
         tid = int(request.form['tournament_id'])
         if not db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first():
             tp = TournamentPlayer(user_id=uid, tournament_id=tid)
             db.session.add(tp)
             db.session.commit()
         flash('User added to tournament.', 'success')
-        redirect_url = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
-        return redirect(redirect_url)
+        fallback = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        return redirect(resolve_redirect_target(fallback, next_candidate))
 
     @app.route('/admin/users/<int:uid>/remove/<int:tid>', methods=['POST'])
     def admin_remove_user_from_tournament(uid, tid):
@@ -3093,13 +2732,14 @@ def create_app():
         if target.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
+        next_candidate = request.form.get('next')
         tp = db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first()
         if tp:
             db.session.delete(tp)
             db.session.commit()
         flash('User removed from tournament.', 'success')
-        redirect_url = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
-        return redirect(redirect_url)
+        fallback = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        return redirect(resolve_redirect_target(fallback, next_candidate))
 
     @app.route('/admin/users/<int:uid>/update', methods=['POST'])
     def admin_update_user(uid):
@@ -3111,6 +2751,9 @@ def create_app():
         if u.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
+        next_candidate = request.form.get('next')
+        fallback_redirect = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        redirect_target = resolve_redirect_target(fallback_redirect, next_candidate)
         email = request.form.get('email', '').strip().lower() or None
         if email and db.session.query(User).filter(User.email == email, User.id != uid).first():
             flash('Email already registered.', 'error')
@@ -3122,7 +2765,6 @@ def create_app():
                 if password != password_confirm:
                     flash('Passwords do not match.', 'error')
                     log_site('user_update', 'failure', 'password mismatch')
-                    redirect_target = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
                     return redirect(redirect_target)
                 u.set_password(password)
                 u.generate_keys(password)
@@ -3147,7 +2789,6 @@ def create_app():
             db.session.commit()
             log_site('user_update', 'success')
             flash('User updated.', 'success')
-        redirect_target = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
         return redirect(redirect_target)
 
     @app.route('/admin/users/<int:uid>/delete', methods=['POST'])
@@ -3160,13 +2801,14 @@ def create_app():
         if u.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
+        next_candidate = request.form.get('next')
         for tp in list(u.tournament_entries):
             db.session.delete(tp)
         db.session.delete(u)
         db.session.commit()
         flash('User deleted.', 'success')
-        redirect_target = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
-        return redirect(redirect_target)
+        fallback = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
+        return redirect(resolve_redirect_target(fallback, next_candidate))
 
     return app
 

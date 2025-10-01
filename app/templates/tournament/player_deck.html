@@ -5,7 +5,6 @@
 {% if deck %}
 <p class="deck-meta">
   Source: {{ deck.source|capitalize }}{% if deck.updated_at %} · Updated {{ deck.updated_at }}{% elif deck.created_at %} · Updated {{ deck.created_at }}{% endif %}
-  {% if deck.moxfield_url %}· <a href="{{ deck.moxfield_url }}" target="_blank" rel="noopener">View on Moxfield</a>{% endif %}
   <span class="deck-status {% if deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
     {% if deck.is_submitted %}
       Status: Submitted{% if deck.submitted_at %} · Submitted {{ deck.submitted_at }}{% endif %}

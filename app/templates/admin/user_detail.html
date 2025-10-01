@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if search_query %}
+{% set detail_url = url_for('admin_user_detail', uid=user.id, q=search_query) %}
+{% else %}
+{% set detail_url = url_for('admin_user_detail', uid=user.id) %}
+{% endif %}
+<h2>{{ user.name }}</h2>
+<p><a class="btn" href="{{ back_url }}">&larr; Back to Users</a></p>
+<section class="user-settings-section">
+  <h3>Account Details</h3>
+  <form method="post" action="{{ url_for('admin_update_user', uid=user.id) }}" class="user-settings-form">
+    <input type="hidden" name="search_query" value="{{ search_query }}">
+    <input type="hidden" name="next" value="{{ detail_url }}">
+    <label>Email<br>
+      <input type="email" name="email" value="{{ user.email or '' }}">
+    </label>
+    <label>Notes<br>
+      <textarea name="notes" rows="3" cols="30">{{ user.notes or '' }}</textarea>
+    </label>
+    <label>Role<br>
+      <select name="role_id">
+        {% for r in roles %}
+        <option value="{{ r.id }}" {% if user.role_id == r.id %}selected{% endif %}>{{ r.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Set Password<br>
+      <input type="password" name="password" placeholder="New password">
+    </label>
+    <label>Confirm Password<br>
+      <input type="password" name="password_confirm" placeholder="Confirm password">
+    </label>
+    {% if can_manage_overrides %}
+    <details>
+      <summary>Permission Overrides</summary>
+      {% set overrides = user.permission_overrides_dict() %}
+      {% for cat, perms in permission_groups.items() %}
+      <fieldset>
+        <legend>{{ cat|capitalize }}</legend>
+        {% for perm, desc in perms.items() %}
+        {% set key = cat ~ '.' ~ perm %}
+        {% set value = overrides.get(key) %}
+        <label>{{ desc }}
+          <select name="perm_override_{{ key }}">
+            <option value="" {% if not value %}selected{% endif %}>Inherit</option>
+            <option value="allow" {% if value == 'allow' %}selected{% endif %}>Allow</option>
+            <option value="deny" {% if value == 'deny' %}selected{% endif %}>Deny</option>
+          </select>
+        </label>
+        {% endfor %}
+      </fieldset>
+      {% endfor %}
+    </details>
+    {% endif %}
+    <button class="btn" type="submit">Save Changes</button>
+  </form>
+</section>
+<section class="user-settings-section">
+  <h3>Tournaments</h3>
+  {% if user.tournament_entries %}
+  <ul>
+    {% for tp in user.tournament_entries %}
+    <li>{{ tp.tournament.name }}
+      <form method="post" action="{{ url_for('admin_remove_user_from_tournament', uid=user.id, tid=tp.tournament_id) }}" class="inline-form">
+        <input type="hidden" name="search_query" value="{{ search_query }}">
+        <input type="hidden" name="next" value="{{ detail_url }}">
+        <button class="btn" type="submit">Remove</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No tournament assignments.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('admin_add_user_to_tournament', uid=user.id) }}" class="user-settings-form">
+    <input type="hidden" name="search_query" value="{{ search_query }}">
+    <input type="hidden" name="next" value="{{ detail_url }}">
+    <label>Add to tournament
+      <select name="tournament_id">
+        {% for t in tournaments %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn" type="submit">Add</button>
+  </form>
+</section>
+<section class="user-settings-section">
+  <h3>Danger Zone</h3>
+  <form method="post" action="{{ url_for('admin_delete_user', uid=user.id) }}" onsubmit="return confirm('Delete user?');">
+    <input type="hidden" name="search_query" value="{{ search_query }}">
+    <input type="hidden" name="next" value="{{ url_for('admin_users', q=search_query) if search_query else url_for('admin_users') }}">
+    <button class="btn danger" type="submit">Delete User</button>
+  </form>
+</section>
+{% endblock %}
