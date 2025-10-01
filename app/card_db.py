@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 from urllib.request import urlopen
 
 ATOMIC_CARDS_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"
-CURRENT_SCHEMA_VERSION = "2"
+CURRENT_SCHEMA_VERSION = "3"
 
 
 def _normalize_name(name: str) -> str:
@@ -34,7 +34,9 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
             is_land INTEGER NOT NULL DEFAULT 0,
             is_basic_land INTEGER NOT NULL DEFAULT 0,
             is_standard_banned INTEGER NOT NULL DEFAULT 0,
-            is_vintage_restricted INTEGER NOT NULL DEFAULT 0
+            is_vintage_restricted INTEGER NOT NULL DEFAULT 0,
+            type_line TEXT,
+            primary_type TEXT
         )
         """
     )
@@ -47,6 +49,8 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
         'is_basic_land': 'INTEGER NOT NULL DEFAULT 0',
         'is_standard_banned': 'INTEGER NOT NULL DEFAULT 0',
         'is_vintage_restricted': 'INTEGER NOT NULL DEFAULT 0',
+        'type_line': 'TEXT',
+        'primary_type': 'TEXT',
     }
     for column, definition in extra_columns.items():
         if column not in columns:
@@ -129,12 +133,15 @@ def populate_card_database(path: str, card_records: Iterable[Union[str, Dict[str
             is_basic_land = int(bool(metadata.get('is_basic_land')))
             is_standard_banned = int(bool(metadata.get('is_standard_banned')))
             is_vintage_restricted = int(bool(metadata.get('is_vintage_restricted')))
+            type_line = metadata.get('type_line')
+            primary_type = metadata.get('primary_type')
             cursor = connection.execute(
                 """
                 INSERT OR REPLACE INTO cards(
                     name, search_name, normalized_name,
-                    is_land, is_basic_land, is_standard_banned, is_vintage_restricted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    is_land, is_basic_land, is_standard_banned, is_vintage_restricted,
+                    type_line, primary_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -144,6 +151,8 @@ def populate_card_database(path: str, card_records: Iterable[Union[str, Dict[str
                     is_basic_land,
                     is_standard_banned,
                     is_vintage_restricted,
+                    type_line,
+                    primary_type,
                 ),
             )
             card_id = cursor.lastrowid
@@ -194,10 +203,28 @@ def _read_atomic_cards_from_zip(path: str) -> List[Dict[str, Any]]:
                 for entry in entries
             )
             face_names = []
+            supertypes: List[str] = []
+            type_parts: List[str] = []
+            subtypes: List[str] = []
             for entry in entries:
                 face_name = entry.get('faceName')
                 if face_name:
                     face_names.append(face_name)
+                for value in entry.get('supertypes') or []:
+                    if value not in supertypes:
+                        supertypes.append(value)
+                for value in entry.get('types') or []:
+                    if value not in type_parts:
+                        type_parts.append(value)
+                for value in entry.get('subtypes') or []:
+                    if value not in subtypes:
+                        subtypes.append(value)
+            type_line_components = supertypes + type_parts
+            type_line = ' '.join(type_line_components)
+            if subtypes:
+                subtype_line = ' '.join(subtypes)
+                type_line = f"{type_line} — {subtype_line}" if type_line else f"— {subtype_line}"
+            primary_type = type_parts[-1] if type_parts else None
             records.append(
                 {
                     'name': name,
@@ -205,6 +232,8 @@ def _read_atomic_cards_from_zip(path: str) -> List[Dict[str, Any]]:
                     'is_basic_land': is_basic,
                     'is_standard_banned': is_standard_banned,
                     'is_vintage_restricted': is_vintage_restricted,
+                    'type_line': type_line,
+                    'primary_type': primary_type,
                     'face_names': face_names,
                 }
             )
@@ -331,7 +360,8 @@ def get_card_metadata(path: str, names: Sequence[str]) -> Dict[str, Dict[str, bo
         _ensure_schema(connection)
         rows = connection.execute(
             f"""
-            SELECT name, is_land, is_basic_land, is_standard_banned, is_vintage_restricted
+            SELECT name, is_land, is_basic_land, is_standard_banned, is_vintage_restricted,
+                   type_line, primary_type
             FROM cards
             WHERE name IN ({placeholders})
             """,
@@ -344,5 +374,7 @@ def get_card_metadata(path: str, names: Sequence[str]) -> Dict[str, Dict[str, bo
             'is_basic_land': bool(row[2]),
             'is_standard_banned': bool(row[3]),
             'is_vintage_restricted': bool(row[4]),
+            'type_line': row[5],
+            'primary_type': row[6],
         }
     return metadata
