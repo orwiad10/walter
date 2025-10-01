@@ -24,6 +24,7 @@ FLASK_SECRET=$(read_yaml "$CONFIG_FILE" flask_secret)
 PASSWORD_SEED=$(read_yaml "$CONFIG_FILE" password_seed)
 FLASK_IP=$(read_yaml "$CONFIG_FILE" flask_ip)
 FLASK_PORT=$(read_yaml "$CONFIG_FILE" flask_port)
+LAST_TABLE_NUMBER=$(read_yaml "$CONFIG_FILE" last_table_number)
 
 if [ -z "$DB_FILE" ]; then
   DB_FILE="$DEFAULT_DB_FILE"
@@ -49,6 +50,9 @@ fi
 if [ -z "$FLASK_PORT" ]; then
   FLASK_PORT="5000"
 fi
+if [ -z "$LAST_TABLE_NUMBER" ]; then
+  LAST_TABLE_NUMBER=""
+fi
 
 if [ "$DB_FILE" = "$DEFAULT_DB_FILE" ]; then
   TS=$(date +%Y%m%d%H%M%S)
@@ -65,6 +69,7 @@ export FLASK_SECRET="$FLASK_SECRET"
 export PASSWORD_SEED="$PASSWORD_SEED"
 export FLASK_RUN_HOST="$FLASK_IP"
 export FLASK_RUN_PORT="$FLASK_PORT"
+export MTG_LAST_TABLE_NUMBER="$LAST_TABLE_NUMBER"
 python -m pip install -r requirements.txt >/dev/null
 python -m flask db-init
 python -m flask create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASS"

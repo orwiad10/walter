@@ -20,6 +20,7 @@ from flask_login import (
     current_user,
 )
 from datetime import datetime, timedelta
+import math
 import os
 import random
 import click
@@ -82,6 +83,21 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
 
+    last_table_env = os.environ.get('MTG_LAST_TABLE_NUMBER', '').strip()
+    if last_table_env:
+        try:
+            app.config['LAST_TABLE_NUMBER'] = int(last_table_env)
+        except ValueError:
+            app.logger.warning('Invalid MTG_LAST_TABLE_NUMBER value %r; ignoring.', last_table_env)
+            app.config['LAST_TABLE_NUMBER'] = None
+    else:
+        app.config['LAST_TABLE_NUMBER'] = None
+
+    try:
+        card_db.ensure_card_database(card_db_path, source_url=app.config['CARD_DB_URL'])
+    except Exception as exc:  # pragma: no cover - startup fetch errors are logged
+        app.logger.warning('Unable to prepare card database: %s', exc)
+
     seed_env = os.environ.get('PASSWORD_SEED')
     if seed_env is None:
         seed_bytes = os.urandom(32)
@@ -121,6 +137,10 @@ def create_app():
             if 'join_requires_approval' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN join_requires_approval BOOLEAN DEFAULT 0'))
                 db.session.execute(text('UPDATE tournament SET join_requires_approval=0 WHERE join_requires_approval IS NULL'))
+                db.session.commit()
+            if 'start_table_number' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN start_table_number INTEGER DEFAULT 1'))
+                db.session.execute(text('UPDATE tournament SET start_table_number=1 WHERE start_table_number IS NULL'))
                 db.session.commit()
         if 'user' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('user')]
@@ -203,6 +223,71 @@ def create_app():
         all_permission_keys,
     )
     from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
+
+    TYPE_SORT_ORDER = [
+        'Creature',
+        'Planeswalker',
+        'Battle',
+        'Instant',
+        'Sorcery',
+        'Artifact',
+        'Enchantment',
+        'Land',
+        'Tribal',
+    ]
+    TYPE_SORT_INDEX = {name: idx for idx, name in enumerate(TYPE_SORT_ORDER)}
+
+    def _tournament_group_size(tournament):
+        fmt = (tournament.format or '').lower()
+        return 4 if fmt == 'commander' else 2
+
+    def _active_player_count(tournament):
+        return sum(1 for p in getattr(tournament, 'players', []) if not getattr(p, 'dropped', False))
+
+    def compute_table_allocation(tournament, start_number=None):
+        start = start_number if start_number is not None else (tournament.start_table_number or 1)
+        player_count = _active_player_count(tournament)
+        group_size = _tournament_group_size(tournament)
+        tables_needed = math.ceil(player_count / group_size) if player_count else 0
+        end = start + tables_needed - 1 if tables_needed else start - 1
+        return start, end, tables_needed, player_count
+
+    def _format_table_range(start, end, tables_needed):
+        if tables_needed <= 0:
+            return str(start)
+        if start == end:
+            return str(start)
+        return f"{start}-{end}"
+
+    def validate_table_assignment(tournament, start_number=None):
+        errors = []
+        start, end, tables_needed, player_count = compute_table_allocation(tournament, start_number=start_number)
+        last_table = app.config.get('LAST_TABLE_NUMBER') or None
+        if start < 1:
+            errors.append('Starting table number must be at least 1.')
+        if last_table is not None:
+            if start > last_table:
+                errors.append(f'Starting table number must be at most {last_table}.')
+            if tables_needed and end > last_table:
+                errors.append(
+                    f'Tournament requires tables up to {end}, exceeding the venue limit of {last_table}.'
+                )
+        if tables_needed:
+            query = db.session.query(Tournament)
+            if getattr(tournament, 'id', None):
+                query = query.filter(Tournament.id != tournament.id)
+            for other in query.all():
+                other_start, other_end, other_tables, _ = compute_table_allocation(other)
+                if other_tables == 0:
+                    continue
+                if not (end < other_start or start > other_end):
+                    errors.append(
+                        f'Table range {_format_table_range(start, end, tables_needed)} overlaps with '
+                        f'tournament "{other.name}" '
+                        f'({_format_table_range(other_start, other_end, other_tables)}).'
+                    )
+                    break
+        return errors, start, end, tables_needed, player_count
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -1273,6 +1358,12 @@ def create_app():
             if fmt != 'Draft':
                 is_cube = False
             join_requires_approval = request.form.get('join_requires_approval') == '1'
+            start_table_raw = (request.form.get('start_table_number') or '1').strip()
+            try:
+                start_table_number = int(start_table_raw)
+            except ValueError:
+                flash('Starting table number must be a whole number.', 'error')
+                return render_template('admin/new_tournament.html')
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            commander_points=commander_points,
                            round_length=round_length,
@@ -1281,7 +1372,13 @@ def create_app():
                            start_time=start_time,
                             rules_enforcement_level=rel,
                            is_cube=is_cube,
-                           join_requires_approval=join_requires_approval)
+                           join_requires_approval=join_requires_approval,
+                           start_table_number=start_table_number)
+            errors, _, _, _, _ = validate_table_assignment(t, start_number=start_table_number)
+            if errors:
+                for message in errors:
+                    flash(message, 'error')
+                return render_template('admin/new_tournament.html')
             try:
                 db.session.add(t)
                 # warn on overlapping schedule
@@ -1311,26 +1408,57 @@ def create_app():
         require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if request.method == 'POST':
-            t.name = request.form['name'].strip()
-            t.format = request.form['format']
-            t.structure = request.form.get('structure', 'swiss')
-            t.cut = request.form.get('cut', 'none') if t.structure == 'swiss' else 'none'
-            t.commander_points = request.form.get('commander_points', '3,2,1,0,1')
-            t.round_length = int(request.form.get('round_length', 50))
+            new_name = request.form['name'].strip()
+            new_format = request.form['format']
+            new_structure = request.form.get('structure', 'swiss')
+            new_cut = request.form.get('cut', 'none') if new_structure == 'swiss' else 'none'
+            commander_points = request.form.get('commander_points', '3,2,1,0,1')
+            round_length = int(request.form.get('round_length', 50))
             draft_time = request.form.get('draft_time')
             deck_build_time = request.form.get('deck_build_time')
             start_time_str = request.form.get('start_time')
-            t.start_time = parse_datetime_local(start_time_str)
-            if start_time_str and t.start_time is None:
+            start_time = parse_datetime_local(start_time_str)
+            if start_time_str and start_time is None:
                 flash('Invalid start time format.', 'error')
                 return render_template('admin/edit_tournament.html', t=t)
-            t.draft_time = int(draft_time) if draft_time else None
-            t.deck_build_time = int(deck_build_time) if deck_build_time else None
             rel = request.form.get('rules_enforcement_level', 'None') or 'None'
             is_cube = request.form.get('is_cube') == '1'
+            join_requires_approval = request.form.get('join_requires_approval') == '1'
+            start_table_raw = (request.form.get('start_table_number') or str(t.start_table_number or 1)).strip()
+            try:
+                start_table_number = int(start_table_raw)
+            except ValueError:
+                flash('Starting table number must be a whole number.', 'error')
+                return render_template('admin/edit_tournament.html', t=t)
+
+            class _Preview:
+                pass
+
+            preview = _Preview()
+            preview.id = t.id
+            preview.format = new_format
+            preview.start_table_number = start_table_number
+            preview.players = t.players
+            preview.name = new_name or t.name
+            errors, _, _, _, _ = validate_table_assignment(preview, start_number=start_table_number)
+            if errors:
+                for message in errors:
+                    flash(message, 'error')
+                return render_template('admin/edit_tournament.html', t=t)
+
+            t.name = new_name
+            t.format = new_format
+            t.structure = new_structure
+            t.cut = new_cut
+            t.commander_points = commander_points
+            t.round_length = round_length
+            t.start_time = start_time
+            t.draft_time = int(draft_time) if draft_time else None
+            t.deck_build_time = int(deck_build_time) if deck_build_time else None
             t.rules_enforcement_level = rel
             t.is_cube = is_cube if t.format == 'Draft' else False
-            t.join_requires_approval = request.form.get('join_requires_approval') == '1'
+            t.join_requires_approval = join_requires_approval
+            t.start_table_number = start_table_number
             db.session.commit()
             flash('Tournament updated.', 'success')
             log_site('edit_tournament', 'success', t.name)
@@ -1703,12 +1831,42 @@ def create_app():
             or current_user.id == player.user_id
         ):
             abort(403)
+        sort_mode = request.args.get('sort', 'name')
         deck = player.deck
+        main_cards = deck.mainboard_cards() if deck else []
+        side_cards = deck.sideboard_cards() if deck else []
+        metadata = {}
+        if deck:
+            try:
+                db_path = ensure_card_database_ready()
+            except Exception:
+                db_path = None
+            if db_path:
+                names = [card.get('name') for card in main_cards + side_cards if card.get('name')]
+                if names:
+                    metadata = card_db.get_card_metadata(db_path, names)
+
+        def _sort_key(card):
+            name = card.get('name', '')
+            if sort_mode == 'type':
+                info = metadata.get(name, {})
+                primary = info.get('primary_type') or ''
+                order = TYPE_SORT_INDEX.get(primary, len(TYPE_SORT_ORDER))
+                return (order, primary.lower(), name.lower())
+            return (name.lower(),)
+
+        if sort_mode in ('name', 'type'):
+            main_cards = sorted(main_cards, key=_sort_key)
+            side_cards = sorted(side_cards, key=_sort_key)
         return render_template(
             'tournament/player_deck.html',
             t=t,
             player=player,
             deck=deck,
+            main_cards=main_cards,
+            side_cards=side_cards,
+            sort_mode=sort_mode,
+            card_metadata=metadata,
         )
 
     @app.route('/t/<int:tid>/deck/search')
@@ -2245,7 +2403,12 @@ def create_app():
             flash('Previous round not completed.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
         current_rounds = prev_round.number if prev_round else 0
-        player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
+        active_players = (
+            db.session.query(TournamentPlayer)
+            .filter_by(tournament_id=tid, dropped=False)
+            .all()
+        )
+        player_count = len(active_players)
         if player_count == 0:
             flash('No players registered.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
@@ -2254,6 +2417,21 @@ def create_app():
             round_limit = 0
         if current_rounds < round_limit:
             next_round_num = current_rounds + 1
+            if (
+                next_round_num == 1
+                and t.rules_enforcement_level in ('Competitive', 'Professional')
+            ):
+                missing = [p for p in active_players if not (p.deck and p.deck.is_submitted)]
+                if missing:
+                    names = ', '.join(p.user.name for p in missing if getattr(p, 'user', None))
+                    message = (
+                        'All players must submit a deck list before pairing round one '
+                        'at Competitive or Professional REL.'
+                    )
+                    if names:
+                        message += f' Missing deck lists: {names}.'
+                    flash(message, 'error')
+                    return redirect(url_for('view_tournament', tid=tid))
             r = Round(tournament_id=tid, number=next_round_num)
             db.session.add(r)
             db.session.commit()
@@ -2265,12 +2443,12 @@ def create_app():
         next_round_num = current_rounds + 1
         if t.structure == 'single_elim':
             if current_rounds == 0:
-                players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).all()
+                players = list(active_players)
                 random.shuffle(players)
                 r = Round(tournament_id=tid, number=next_round_num)
                 db.session.add(r)
                 db.session.commit()
-                table = 1
+                table = t.start_table_number or 1
                 for i in range(0, len(players), 2):
                     p1 = players[i]
                     p2 = players[i+1] if i+1 < len(players) else None
@@ -2300,7 +2478,7 @@ def create_app():
             r = Round(tournament_id=tid, number=next_round_num)
             db.session.add(r)
             db.session.commit()
-            table = 1
+            table = t.start_table_number or 1
             for i in range(0, len(winners), 2):
                 p1 = winners[i]
                 p2 = winners[i+1]
@@ -2325,7 +2503,7 @@ def create_app():
                 r = Round(tournament_id=tid, number=next_round_num)
                 db.session.add(r)
                 db.session.commit()
-                table = 1
+                table = t.start_table_number or 1
                 if t.format.lower() == 'commander':
                     group_size = 4
                     i = 0
@@ -2382,7 +2560,7 @@ def create_app():
             r = Round(tournament_id=tid, number=next_round_num)
             db.session.add(r)
             db.session.commit()
-            table = 1
+            table = t.start_table_number or 1
             if t.format.lower() == 'commander':
                 group_size = 4
                 i = 0

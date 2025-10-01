@@ -73,6 +73,10 @@
         <td><input type="number" name="deck_build_time" value="{{ t.deck_build_time or '' }}"></td>
       </tr>
       <tr>
+        <td>Starting Table Number</td>
+        <td><input type="number" name="start_table_number" min="1" value="{{ request.form.get('start_table_number', t.start_table_number or 1) }}"></td>
+      </tr>
+      <tr>
         <td>Start Time</td>
         <td><input type="datetime-local" name="start_time" value="{{ t.start_time.strftime('%Y-%m-%dT%H:%M') if t.start_time else '' }}"></td>
       </tr>

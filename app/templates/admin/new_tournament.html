@@ -74,6 +74,10 @@
         <td><input type="number" name="deck_build_time"></td>
       </tr>
       <tr>
+        <td>Starting Table Number</td>
+        <td><input type="number" name="start_table_number" min="1" value="{{ request.form.get('start_table_number', 1) }}"></td>
+      </tr>
+      <tr>
         <td>Start Time</td>
         <td><input type="datetime-local" name="start_time"></td>
       </tr>
