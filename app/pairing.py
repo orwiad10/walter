@@ -76,7 +76,7 @@ def swiss_pair_round(t: Tournament, r: Round, session):
     group_size = 4 if t.format.lower() == 'commander' else 2
     if r.number == 1:
         random.shuffle(players)
-        table = 1
+        table = t.start_table_number or 1
         created = []
         i = 0
         while i < len(players):
@@ -102,7 +102,7 @@ def swiss_pair_round(t: Tournament, r: Round, session):
             -rank[tp.id][0], -rank[tp.id][1], -rank[tp.id][2], -rank[tp.id][3], rank[tp.id][4]
         )
     )
-    table = 1
+    table = t.start_table_number or 1
     created = []
     i = 0
     while i < len(players):

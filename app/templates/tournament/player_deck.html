@@ -13,14 +13,23 @@
     {% endif %}
   </span>
 </p>
+<form method="get" class="deck-sort-form">
+  <label>Sort by
+    <select name="sort" onchange="this.form.submit()">
+      <option value="name"{% if sort_mode != 'type' %} selected{% endif %}>Name</option>
+      <option value="type"{% if sort_mode == 'type' %} selected{% endif %}>Card Type</option>
+    </select>
+  </label>
+  <noscript><button class="btn" type="submit">Apply</button></noscript>
+</form>
 <div class="deck-lists">
   <div class="deck-list">
     <h3>Mainboard ({{ deck.total_mainboard() }})</h3>
-    {% set main_cards = deck.mainboard_cards() %}
     {% if main_cards %}
     <ul>
       {% for card in main_cards %}
-      <li>{{ card.count }} × {{ card.name }}</li>
+      {% set info = card_metadata.get(card.name) if card_metadata else None %}
+      <li{% if info and info.type_line %} title="{{ info.type_line }}"{% endif %}>{{ card.count }} × {{ card.name }}</li>
       {% endfor %}
     </ul>
     {% else %}
@@ -29,11 +38,11 @@
   </div>
   <div class="deck-list">
     <h3>Sideboard ({{ deck.total_sideboard() }})</h3>
-    {% set side_cards = deck.sideboard_cards() %}
     {% if side_cards %}
     <ul>
       {% for card in side_cards %}
-      <li>{{ card.count }} × {{ card.name }}</li>
+      {% set info = card_metadata.get(card.name) if card_metadata else None %}
+      <li{% if info and info.type_line %} title="{{ info.type_line }}"{% endif %}>{{ card.count }} × {{ card.name }}</li>
       {% endfor %}
     </ul>
     {% else %}

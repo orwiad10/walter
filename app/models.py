@@ -211,6 +211,7 @@ class Tournament(db.Model):
     rules_enforcement_level = db.Column(db.String(20), default='None')
     is_cube = db.Column(db.Boolean, default=False)
     rounds_override = db.Column(db.Integer, nullable=True)
+    start_table_number = db.Column(db.Integer, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     # Comma separated points for Commander: first, second, third, fourth, draw
     commander_points = db.Column(db.String(50), default='3,2,1,0,1')
