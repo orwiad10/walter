@@ -222,7 +222,7 @@ def create_app():
         LostFoundItem,
         all_permission_keys,
     )
-    from .pairing import swiss_pair_round, recommended_rounds, compute_standings, player_points
+    from .pairing import pair_round, recommended_rounds, compute_standings, player_points
 
     TYPE_SORT_ORDER = [
         'Creature',
@@ -1340,6 +1340,9 @@ def create_app():
             name = request.form['name'].strip()
             fmt = request.form['format']
             structure = request.form.get('structure', 'swiss')
+            pairing_type = (request.form.get('pairing_type') or 'swiss').lower()
+            if pairing_type not in ('swiss', 'round_robin'):
+                pairing_type = 'swiss'
             cut = request.form.get('cut', 'none') if structure == 'swiss' else 'none'
             if fmt == 'Commander' and cut not in ('none','top4','top16','top32','top64'):
                 flash('Commander supports cuts to Top 4, 16, 32, or 64.', 'error')
@@ -1365,6 +1368,7 @@ def create_app():
                 flash('Starting table number must be a whole number.', 'error')
                 return render_template('admin/new_tournament.html')
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
+                           pairing_type=pairing_type,
                            commander_points=commander_points,
                            round_length=round_length,
                            draft_time=int(draft_time) if draft_time else None,
@@ -1411,6 +1415,9 @@ def create_app():
             new_name = request.form['name'].strip()
             new_format = request.form['format']
             new_structure = request.form.get('structure', 'swiss')
+            new_pairing_type = (request.form.get('pairing_type') or 'swiss').lower()
+            if new_pairing_type not in ('swiss', 'round_robin'):
+                new_pairing_type = 'swiss'
             new_cut = request.form.get('cut', 'none') if new_structure == 'swiss' else 'none'
             commander_points = request.form.get('commander_points', '3,2,1,0,1')
             round_length = int(request.form.get('round_length', 50))
@@ -1449,6 +1456,9 @@ def create_app():
             t.name = new_name
             t.format = new_format
             t.structure = new_structure
+            t.pairing_type = new_pairing_type
+            if new_pairing_type != 'round_robin':
+                t.pairing_options = None
             t.cut = new_cut
             t.commander_points = commander_points
             t.round_length = round_length
@@ -2412,11 +2422,30 @@ def create_app():
         if player_count == 0:
             flash('No players registered.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
-        round_limit = t.rounds_override or recommended_rounds(player_count)
+        pairing_type = (t.pairing_type or 'swiss').lower()
+        round_limit = t.rounds_override
+        if pairing_type == 'round_robin':
+            if round_limit is None:
+                if player_count <= 1:
+                    round_limit = 1
+                else:
+                    round_limit = player_count if player_count % 2 else max(player_count - 1, 1)
+        else:
+            round_limit = round_limit or recommended_rounds(player_count)
         if t.structure == 'single_elim':
             round_limit = 0
+        next_round_num = current_rounds + 1
+        if (
+            next_round_num == 1
+            and player_count <= 7
+            and pairing_type != 'round_robin'
+        ):
+            flash(
+                'Tip: With seven or fewer players, the Round Robin pairing type ensures '
+                'everyone plays each other. Consider selecting it before pairing.',
+                'info',
+            )
         if current_rounds < round_limit:
-            next_round_num = current_rounds + 1
             if (
                 next_round_num == 1
                 and t.rules_enforcement_level in ('Competitive', 'Professional')
@@ -2435,7 +2464,7 @@ def create_app():
             r = Round(tournament_id=tid, number=next_round_num)
             db.session.add(r)
             db.session.commit()
-            swiss_pair_round(t, r, db.session)
+            pair_round(t, r, db.session)
             flash(f"Paired round {next_round_num}.", "success")
             log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
             return redirect(url_for('view_tournament', tid=tid))
@@ -2601,7 +2630,7 @@ def create_app():
         if player_count == 0:
             flash('No players registered.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
-        swiss_pair_round(t, r, db.session)
+        pair_round(t, r, db.session)
         flash('Round re-paired.', 'success')
         log_tournament(tid, 'repair_round', 'success', f'round={r.number}')
         return redirect(url_for('view_tournament', tid=tid))
