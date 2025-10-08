@@ -142,6 +142,20 @@ def create_app():
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN start_table_number INTEGER DEFAULT 1'))
                 db.session.execute(text('UPDATE tournament SET start_table_number=1 WHERE start_table_number IS NULL'))
                 db.session.commit()
+            if 'pairing_type' not in columns:
+                db.session.execute(
+                    text("ALTER TABLE tournament ADD COLUMN pairing_type VARCHAR(20) DEFAULT 'swiss'")
+                )
+                db.session.execute(
+                    text("UPDATE tournament SET pairing_type='swiss' WHERE pairing_type IS NULL")
+                )
+                db.session.commit()
+            if 'pairing_options' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN pairing_options TEXT'))
+                db.session.execute(
+                    text("UPDATE tournament SET pairing_options='{}' WHERE pairing_options IS NULL")
+                )
+                db.session.commit()
         if 'user' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'break_end' not in columns:
