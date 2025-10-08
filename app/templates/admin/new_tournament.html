@@ -24,22 +24,14 @@
           <label><input type="checkbox" name="is_cube" value="1"> Mark this draft as a cube event</label>
         </td>
       </tr>
+      {% set structure_choice = request.form.get('structure', 'swiss') %}
       <tr>
         <td>Structure</td>
         <td>
-          <select name="structure">
-            <option value="swiss">Swiss / Cut</option>
-            <option value="single_elim">Single Elimination</option>
-          </select>
-        </td>
-      </tr>
-      <tr>
-        <td>Pairing Type</td>
-        <td>
-          {% set pairing_choice = request.form.get('pairing_type', 'swiss') %}
-          <select name="pairing_type">
-            <option value="swiss"{% if pairing_choice == 'swiss' %} selected{% endif %}>Swiss (standings based)</option>
-            <option value="round_robin"{% if pairing_choice == 'round_robin' %} selected{% endif %}>Round Robin</option>
+          <select name="structure" id="tournament-structure">
+            <option value="swiss"{% if structure_choice == 'swiss' %} selected{% endif %}>Swiss / Cut</option>
+            <option value="round_robin"{% if structure_choice == 'round_robin' %} selected{% endif %}>Round Robin</option>
+            <option value="single_elim"{% if structure_choice == 'single_elim' %} selected{% endif %}>Single Elimination</option>
           </select>
         </td>
       </tr>
@@ -54,7 +46,7 @@
           </select>
         </td>
       </tr>
-      <tr>
+      <tr class="cut-row">
         <td>Cut</td>
         <td>
           <select name="cut">
@@ -105,21 +97,48 @@
 </form>
 <script>
 const fmtSel = document.querySelector('#tournament-format');
+const structureSel = document.querySelector('#tournament-structure');
 const cutSel = document.querySelector('select[name="cut"]');
+const cutRow = document.querySelector('.cut-row');
 const cubeRow = document.querySelector('.cube-row');
-function updateCut(){
+
+function updateCutOptions(){
+  if(!cutSel){ return; }
   const top8 = cutSel.querySelector('option[value="top8"]');
-  if(fmtSel.value === 'Commander'){
-    top8.style.display = 'none';
-    if(cutSel.value === 'top8'){ cutSel.value = 'top4'; }
-  }else{
-    top8.style.display = '';
+  if(top8){
+    if(fmtSel.value === 'Commander'){
+      top8.style.display = 'none';
+      if(cutSel.value === 'top8'){ cutSel.value = 'top4'; }
+    }else{
+      top8.style.display = '';
+    }
   }
   if(cubeRow){
     cubeRow.style.display = fmtSel.value === 'Draft' ? '' : 'none';
   }
 }
-fmtSel.addEventListener('change', updateCut);
-updateCut();
+
+function updateStructure(){
+  if(!cutSel || !cutRow){ return; }
+  const structure = structureSel ? structureSel.value : 'swiss';
+  if(structure === 'swiss'){
+    cutRow.style.display = '';
+  }else{
+    cutRow.style.display = 'none';
+    cutSel.value = 'none';
+  }
+}
+
+fmtSel.addEventListener('change', () => {
+  updateCutOptions();
+  updateStructure();
+});
+if(structureSel){
+  structureSel.addEventListener('change', () => {
+    updateStructure();
+  });
+}
+updateCutOptions();
+updateStructure();
 </script>
 {% endblock %}

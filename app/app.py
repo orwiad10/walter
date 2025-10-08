@@ -1347,17 +1347,28 @@ def create_app():
             total += (t.round_length or 50)
         return t.start_time + timedelta(minutes=total)
 
+    def resolve_structure_and_pairing(form):
+        """Determine structure and pairing from the submitted form data."""
+        selection = (form.get('structure') or 'swiss').lower()
+        pairing_choice = (form.get('pairing_type') or '').lower()
+        if selection == 'single_elim':
+            return 'single_elim', 'swiss'
+        if selection == 'round_robin':
+            return 'swiss', 'round_robin'
+        # Fall back to legacy behaviour where structure and pairing were separate fields
+        structure = 'single_elim' if selection == 'single_elim' else 'swiss'
+        if structure != 'single_elim' and pairing_choice == 'round_robin':
+            return structure, 'round_robin'
+        return structure, 'swiss'
+
     @app.route('/admin/tournaments/new', methods=['GET','POST'])
     def new_tournament():
         require_permission('tournaments.manage')
         if request.method == 'POST':
             name = request.form['name'].strip()
             fmt = request.form['format']
-            structure = request.form.get('structure', 'swiss')
-            pairing_type = (request.form.get('pairing_type') or 'swiss').lower()
-            if pairing_type not in ('swiss', 'round_robin'):
-                pairing_type = 'swiss'
-            cut = request.form.get('cut', 'none') if structure == 'swiss' else 'none'
+            structure, pairing_type = resolve_structure_and_pairing(request.form)
+            cut = request.form.get('cut', 'none') if structure == 'swiss' and pairing_type != 'round_robin' else 'none'
             if fmt == 'Commander' and cut not in ('none','top4','top16','top32','top64'):
                 flash('Commander supports cuts to Top 4, 16, 32, or 64.', 'error')
                 return render_template('admin/new_tournament.html')
@@ -1428,11 +1439,8 @@ def create_app():
         if request.method == 'POST':
             new_name = request.form['name'].strip()
             new_format = request.form['format']
-            new_structure = request.form.get('structure', 'swiss')
-            new_pairing_type = (request.form.get('pairing_type') or 'swiss').lower()
-            if new_pairing_type not in ('swiss', 'round_robin'):
-                new_pairing_type = 'swiss'
-            new_cut = request.form.get('cut', 'none') if new_structure == 'swiss' else 'none'
+            new_structure, new_pairing_type = resolve_structure_and_pairing(request.form)
+            new_cut = request.form.get('cut', 'none') if new_structure == 'swiss' and new_pairing_type != 'round_robin' else 'none'
             commander_points = request.form.get('commander_points', '3,2,1,0,1')
             round_length = int(request.form.get('round_length', 50))
             draft_time = request.form.get('draft_time')
