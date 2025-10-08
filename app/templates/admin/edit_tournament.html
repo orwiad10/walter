@@ -34,6 +34,16 @@
         </td>
       </tr>
       <tr>
+        <td>Pairing Type</td>
+        <td>
+          {% set pairing_choice = (t.pairing_type or 'swiss').lower() %}
+          <select name="pairing_type">
+            <option value="swiss"{% if pairing_choice == 'swiss' %} selected{% endif %}>Swiss (standings based)</option>
+            <option value="round_robin"{% if pairing_choice == 'round_robin' %} selected{% endif %}>Round Robin</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
         <td>Rules Enforcement Level</td>
         <td>
           <select name="rules_enforcement_level">

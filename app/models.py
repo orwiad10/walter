@@ -208,6 +208,8 @@ class Tournament(db.Model):
     format = db.Column(db.String(50), nullable=False)  # Commander, Draft, Constructed
     structure = db.Column(db.String(20), default='swiss')  # swiss or single_elim
     cut = db.Column(db.String(10), default='none')     # none, top8, top4
+    pairing_type = db.Column(db.String(20), default='swiss')  # swiss, round_robin
+    pairing_options = db.Column(db.Text, nullable=True)
     rules_enforcement_level = db.Column(db.String(20), default='None')
     is_cube = db.Column(db.Boolean, default=False)
     rounds_override = db.Column(db.Integer, nullable=True)

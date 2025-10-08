@@ -1,6 +1,6 @@
+import json
 import random
 from .models import Tournament, TournamentPlayer, Match, MatchResult, Round
-from .app import db
 
 # --- WotC recommended Swiss rounds (approx per player count) ---
 def recommended_rounds(n_players: int) -> int:
@@ -118,6 +118,91 @@ def swiss_pair_round(t: Tournament, r: Round, session):
         i += group_size
     session.commit()
     return created
+
+
+def _load_pairing_state(t: Tournament):
+    try:
+        return json.loads(t.pairing_options or '{}')
+    except Exception:
+        return {}
+
+
+def _save_pairing_state(t: Tournament, state, session):
+    t.pairing_options = json.dumps(state)
+    session.add(t)
+
+
+def _normalize_round_robin_order(order_ids, active_ids):
+    present = [pid for pid in order_ids if pid in active_ids]
+    missing = [pid for pid in active_ids if pid not in present]
+    if missing:
+        random.shuffle(missing)
+        present.extend(missing)
+    return present
+
+
+def _round_robin_pairs(order_ids, round_index):
+    players = list(order_ids)
+    if not players:
+        return []
+    if len(players) % 2 == 1:
+        players.append(None)
+    total = len(players)
+    working = players
+    for _ in range(round_index % (total - 1 if total > 1 else 1)):
+        working = [working[0]] + [working[-1]] + working[1:-1]
+    pairs = []
+    half = total // 2
+    for i in range(half):
+        a = working[i]
+        b = working[-1 - i]
+        pairs.append((a, b))
+    return pairs
+
+
+def round_robin_pair_round(t: Tournament, r: Round, session):
+    players = session.query(TournamentPlayer).filter_by(tournament_id=t.id, dropped=False).all()
+    if not players:
+        return []
+    if t.format and t.format.lower() == 'commander':
+        # Commander pods use groups of four; reuse Swiss logic for now.
+        return swiss_pair_round(t, r, session)
+    state = _load_pairing_state(t)
+    order_ids = state.get('round_robin_order') or []
+    active_ids = [tp.id for tp in players]
+    if not order_ids:
+        order_ids = active_ids[:]
+        random.shuffle(order_ids)
+    else:
+        order_ids = _normalize_round_robin_order(order_ids, active_ids)
+    state['round_robin_order'] = order_ids
+    _save_pairing_state(t, state, session)
+    round_index = max(r.number - 1, 0)
+    pair_ids = _round_robin_pairs(order_ids, round_index)
+    table = t.start_table_number or 1
+    created = []
+    for pid1, pid2 in pair_ids:
+        if pid1 is None and pid2 is None:
+            continue
+        if pid1 is None or pid2 is None:
+            bye_player = pid1 or pid2
+            m = Match(round_id=r.id, table_number=table, player1_id=bye_player, player2_id=None)
+        else:
+            if random.random() < 0.5:
+                pid1, pid2 = pid2, pid1
+            m = Match(round_id=r.id, table_number=table, player1_id=pid1, player2_id=pid2)
+        session.add(m)
+        created.append(m)
+        table += 1
+    session.commit()
+    return created
+
+
+def pair_round(t: Tournament, r: Round, session):
+    pairing_type = (t.pairing_type or 'swiss').lower()
+    if pairing_type == 'round_robin':
+        return round_robin_pair_round(t, r, session)
+    return swiss_pair_round(t, r, session)
 
 # --- Tiebreakers per MTR (simplified) ---
 # OMW%: average of each opponent's match-win %, floored at 33%
