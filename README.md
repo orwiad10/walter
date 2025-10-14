@@ -1,40 +1,25 @@
 # MTG Tournament Swiss App (Flask + SQLite)
 
 ## Quickstart
-1) Create and activate a virtualenv, then install deps:
-   python -m venv .venv
-   .venv\Scripts\activate   (Windows)
-   source .venv/bin/activate  (macOS/Linux)
-   pip install -r requirements.txt
+1) Modify config.yaml
+   -change settings as needed in config.yaml
 
-2) Set the Flask env vars (dev):
-   set FLASK_APP=app.app:app     (Windows)
-   export FLASK_APP=app.app:app  (macOS/Linux)
-   # Optional: set a seed for AES password encryption
-   set PASSWORD_SEED=some-random-string     (Windows)
-   export PASSWORD_SEED=some-random-string  (macOS/Linux)
-   # Optional: specify a separate SQLite database file for logs
-   set MTG_LOG_DB_PATH=mtg_logs.db          (Windows)
-   export MTG_LOG_DB_PATH=mtg_logs.db       (macOS/Linux)
-
-3) Initialize the DB (creates a default admin user `admin@example.com` / `admin123`):
-   flask --app app.app db-init
-   # Optionally create additional admins
-   flask --app app.app create-admin --email admin2@example.com --password secret
-
-4) Run:
-   flask --app app.app run --debug
+2) Start Server
+   -run start-server.ps1 to install pre-reqs and start flask
 
 ## Features
-- Player & Admin login
-- Tournaments: Commander, Draft, Constructed
-- WotC recommended Swiss round counts (override allowed)
-- Swiss pairing (avoid rematches, handle byes)
-- Match reporting with game wins (for GW%)
-- Standings with tiebreakers: OMW%, GW%, OGW%
-- Cut to Top 8 / Top 4
+   - Player & Admin login
+   - Tournaments: Commander, Draft, Constructed
+   - WotC recommended Swiss round counts (override allowed)
+   - Swiss pairing (avoid rematches, handle byes)
+   - Match reporting with game wins (for GW%)
+   - Standings with tiebreakers: OMW%, GW%, OGW%
+   - Cut to Top 8 / Top 4
 
 ## Notes
-- Default secret key is set for dev; change FLASK_SECRET in production.
-- Passwords are stored encrypted with AES-256 using a seed specified via `PASSWORD_SEED`.
-- This is an MVP. You can extend forms, validation, and UI as needed.
+   - Default secret key is set for dev; change FLASK_SECRET in production.
+   - Passwords are stored encrypted with AES-256 using a seed specified via `PASSWORD_SEED`.
+   - This is an MVP. You can extend forms, validation, and UI as needed.
+
+## Wiki
+   -See the wiki for screen shots of the app
