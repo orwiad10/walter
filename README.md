@@ -15,6 +15,7 @@
    - Match reporting with game wins (for GW%)
    - Standings with tiebreakers: OMW%, GW%, OGW%
    - Cut to Top 8 / Top 4
+   - Builtin admin = admin@example.com, admin123
 
 ## Notes
    - Default secret key is set for dev; change FLASK_SECRET in production.
