@@ -2,10 +2,10 @@
 
 ## Quickstart
 1) Modify config.yaml
-   -change settings as needed in config.yaml
+   - change settings as needed in config.yaml
 
 2) Start Server
-   -run start-server.ps1 to install pre-reqs and start flask
+   - run start-server.ps1 to install pre-reqs and start flask
 
 ## Features
    - Player & Admin login
@@ -22,4 +22,4 @@
    - This is an MVP. You can extend forms, validation, and UI as needed.
 
 ## Wiki
-   -See the wiki for screen shots of the app
+   - See the wiki for screen shots of the app
