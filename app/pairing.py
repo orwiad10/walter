@@ -1,5 +1,6 @@
 import json
 import random
+from itertools import combinations
 from .models import Tournament, TournamentPlayer, Match, MatchResult, Round
 
 # --- WotC recommended Swiss rounds (approx per player count) ---
@@ -71,6 +72,50 @@ def have_played(a_id, b_id, session):
     )
     return session.query(q.exists()).scalar()
 
+def _group_conflicts(group, session):
+    if len(group) < 2:
+        return 0
+    return sum(1 for a, b in combinations(group, 2) if have_played(a.id, b.id, session))
+
+
+def _build_pods(players, group_size, session):
+    def helper(remaining):
+        if not remaining:
+            return 0, []
+        if len(remaining) <= group_size:
+            group = remaining[:]
+            return _group_conflicts(group, session), [group]
+
+        first = remaining[0]
+        rest = remaining[1:]
+        pick = group_size - 1
+        limit = len(rest)
+        if group_size > 2:
+            limit = min(limit, group_size * 3)
+        idx_pool = list(range(limit))
+        best = None
+        for combo in combinations(idx_pool, pick):
+            group = [first] + [rest[i] for i in combo]
+            conflicts = _group_conflicts(group, session)
+            selected = set(combo)
+            new_remaining = [rest[i] for i in range(len(rest)) if i not in selected]
+            result = helper(new_remaining)
+            if result is None:
+                continue
+            total_conflicts = conflicts + result[0]
+            grouping = [group] + result[1]
+            if best is None or total_conflicts < best[0]:
+                best = (total_conflicts, grouping)
+                if total_conflicts == 0:
+                    break
+        return best
+
+    total = helper(players)
+    if total is None:
+        return [players[i:i+group_size] for i in range(0, len(players), group_size)]
+    return total[1]
+
+
 def swiss_pair_round(t: Tournament, r: Round, session):
     players = session.query(TournamentPlayer).filter_by(tournament_id=t.id, dropped=False).all()
     group_size = 4 if t.format.lower() == 'commander' else 2
@@ -102,11 +147,12 @@ def swiss_pair_round(t: Tournament, r: Round, session):
             -rank[tp.id][0], -rank[tp.id][1], -rank[tp.id][2], -rank[tp.id][3], rank[tp.id][4]
         )
     )
+    pods = _build_pods(players, group_size, session)
     table = t.start_table_number or 1
     created = []
-    i = 0
-    while i < len(players):
-        pod = players[i:i+group_size]
+    for pod in pods:
+        if not pod:
+            continue
         m = Match(round_id=r.id, table_number=table,
                   player1_id=pod[0].id,
                   player2_id=pod[1].id if len(pod) > 1 else None,
@@ -115,7 +161,6 @@ def swiss_pair_round(t: Tournament, r: Round, session):
         session.add(m)
         created.append(m)
         table += 1
-        i += group_size
     session.commit()
     return created
 
