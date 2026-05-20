@@ -1,4 +1,5 @@
 import random
+from itertools import product
 
 from app.app import db
 from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult
@@ -131,3 +132,48 @@ def test_swiss_pairings_avoid_repeats(session):
             continue
         pair = frozenset({match.player1_id, match.player2_id})
         assert pair not in first_round_pairs
+
+
+def test_swiss_32_players_all_round_result_combinations(session):
+    role_user = session.query(Role).filter_by(name='user').first()
+    tournament = Tournament(name='Swiss 32 Combo Event', format='Constructed')
+    session.add(tournament)
+    session.commit()
+
+    random.seed(2026)
+
+    for i in range(32):
+        user = User(email=f'combo32_{i}@ex.com', name=f'Combo32_{i}', role=role_user)
+        session.add(user)
+        session.commit()
+        session.add(TournamentPlayer(tournament_id=tournament.id, user_id=user.id))
+        session.commit()
+
+    total_rounds = 5
+    round_matches = {}
+    for round_number in range(1, total_rounds + 1):
+        rnd = Round(tournament_id=tournament.id, number=round_number)
+        session.add(rnd)
+        session.commit()
+        matches = pair_round(tournament, rnd, session)
+        assert len(matches) == 16
+        round_matches[round_number] = matches
+
+        for match in matches:
+            match.result = MatchResult(player1_wins=2, player2_wins=0)
+            match.completed = True
+        session.commit()
+
+    for choices in product((0, 1), repeat=total_rounds):
+        for round_number, player1_wins in enumerate(choices, start=1):
+            for match in round_matches[round_number]:
+                if player1_wins:
+                    match.result = MatchResult(player1_wins=2, player2_wins=0)
+                else:
+                    match.result = MatchResult(player1_wins=0, player2_wins=2)
+                match.completed = True
+        session.commit()
+
+        standings = compute_standings(tournament, session)
+        assert len(standings) == 32
+        assert all(0 <= row['points'] <= 15 for row in standings)
