@@ -1,6 +1,6 @@
 from .app import db
 from flask_login import UserMixin
-from datetime import datetime
+from datetime import datetime, UTC
 from sqlalchemy import UniqueConstraint
 import uuid
 import os
@@ -65,6 +65,11 @@ DEFAULT_ROLE_PERMISSIONS = {
 }
 
 
+
+
+def utc_now():
+    return datetime.now(UTC).replace(tzinfo=None)
+
 DEFAULT_ROLE_LEVELS = {
     'admin': 0,
     'manager': 100,
@@ -94,7 +99,7 @@ class User(db.Model, UserMixin):
     password_hash = db.Column(db.Text, nullable=True)
     salt = db.Column(db.String(32), nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     notes = db.Column(db.Text, nullable=True)
     role_id = db.Column(db.Integer, db.ForeignKey('role.id'))
     role = db.relationship('Role')
@@ -178,7 +183,7 @@ class Message(db.Model):
     title_nonce = db.Column(db.LargeBinary, nullable=False)
     body_encrypted = db.Column(db.LargeBinary, nullable=False)
     body_nonce = db.Column(db.LargeBinary, nullable=False)
-    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_at = db.Column(db.DateTime, default=utc_now)
     is_read = db.Column(db.Boolean, default=False)
 
     sender = db.relationship('User', foreign_keys=[sender_id])
@@ -192,7 +197,7 @@ class Report(db.Model):
     report_type = db.Column(db.String(20), nullable=False)
     description = db.Column(db.Text, nullable=False)
     status = db.Column(db.String(20), default='open')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     is_read = db.Column(db.Boolean, default=False)
     assigned_to_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     actions_taken = db.Column(db.Text, nullable=True)
@@ -214,7 +219,7 @@ class Tournament(db.Model):
     is_cube = db.Column(db.Boolean, default=False)
     rounds_override = db.Column(db.Integer, nullable=True)
     start_table_number = db.Column(db.Integer, default=1)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     # Comma separated points for Commander: first, second, third, fourth, draw
     commander_points = db.Column(db.String(50), default='3,2,1,0,1')
     guid = db.Column(db.String(36), unique=True, default=lambda: str(uuid.uuid4()))
@@ -250,7 +255,7 @@ class SiteLog(db.Model):
     action = db.Column(db.String(200), nullable=False)
     result = db.Column(db.String(200), nullable=False)
     error = db.Column(db.Text, nullable=True)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=utc_now)
     user_id = db.Column(db.Integer, nullable=True)
     # relationship loaded manually to avoid cross-db foreign key
 
@@ -261,7 +266,7 @@ class TournamentLog(db.Model):
     action = db.Column(db.String(200), nullable=False)
     result = db.Column(db.String(200), nullable=False)
     error = db.Column(db.Text, nullable=True)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=utc_now)
     user_id = db.Column(db.Integer, nullable=True)
     # relationship loaded manually to avoid cross-db foreign key
 
@@ -302,8 +307,8 @@ class TournamentPlayerDeck(db.Model):
     raw_text = db.Column(db.Text, nullable=True)
     moxfield_url = db.Column(db.Text, nullable=True)
     image_path = db.Column(db.String(200), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     is_submitted = db.Column(db.Boolean, default=False)
     submitted_at = db.Column(db.DateTime, nullable=True)
 
@@ -341,8 +346,8 @@ class TournamentJoinRequest(db.Model):
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     status = db.Column(db.String(20), default='pending')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     note = db.Column(db.Text, nullable=True)
     approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
 
@@ -414,5 +419,5 @@ class LostFoundItem(db.Model):
     image_path = db.Column(db.String(500), nullable=True)
     reporter_name = db.Column(db.String(120), nullable=True)
     reporter_contact = db.Column(db.String(200), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
