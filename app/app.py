@@ -19,7 +19,7 @@ from flask_login import (
     login_required,
     current_user,
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import math
 import os
 import random
@@ -64,7 +64,7 @@ def create_app():
     if existing_media:
         media_db_path = existing_media[-1]
     else:
-        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+        timestamp = datetime.now(UTC).strftime('%Y%m%d%H%M%S')
         media_db_filename = f"{db_base}_media_{timestamp}.db"
         media_db_path = os.path.join(app.instance_path, media_db_filename)
     if not os.path.exists(media_db_path):
@@ -204,7 +204,7 @@ def create_app():
         TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
         from .models import LostFoundItem, TournamentPlayerDeck
 
-        media_engine = db.get_engine(app, bind='media')
+        media_engine = db.engines['media']
         LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
         if 'tournament_player_deck' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('tournament_player_deck')]
@@ -1125,7 +1125,7 @@ def create_app():
             return None
         buffer.seek(0)
         safe_prefix = ''.join(ch for ch in prefix if ch.isalnum()) or 'deck'
-        filename = f"{safe_prefix}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}.png"
+        filename = f"{safe_prefix}_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}.png"
         os.makedirs(storage_dir, exist_ok=True)
         path = os.path.join(storage_dir, filename)
         with open(path, 'wb') as handle:
