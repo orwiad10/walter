@@ -55,6 +55,10 @@ $FlaskIP = $cfg.flask_ip
 $FlaskPort = $cfg.flask_port
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
+######enable testing###########
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = "1"
+###############################
+
 if([string]::IsNullOrEmpty($DatabasePath)){ $DatabasePath = $DefaultDb }
 if([string]::IsNullOrEmpty($LogDatabasePath)){ $LogDatabasePath = $DefaultLogDb }
 if([string]::IsNullOrEmpty($FlaskSecret)){ $FlaskSecret = "dev-secret-change-me" }
