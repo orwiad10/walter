@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="join-qr-card">
+  <h2>Join {{ t.name }}</h2>
+  <p>Scan the QR code or open the join link to register/login and join this tournament.</p>
+  <img src="{{ qr_url }}" alt="QR code for joining {{ t.name }}" class="join-qr-image">
+  <p><a href="{{ join_url }}">{{ join_url }}</a></p>
+
+  {% if current_user.is_authenticated %}
+    {% if is_player %}
+      <p>You are already registered for this tournament.</p>
+      <p><a class="btn" href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a></p>
+    {% else %}
+      <form method="post" action="{{ url_for('join_tournament', tid=t.id) }}" class="join-form">
+        <input type="text" name="passcode" maxlength="4" pattern="\d{4}" placeholder="Passcode" required>
+        <button class="btn" type="submit">{% if t.join_requires_approval %}Request Join{% else %}Join Tournament{% endif %}</button>
+      </form>
+    {% endif %}
+  {% else %}
+    <div class="join-qr-actions">
+      <a class="btn" href="{{ url_for('login', next=url_for('tournament_join_link', tid=t.id)) }}">I already have an account</a>
+      <a class="btn" href="{{ url_for('register', tournament_id=t.id, passcode=t.passcode, next=url_for('tournament_join_link', tid=t.id)) }}">Create account & join</a>
+    </div>
+  {% endif %}
+
+  <p><button class="btn" onclick="window.print()">Print QR</button></p>
+</section>
+{% endblock %}

@@ -25,13 +25,13 @@
       <select id="tournament_id" name="tournament_id">
         <option value="">-- None --</option>
         {% for t in tournaments %}
-        <option value="{{t.id}}">{{t.name}}</option>
+        <option value="{{t.id}}"{% if prefill_tournament_id and prefill_tournament_id|int == t.id %} selected{% endif %}>{{t.name}}</option>
         {% endfor %}
       </select>
     </div>
     <div class="form-field">
       <label for="passcode">Tournament Passcode</label>
-      <input id="passcode" name="passcode" maxlength="4">
+      <input id="passcode" name="passcode" maxlength="4" value="{{ prefill_passcode }}">
     </div>
     <div class="form-actions">
       <button class="btn" type="submit">Create Account</button>

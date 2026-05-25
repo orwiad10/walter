@@ -367,6 +367,8 @@ def create_app():
     def register():
         from .models import User, Tournament, TournamentPlayer, Role
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
+        prefill_tournament_id = request.args.get('tournament_id', '').strip()
+        prefill_passcode = request.args.get('passcode', '').strip()
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
             name = request.form['name'].strip()
@@ -398,11 +400,17 @@ def create_app():
                 db.session.add(tp)
                 db.session.commit()
             flash("Registered. Please login.", "success")
-            return redirect(url_for('login'))
-        return render_template('register.html', tournaments=tournaments)
+            return redirect(url_for('login', next=request.args.get('next')))
+        return render_template(
+            'register.html',
+            tournaments=tournaments,
+            prefill_tournament_id=prefill_tournament_id,
+            prefill_passcode=prefill_passcode,
+        )
 
     @app.route('/login', methods=['GET','POST'])
     def login():
+        next_url = request.args.get('next')
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
             password = request.form['password']
@@ -417,10 +425,32 @@ def create_app():
                 except Exception:
                     session['private_key'] = None
                 log_site('login', 'success')
+                if next_url:
+                    parsed = urlparse(next_url)
+                    if not parsed.netloc and parsed.path.startswith('/'):
+                        return redirect(next_url)
                 return redirect(url_for('index'))
             flash("Invalid credentials", "error")
             log_site('login', 'failure', 'invalid credentials')
         return render_template('login.html')
+
+    @app.route('/t/<int:tid>/join-link')
+    def tournament_join_link(tid):
+        from .models import Tournament, TournamentPlayer
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        join_url = url_for('tournament_join_link', tid=tid, _external=True)
+        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=320x320&data={join_url}"
+        is_player = False
+        if current_user.is_authenticated:
+            is_player = (
+                db.session.query(TournamentPlayer)
+                .filter_by(tournament_id=tid, user_id=current_user.id)
+                .first()
+                is not None
+            )
+        return render_template('tournament/join_link.html', t=t, join_url=join_url, qr_url=qr_url, is_player=is_player)
 
     @app.route('/logout')
     @login_required
