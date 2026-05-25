@@ -22,6 +22,7 @@
   <button class="btn" onclick="window.print()">Print</button>
   {% if not is_player %}
   <div class="join-controls">
+    <a class="btn" href="{{ url_for('tournament_join_link', tid=t.id) }}" target="_blank" rel="noopener">Player Join QR</a>
     {% if current_user.is_authenticated %}
       {% set join_pending = user_join_request and user_join_request.status == 'pending' %}
       {% set join_rejected = user_join_request and user_join_request.status == 'rejected' %}
