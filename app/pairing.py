@@ -63,28 +63,62 @@ def matches_for(tp: TournamentPlayer, session):
         (Match.player3_id == tp.id) | (Match.player4_id == tp.id)
     ).all()
 
-def have_played(a_id, b_id, session):
+def have_played(a_id, b_id, session, *, up_to_round_number=None):
     if a_id == b_id:
         return True
-    q = session.query(Match).filter(
+    q = session.query(Match).join(Round, Match.round_id == Round.id).filter(
         ((Match.player1_id==a_id) | (Match.player2_id==a_id) | (Match.player3_id==a_id) | (Match.player4_id==a_id)) &
         ((Match.player1_id==b_id) | (Match.player2_id==b_id) | (Match.player3_id==b_id) | (Match.player4_id==b_id))
     )
+    if up_to_round_number is not None:
+        q = q.filter(Round.number <= up_to_round_number)
     return session.query(q.exists()).scalar()
 
-def _group_conflicts(group, session):
+
+def _round_limit_for_tournament(t: Tournament, player_count: int) -> int:
+    if t.rounds_override:
+        return t.rounds_override
+    return recommended_rounds(player_count)
+
+
+def _is_post_cut_round(t: Tournament, r: Round, player_count: int) -> bool:
+    if t.structure == 'single_elim' or not (t.cut or '').startswith('top'):
+        return False
+    return r.number > _round_limit_for_tournament(t, player_count)
+
+
+def _player_has_bye(tp_id: int, tournament_id: int, session) -> bool:
+    q = session.query(Match).join(Round).filter(
+        Round.tournament_id == tournament_id,
+        (
+            ((Match.player1_id == tp_id) & (Match.player2_id.is_(None))) |
+            ((Match.player2_id == tp_id) & (Match.player1_id.is_(None)))
+        )
+    )
+    return session.query(q.exists()).scalar()
+
+
+def _select_swiss_bye_player(players, tournament_id: int, session):
+    if len(players) % 2 == 0:
+        return None
+    for idx in range(len(players) - 1, -1, -1):
+        if not _player_has_bye(players[idx].id, tournament_id, session):
+            return players.pop(idx)
+    return players.pop()
+
+def _group_conflicts(group, session, *, up_to_round_number=None):
     if len(group) < 2:
         return 0
-    return sum(1 for a, b in combinations(group, 2) if have_played(a.id, b.id, session))
+    return sum(1 for a, b in combinations(group, 2) if have_played(a.id, b.id, session, up_to_round_number=up_to_round_number))
 
 
-def _build_pods(players, group_size, session):
+def _build_pods(players, group_size, session, *, up_to_round_number=None, allow_repeat_pairings=True):
     def helper(remaining):
         if not remaining:
             return 0, []
         if len(remaining) <= group_size:
             group = remaining[:]
-            return _group_conflicts(group, session), [group]
+            return _group_conflicts(group, session, up_to_round_number=up_to_round_number), [group]
 
         first = remaining[0]
         rest = remaining[1:]
@@ -96,11 +130,13 @@ def _build_pods(players, group_size, session):
         best = None
         for combo in combinations(idx_pool, pick):
             group = [first] + [rest[i] for i in combo]
-            conflicts = _group_conflicts(group, session)
+            conflicts = _group_conflicts(group, session, up_to_round_number=up_to_round_number)
             selected = set(combo)
             new_remaining = [rest[i] for i in range(len(rest)) if i not in selected]
             result = helper(new_remaining)
             if result is None:
+                continue
+            if not allow_repeat_pairings and conflicts > 0:
                 continue
             total_conflicts = conflicts + result[0]
             grouping = [group] + result[1]
@@ -108,10 +144,14 @@ def _build_pods(players, group_size, session):
                 best = (total_conflicts, grouping)
                 if total_conflicts == 0:
                     break
+        if best is None and not allow_repeat_pairings:
+            return None
         return best
 
     total = helper(players)
     if total is None:
+        if not allow_repeat_pairings:
+            raise ValueError('Unable to create non-repeating pairings before cut.')
         return [players[i:i+group_size] for i in range(0, len(players), group_size)]
     return total[1]
 
@@ -147,7 +187,18 @@ def swiss_pair_round(t: Tournament, r: Round, session):
             -rank[tp.id][0], -rank[tp.id][1], -rank[tp.id][2], -rank[tp.id][3], rank[tp.id][4]
         )
     )
-    pods = _build_pods(players, group_size, session)
+    is_post_cut = _is_post_cut_round(t, r, len(players))
+    if group_size == 2:
+        bye_player = _select_swiss_bye_player(players, t.id, session)
+    else:
+        bye_player = None
+    pods = _build_pods(
+        players,
+        group_size,
+        session,
+        up_to_round_number=r.number - 1,
+        allow_repeat_pairings=is_post_cut
+    )
     table = t.start_table_number or 1
     created = []
     for pod in pods:
@@ -161,6 +212,10 @@ def swiss_pair_round(t: Tournament, r: Round, session):
         session.add(m)
         created.append(m)
         table += 1
+    if bye_player is not None:
+        m = Match(round_id=r.id, table_number=table, player1_id=bye_player.id, player2_id=None)
+        session.add(m)
+        created.append(m)
     session.commit()
     return created
 
