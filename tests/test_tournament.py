@@ -177,3 +177,70 @@ def test_swiss_32_players_all_round_result_combinations(session):
         standings = compute_standings(tournament, session)
         assert len(standings) == 32
         assert all(0 <= row['points'] <= 15 for row in standings)
+
+def test_swiss_no_second_bye_when_alternative_exists(session):
+    role_user = session.query(Role).filter_by(name='user').first()
+    t = Tournament(name='Swiss Bye Event', format='Constructed')
+    session.add(t)
+    session.commit()
+
+    random.seed(7)
+    players = []
+    for i in range(5):
+        u = User(email=f'bye{i}@ex.com', name=f'Bye{i}', role=role_user)
+        session.add(u)
+        session.commit()
+        tp = TournamentPlayer(tournament_id=t.id, user_id=u.id)
+        session.add(tp)
+        session.commit()
+        players.append(tp)
+
+    bye_counts = {tp.id: 0 for tp in players}
+    for rnd in range(1, 3):
+        r = Round(tournament_id=t.id, number=rnd)
+        session.add(r)
+        session.commit()
+        matches = pair_round(t, r, session)
+        for m in matches:
+            if m.player2_id is None:
+                bye_counts[m.player1_id] += 1
+            else:
+                m.result = MatchResult(player1_wins=2, player2_wins=0)
+                m.completed = True
+        session.commit()
+
+    assert max(bye_counts.values()) == 1
+
+
+def test_swiss_all_unique_until_cut_then_repeat_allowed(session):
+    role_user = session.query(Role).filter_by(name='user').first()
+    t = Tournament(name='Swiss Cut Event', format='Constructed', cut='top4', rounds_override=2)
+    session.add(t)
+    session.commit()
+
+    random.seed(21)
+    for i in range(4):
+        u = User(email=f'cut{i}@ex.com', name=f'Cut{i}', role=role_user)
+        session.add(u)
+        session.commit()
+        tp = TournamentPlayer(tournament_id=t.id, user_id=u.id)
+        session.add(tp)
+        session.commit()
+
+    seen_pairs = set()
+    for rnd in range(1, 4):
+        r = Round(tournament_id=t.id, number=rnd)
+        session.add(r)
+        session.commit()
+        matches = pair_round(t, r, session)
+
+        for m in matches:
+            if m.player2_id is None:
+                continue
+            pair = frozenset({m.player1_id, m.player2_id})
+            if rnd <= 2:
+                assert pair not in seen_pairs
+            seen_pairs.add(pair)
+            m.result = MatchResult(player1_wins=2, player2_wins=0)
+            m.completed = True
+        session.commit()
