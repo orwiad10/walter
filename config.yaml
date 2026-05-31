@@ -4,7 +4,7 @@ admin_email: admin@example.com
 admin_pass: admin123
 flask_secret: dev-secret-change-me
 password_seed: dev-password-seed-change-me
-flask_ip: 10.147.17.136
-#flask_ip: 192.168.1.85
+#flask_ip: 10.147.17.136
+flask_ip: 192.168.1.85
 flask_port: 5000
 last_table_number: 200
