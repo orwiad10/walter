@@ -313,6 +313,28 @@ def create_app():
                     break
         return errors, start, end, tables_needed, player_count
 
+
+    def tournament_is_complete(tournament):
+        players = list(getattr(tournament, 'players', []) or [])
+        rounds = sorted(list(getattr(tournament, 'rounds', []) or []), key=lambda r: r.number)
+        if not rounds:
+            return False
+        round_limit = tournament.rounds_override or recommended_rounds(len(players))
+        if tournament.structure == 'single_elim':
+            round_limit = 0
+        relevant_rounds = [r for r in rounds if r.number <= round_limit]
+        if len(relevant_rounds) < round_limit:
+            return False
+        if any(not (m.completed and m.result) for r in relevant_rounds for m in r.matches):
+            return False
+        if tournament.cut and tournament.cut.startswith('top'):
+            elim_rounds = [r for r in rounds if r.number > round_limit]
+            if not elim_rounds:
+                return False
+            final_round = elim_rounds[-1]
+            return bool(final_round.matches) and all(m.completed and m.result for m in final_round.matches)
+        return True
+
     @login_manager.user_loader
     def load_user(user_id):
         return db.session.get(User, int(user_id))
@@ -369,8 +391,9 @@ def create_app():
     @app.route('/')
     def index():
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
-        player_counts = {t.id: len(t.players) for t in tournaments}
-        return render_template('index.html', tournaments=tournaments, player_counts=player_counts,
+        visible_tournaments = [t for t in tournaments if not tournament_is_complete(t)]
+        player_counts = {t.id: len(t.players) for t in visible_tournaments}
+        return render_template('index.html', tournaments=visible_tournaments, player_counts=player_counts,
                                server_now=datetime.utcnow())
 
     @app.route('/register', methods=['GET','POST'])
@@ -1884,10 +1907,33 @@ def create_app():
         require_permission('tournaments.manage')
         from .models import User, Tournament, TournamentPlayer, Role
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
+        existing_users = db.session.query(User).order_by(User.name).all()
         if request.method == 'POST':
             tournament_id = request.form.get('tournament_id')
-            names_raw = request.form['names']
+            selected_user_ids = request.form.getlist('existing_user_ids')
+            names_raw = request.form.get('names', '')
             count = 0
+            added_existing = 0
+            existing_tournament_user_ids = set()
+            if tournament_id:
+                existing_tournament_user_ids = {
+                    row.user_id
+                    for row in db.session.query(TournamentPlayer).filter_by(tournament_id=int(tournament_id)).all()
+                }
+            for user_id_raw in selected_user_ids:
+                if not tournament_id:
+                    continue
+                try:
+                    user_id = int(user_id_raw)
+                except ValueError:
+                    continue
+                if user_id in existing_tournament_user_ids:
+                    continue
+                if not db.session.get(User, user_id):
+                    continue
+                db.session.add(TournamentPlayer(tournament_id=int(tournament_id), user_id=user_id))
+                existing_tournament_user_ids.add(user_id)
+                added_existing += 1
             for line in names_raw.splitlines():
                 name = line.strip()
                 if not name:
@@ -1902,11 +1948,11 @@ def create_app():
                 count += 1
             db.session.commit()
             if tournament_id:
-                log_tournament(int(tournament_id), 'add_player', 'bulk', f'count={count}')
-            log_site('bulk_register', 'success', f'count={count}')
-            flash(f"Registered {count} players.", "success")
+                log_tournament(int(tournament_id), 'add_player', 'bulk', f'new={count}; existing={added_existing}')
+            log_site('bulk_register', 'success', f'new={count}; existing={added_existing}')
+            flash(f"Registered {count} new players and added {added_existing} existing players.", "success")
             return redirect(url_for('admin_bulk_register'))
-        return render_template('admin/bulk_register_players.html', tournaments=tournaments)
+        return render_template('admin/bulk_register_players.html', tournaments=tournaments, existing_users=existing_users)
 
     @app.route('/admin/panel', methods=['GET', 'POST'])
     def admin_panel():
@@ -1993,6 +2039,26 @@ def create_app():
         return redirect(url_for('index'))
 
     # ---------- Tournament ----------
+
+    @app.route('/my-tournaments')
+    @login_required
+    def my_tournaments():
+        entries = (
+            db.session.query(TournamentPlayer)
+            .join(Tournament)
+            .filter(TournamentPlayer.user_id == current_user.id)
+            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .all()
+        )
+        active_entries = [entry for entry in entries if not tournament_is_complete(entry.tournament)]
+        player_counts = {entry.tournament_id: len(entry.tournament.players) for entry in active_entries}
+        return render_template(
+            'tournament/my_tournaments.html',
+            entries=active_entries,
+            player_counts=player_counts,
+            server_now=datetime.utcnow(),
+        )
+
     @app.route('/t/<int:tid>')
     def view_tournament(tid):
         t = db.session.get(Tournament, tid)
@@ -2014,6 +2080,7 @@ def create_app():
         user_join_request = None
         player_deck = None
         can_view_player_decks = False
+        available_users = []
         if current_user.is_authenticated:
             is_player = any(p.user_id == current_user.id for p in players)
             show_passcode = current_user.has_permission('tournaments.manage') or is_player
@@ -2068,6 +2135,12 @@ def create_app():
             'side': player_deck.sideboard_cards() if player_deck else [],
             'submitted': bool(player_deck and player_deck.is_submitted),
         }
+        if current_user.is_authenticated and current_user.has_permission('tournaments.manage'):
+            player_user_ids = {player.user_id for player in players}
+            user_query = db.session.query(User)
+            if player_user_ids:
+                user_query = user_query.filter(~User.id.in_(player_user_ids))
+            available_users = user_query.order_by(User.name).all()
         return render_template('tournament/view.html', t=t, players=players, rounds=rounds,
                                standings=standings, rec_rounds=rec_rounds,
                                timer_end=timer_end, timer_type=timer_type,
@@ -2081,6 +2154,7 @@ def create_app():
                                deck_locked=deck_locked,
                                deck_search_url=url_for('deck_card_search', tid=t.id) if is_player and not deck_locked else None,
                                can_view_player_decks=can_view_player_decks,
+                               available_users=available_users,
                                server_now=datetime.utcnow())
 
     @app.route('/t/<int:tid>/players/<int:player_id>/deck')
@@ -2461,20 +2535,44 @@ def create_app():
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
+        selected_user_ids = request.form.getlist('user_ids')
         user_id_raw = (request.form.get('user_id') or '').strip()
+        if user_id_raw and user_id_raw not in selected_user_ids:
+            selected_user_ids.append(user_id_raw)
         new_name = (request.form.get('new_player_name') or '').strip()
         new_email = (request.form.get('new_player_email') or '').strip().lower()
-        player = None
         created_user = False
-        if user_id_raw:
-            try:
-                player = db.session.get(User, int(user_id_raw))
-            except (TypeError, ValueError):
-                player = None
-            if not player:
-                flash('Selected user could not be found.', 'error')
+        added_existing = 0
+        skipped_existing = 0
+        if selected_user_ids:
+            existing_user_ids = {p.user_id for p in t.players}
+            for raw_id in selected_user_ids:
+                try:
+                    user_id = int(raw_id)
+                except (TypeError, ValueError):
+                    skipped_existing += 1
+                    continue
+                if user_id in existing_user_ids:
+                    skipped_existing += 1
+                    continue
+                player = db.session.get(User, user_id)
+                if not player:
+                    skipped_existing += 1
+                    continue
+                db.session.add(TournamentPlayer(tournament_id=tid, user_id=player.id))
+                existing_user_ids.add(player.id)
+                added_existing += 1
+            if added_existing:
+                db.session.commit()
+                log_tournament(tid, 'add_player_inline', 'success', f'existing_count={added_existing}')
+                message = f'Added {added_existing} existing player' + ('s' if added_existing != 1 else '') + ' to tournament.'
+                if skipped_existing:
+                    message += f' Skipped {skipped_existing} invalid or duplicate selection' + ('s' if skipped_existing != 1 else '') + '.'
+                flash(message, 'success')
                 return redirect(url_for('view_tournament', tid=tid))
-        elif new_name:
+            flash('No new existing players were selected.', 'warning')
+            return redirect(url_for('view_tournament', tid=tid))
+        if new_name:
             email_value = new_email or None
             if email_value and db.session.query(User).filter_by(email=email_value).first():
                 flash('Email already registered.', 'error')
@@ -2485,7 +2583,7 @@ def create_app():
             db.session.flush()
             created_user = True
         else:
-            flash('Select an existing user or enter a name to add a new player.', 'error')
+            flash('Select existing users or enter a name to add a new player.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
         existing = (
             db.session.query(TournamentPlayer)
@@ -3274,6 +3372,41 @@ def create_app():
         flash('User deleted.', 'success')
         fallback = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
         return redirect(resolve_redirect_target(fallback, next_candidate))
+
+
+    @app.route('/admin/users/bulk-delete', methods=['POST'])
+    def admin_bulk_delete_users():
+        require_permission('users.manage')
+        user_ids = []
+        for raw_id in request.form.getlist('user_ids'):
+            try:
+                user_ids.append(int(raw_id))
+            except ValueError:
+                continue
+        if not user_ids:
+            flash('Select at least one user to delete.', 'error')
+            return redirect(url_for('admin_users', q=request.form.get('search_query', '').strip()))
+        deleted = 0
+        skipped = 0
+        for user in db.session.query(User).filter(User.id.in_(user_ids)).all():
+            if user.id == current_user.id:
+                skipped += 1
+                continue
+            if user.is_admin and not current_user.has_permission('users.manage_admins'):
+                skipped += 1
+                continue
+            for tp in list(user.tournament_entries):
+                db.session.delete(tp)
+            db.session.delete(user)
+            deleted += 1
+        db.session.commit()
+        message = f'Deleted {deleted} user' + ('s' if deleted != 1 else '') + '.'
+        if skipped:
+            message += f' Skipped {skipped} protected user' + ('s' if skipped != 1 else '') + '.'
+        flash(message, 'success' if deleted else 'warning')
+        log_site('users_bulk_delete', 'success', f'deleted={deleted}; skipped={skipped}')
+        search_query = request.form.get('search_query', '').strip()
+        return redirect(url_for('admin_users', q=search_query) if search_query else url_for('admin_users'))
 
     return app
 

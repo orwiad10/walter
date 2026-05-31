@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Player Dashboard</span>
+    <h2>My Tournaments</h2>
+    <p class="page-description">Tournaments you are currently registered for that are not complete.</p>
+  </div>
+</section>
+
+<ul class="cards">
+  {% for entry in entries %}
+  {% set t = entry.tournament %}
+  <li class="card">
+    <div class="card-header">
+      <h3 class="card-title"><a href="{{ url_for('view_tournament', tid=t.id) }}">{{ t.name }}</a></h3>
+      {% if entry.dropped %}<span class="status-pill warning">Dropped</span>{% endif %}
+    </div>
+    <div class="card-meta">
+      <span><strong>Format</strong>{{ t.format }}{% if t.format == 'Draft' and t.is_cube %} (Cube){% endif %}</span>
+      <span><strong>REL</strong>{{ t.rules_enforcement_level }}</span>
+      <span><strong>Players</strong>{{ player_counts[t.id] }}</span>
+      {% if t.start_time %}<span><strong>Starts</strong>{{ t.start_time }}</span>{% endif %}
+      {% set end = t.round_timer_end or t.draft_timer_end or t.deck_timer_end %}
+      {% if t.round_timer_end %}{% set ttype = 'round' %}{% elif t.draft_timer_end %}{% set ttype = 'draft' %}{% elif t.deck_timer_end %}{% set ttype = 'deck' %}{% endif %}
+      {% if end %}
+      <span><strong>Timer</strong><span class="timer" data-timer-end="{{ end.isoformat() }}Z" data-server-now="{{ server_now.isoformat() }}Z" data-tournament-id="{{ t.id }}" data-tournament-name="{{ t.name }}"{% if ttype %} data-timer-type="{{ ttype }}"{% endif %}></span></span>
+      {% endif %}
+    </div>
+    <div class="card-actions">
+      <a class="btn" href="{{ url_for('view_tournament', tid=t.id) }}">Open Tournament</a>
+      <a class="btn secondary" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
+    </div>
+  </li>
+  {% else %}
+  <li class="card">
+    <p class="page-description">You are not currently registered for any incomplete tournaments.</p>
+    <a class="btn" href="{{ url_for('index') }}">Browse Tournaments</a>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

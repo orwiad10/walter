@@ -24,7 +24,7 @@
 {% include 'tournament/_timer_bar.html' %}
 {% set round_limit = t.rounds_override or rec_rounds %}
 {% set current_rounds = rounds|length %}
-<div class="toolbar tournament-toolbar">
+<section class="toolbar tournament-toolbar panel-card tournament-control-card" aria-label="Tournament controls">
   <button class="btn ghost" onclick="window.print()">Print</button>
   {% if not is_player %}
   <div class="join-controls">
@@ -65,7 +65,7 @@
     {% if t.format == 'Draft' %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
     <a class="btn ghost" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
   {% endif %}
-</div>
+</section>
 
 {% if is_player %}
 <section class="player-deck">
@@ -463,22 +463,36 @@ Sideboard
 {% endif %}
 
 {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
-<section class="inline-add-player">
-  <h3>Add Player</h3>
-  <form method="post" action="{{ url_for('add_player_to_tournament', tid=t.id) }}" class="message-form add-player-form">
-    <label>Find Existing Player
-      <input type="text" id="add-player-search" placeholder="Search by name or email" autocomplete="off">
-    </label>
-    <div id="add-player-results" class="user-lookup-results" aria-live="polite"></div>
-    <input type="hidden" name="user_id" id="add-player-id">
+<section class="inline-add-player panel-card">
+  <div class="section-heading"><div><h3>Add Players</h3><p>Add a single searched player, choose several existing people, or quick-create one new player.</p></div></div>
+  <form method="post" action="{{ url_for('add_player_to_tournament', tid=t.id) }}" class="message-form add-player-form tournament-control-card">
+    <div class="form-grid two-column">
+      <div>
+        <label>Search existing player
+          <input type="text" id="add-player-search" placeholder="Search by name or email" autocomplete="off">
+        </label>
+        <div id="add-player-results" class="user-lookup-results" aria-live="polite"></div>
+        <input type="hidden" name="user_id" id="add-player-id">
+      </div>
+      <label>Multi-select existing people
+        <select name="user_ids" multiple size="8" class="multi-select">
+          {% for user in available_users %}
+          <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        <span class="field-help">Hold Ctrl/Command or Shift to select multiple people.</span>
+      </label>
+    </div>
     <p class="inline-form-divider">or quick add</p>
-    <label>Player Name
-      <input type="text" name="new_player_name" placeholder="New player name">
-    </label>
-    <label>Email (optional)
-      <input type="email" name="new_player_email" placeholder="email@example.com">
-    </label>
-    <button class="btn" type="submit">Add Player</button>
+    <div class="form-grid two-column">
+      <label>Player Name
+        <input type="text" name="new_player_name" placeholder="New player name">
+      </label>
+      <label>Email (optional)
+        <input type="email" name="new_player_email" placeholder="email@example.com">
+      </label>
+    </div>
+    <div class="form-actions"><button class="btn" type="submit">Add Player(s)</button></div>
   </form>
 </section>
 <script>

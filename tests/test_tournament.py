@@ -244,3 +244,37 @@ def test_swiss_all_unique_until_cut_then_repeat_allowed(session):
             m.result = MatchResult(player1_wins=2, player2_wins=0)
             m.completed = True
         session.commit()
+
+
+def test_bulk_register_adds_existing_users(client, session):
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    manager = User(email='manager-bulk@example.com', name='Bulk Manager', role=manager_role)
+    manager.set_password('secret')
+    existing_one = User(email='existing1@example.com', name='Existing One', role=user_role)
+    existing_two = User(email='existing2@example.com', name='Existing Two', role=user_role)
+    tournament = Tournament(name='Bulk Add Event', format='Constructed')
+    session.add_all([manager, existing_one, existing_two, tournament])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': manager.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/bulk-register',
+            data={
+                'tournament_id': str(tournament.id),
+                'existing_user_ids': [str(existing_one.id), str(existing_two.id)],
+                'names': 'New Person',
+            },
+            follow_redirects=True,
+        )
+
+    assert response.status_code == 200
+    tournament_player_ids = {
+        entry.user_id
+        for entry in session.query(TournamentPlayer).filter_by(tournament_id=tournament.id).all()
+    }
+    assert existing_one.id in tournament_player_ids
+    assert existing_two.id in tournament_player_ids
+    new_user = session.query(User).filter_by(name='New Person').one()
+    assert new_user.id in tournament_player_ids

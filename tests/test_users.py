@@ -69,3 +69,27 @@ def test_roles_can_approve_join(session):
     for name in ('manager', 'venue judge', 'event head judge', 'floor judge'):
         perms = json.loads(roles[name].permissions)
         assert perms.get('tournaments.approve_join')
+
+
+def test_admin_bulk_delete_users(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='admin-bulk@example.com', name='Bulk Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    user_one = User(email='bulk1@example.com', name='Bulk One', role=user_role)
+    user_two = User(email='bulk2@example.com', name='Bulk Two', role=user_role)
+    session.add_all([admin, user_one, user_two])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/users/bulk-delete',
+            data={'user_ids': [str(user_one.id), str(user_two.id), str(admin.id)]},
+            follow_redirects=True,
+        )
+
+    assert response.status_code == 200
+    assert session.get(User, user_one.id) is None
+    assert session.get(User, user_two.id) is None
+    assert session.get(User, admin.id) is not None

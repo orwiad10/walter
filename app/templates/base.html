@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or 'WaLTER' }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -23,6 +25,7 @@
         <ul class="nav-list">
           <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">All Tournaments</a></li>
           {% if current_user.is_authenticated %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('my_tournaments') }}">My Tournaments</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('messages_home') }}">Messages <span id="nav-messages-count" class="nav-badge{% if not nav_unread_messages %} hidden{% endif %}">{{ nav_unread_messages }}</span></a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('lost_and_found') }}">Lost &amp; Found</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('submit_report') }}">Report Issue</a></li>

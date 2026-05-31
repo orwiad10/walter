@@ -1,28 +1,37 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Bulk Register Players</h2>
-<form method="post">
-  <table class="table center-table">
-    <tbody>
-      <tr>
-        <td>Tournament:</td>
-        <td>
-          <select name="tournament_id">
-            <option value="">-- None --</option>
-            {% for t in tournaments %}
-              <option value="{{ t.id }}">{{ t.name }}</option>
-            {% endfor %}
-          </select>
-        </td>
-      </tr>
-      <tr>
-        <td>Player Names (one per line):</td>
-        <td><textarea name="names" rows="10" cols="30"></textarea></td>
-      </tr>
-      <tr>
-        <td colspan="2"><button class="btn" type="submit">Register Players</button></td>
-      </tr>
-    </tbody>
-  </table>
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Tournament Tools</span>
+    <h2>Bulk Register Players</h2>
+    <p class="page-description">Create placeholder player records from a list, add existing people with a multi-select, or do both at once.</p>
+  </div>
+</section>
+<form method="post" class="panel-card stacked-form">
+  <div class="form-grid two-column">
+    <label>Tournament
+      <select name="tournament_id">
+        <option value="">-- None --</option>
+        {% for t in tournaments %}
+          <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Existing people in system
+      <select name="existing_user_ids" multiple size="12" class="multi-select">
+        {% for user in existing_users %}
+          <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
+        {% endfor %}
+      </select>
+      <span class="field-help">Hold Ctrl/Command or Shift to select multiple people. Existing people are added to the selected tournament.</span>
+    </label>
+  </div>
+  <label>New player names (one per line)
+    <textarea name="names" rows="10" placeholder="Ada Lovelace&#10;Grace Hopper&#10;Katherine Johnson"></textarea>
+    <span class="field-help">New names create player records. If a tournament is selected, they are also added to it.</span>
+  </label>
+  <div class="form-actions">
+    <button class="btn" type="submit">Register / Add Players</button>
+  </div>
 </form>
 {% endblock %}

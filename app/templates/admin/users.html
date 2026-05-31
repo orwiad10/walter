@@ -1,32 +1,45 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Users</h2>
-<form method="get" class="user-search">
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Admin</span>
+    <h2>Users</h2>
+    <p class="page-description">Search, manage, and bulk delete user accounts.</p>
+  </div>
+</section>
+<form method="get" class="user-search panel-card compact-form">
   <input type="text" name="q" id="admin-user-search" value="{{ search_query }}" placeholder="Search by name or email" autocomplete="off">
   <div id="admin-user-results" class="user-lookup-results" aria-live="polite"></div>
   <button class="btn" type="submit">Search</button>
   {% if search_query %}
-  <a class="btn" href="{{ url_for('admin_users') }}">Clear</a>
+  <a class="btn secondary" href="{{ url_for('admin_users') }}">Clear</a>
   {% endif %}
 </form>
 {% if not users %}
 <p>No users found.</p>
 {% else %}
-<table class="table">
-  <thead>
-    <tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
-  </thead>
-  <tbody>
-    {% for u in users %}
-    <tr>
-      <td>{{ u.name }}</td>
-      <td>{{ u.email or '—' }}</td>
-      <td>{{ u.role.name if u.role else 'None' }}</td>
-      <td><a class="btn" href="{{ url_for('admin_user_detail', uid=u.id, q=search_query) }}">Manage</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<form method="post" action="{{ url_for('admin_bulk_delete_users') }}" class="panel-card" onsubmit="return confirm('Delete selected users? This cannot be undone.');">
+  <input type="hidden" name="search_query" value="{{ search_query }}">
+  <div class="table-actions">
+    <button class="btn danger" type="submit">Delete Selected Users</button>
+  </div>
+  <table class="table">
+    <thead>
+      <tr><th><span class="sr-only">Select</span></th><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td><input type="checkbox" name="user_ids" value="{{ u.id }}" aria-label="Select {{ u.name }}"{% if u.id == current_user.id %} disabled{% endif %}></td>
+        <td>{{ u.name }}</td>
+        <td>{{ u.email or '—' }}</td>
+        <td>{{ u.role.name if u.role else 'None' }}</td>
+        <td><a class="btn" href="{{ url_for('admin_user_detail', uid=u.id, q=search_query) }}">Manage</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</form>
 {% endif %}
 <script>
   document.addEventListener('DOMContentLoaded', function(){

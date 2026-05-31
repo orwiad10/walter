@@ -1,34 +1,52 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Permissions</h2>
-<table class="table">
-  <tr><th>Role</th><th>Level</th><th>Granted Permissions</th></tr>
-  {% for role in roles %}
-  <tr>
-    <td>{{ role.name }}</td>
-    <td>{{ role.level }}</td>
-    <td>
-      {% for key, val in role.permissions_dict().items() %}
-        {% if val %}<div>{{ key }}</div>{% endif %}
-      {% endfor %}
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-<h3>Create Role</h3>
-<form method="post">
-  <input type="text" name="name" placeholder="Role name" required><br>
-  <label>Role Level
-    <input type="number" name="level" value="500" step="50" min="0">
-  </label><br>
-  {% for cat, perms in permission_groups.items() %}
-  <fieldset>
-    <legend>{{ cat|capitalize }}</legend>
-    {% for perm, desc in perms.items() %}
-    <label><input type="checkbox" name="{{ cat }}.{{ perm }}"> {{ desc }}</label><br>
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Admin</span>
+    <h2>Permissions</h2>
+    <p class="page-description">Review role levels and create new roles with grouped permissions.</p>
+  </div>
+</section>
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Existing Roles</h3><p>Lower levels are more privileged.</p></div></div>
+  <div class="role-grid">
+    {% for role in roles %}
+    <article class="role-card">
+      <div class="role-card__header">
+        <h4>{{ role.name }}</h4>
+        <span class="metric-pill">Level {{ role.level }}</span>
+      </div>
+      <div class="permission-chip-list">
+        {% for key, val in role.permissions_dict().items() %}
+          {% if val %}<span class="permission-chip">{{ key }}</span>{% endif %}
+        {% endfor %}
+      </div>
+    </article>
     {% endfor %}
-  </fieldset>
-  {% endfor %}
-  <button class="btn" type="submit">Create</button>
-</form>
+  </div>
+</section>
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Create Role</h3><p>Grant only the permissions needed for this role.</p></div></div>
+  <form method="post" class="stacked-form">
+    <div class="form-grid two-column">
+      <label>Role name
+        <input type="text" name="name" placeholder="Role name" required>
+      </label>
+      <label>Role level
+        <input type="number" name="level" value="500" step="50" min="0">
+      </label>
+    </div>
+    <div class="permission-group-grid">
+      {% for cat, perms in permission_groups.items() %}
+      <fieldset class="permission-fieldset">
+        <legend>{{ cat|capitalize }}</legend>
+        {% for perm, desc in perms.items() %}
+        <label class="checkbox-card"><input type="checkbox" name="{{ cat }}.{{ perm }}"> <span>{{ desc }}</span><small>{{ cat }}.{{ perm }}</small></label>
+        {% endfor %}
+      </fieldset>
+      {% endfor %}
+    </div>
+    <div class="form-actions"><button class="btn" type="submit">Create Role</button></div>
+  </form>
+</section>
 {% endblock %}

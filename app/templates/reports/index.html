@@ -1,32 +1,41 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Report an Issue</h2>
-<p>If you encounter a problem or need to report a player, use the forms below and our staff will review it.</p>
-<section class="report-section">
-  <h3>Report a Bug</h3>
-  <form method="post">
-    <input type="hidden" name="report_type" value="bug">
-    <label>Description of the bug
-      <textarea name="description" rows="5" required placeholder="Describe what happened, including steps to reproduce if possible."></textarea>
-    </label><br>
-    <button class="btn" type="submit">Submit Bug Report</button>
-  </form>
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Support</span>
+    <h2>Report an Issue</h2>
+    <p class="page-description">Send staff a bug report or flag player misconduct for review.</p>
+  </div>
 </section>
-<section class="report-section">
-  <h3>Report Player Misconduct</h3>
-  <form method="post" class="player-report-form">
-    <input type="hidden" name="report_type" value="player">
-    <label>Player
-      <input type="text" id="report-player-search" placeholder="Search by name or email" autocomplete="off">
-    </label>
-    <input type="hidden" name="reported_user_id" id="report-player-id">
-    <div id="report-player-results" class="user-lookup-results" aria-live="polite"></div>
-    <label>Details
-      <textarea name="description" rows="5" required placeholder="Describe the behaviour you witnessed."></textarea>
-    </label><br>
-    <button class="btn" type="submit">Submit Player Report</button>
-  </form>
-</section>
+<div class="report-grid">
+  <section class="report-section panel-card">
+    <h3>Report a Bug</h3>
+    <p class="field-help">Include what happened, what you expected, and steps to reproduce it.</p>
+    <form method="post" class="stacked-form">
+      <input type="hidden" name="report_type" value="bug">
+      <label>Description of the bug
+        <textarea name="description" rows="7" required placeholder="Describe what happened, including steps to reproduce if possible."></textarea>
+      </label>
+      <div class="form-actions"><button class="btn" type="submit">Submit Bug Report</button></div>
+    </form>
+  </section>
+  <section class="report-section panel-card">
+    <h3>Report Player Misconduct</h3>
+    <p class="field-help">Choose the player involved and share factual details for staff review.</p>
+    <form method="post" class="player-report-form stacked-form">
+      <input type="hidden" name="report_type" value="player">
+      <label>Player
+        <input type="text" id="report-player-search" placeholder="Search by name or email" autocomplete="off">
+      </label>
+      <input type="hidden" name="reported_user_id" id="report-player-id">
+      <div id="report-player-results" class="user-lookup-results" aria-live="polite"></div>
+      <label>Details
+        <textarea name="description" rows="7" required placeholder="Describe the behaviour you witnessed."></textarea>
+      </label>
+      <div class="form-actions"><button class="btn" type="submit">Submit Player Report</button></div>
+    </form>
+  </section>
+</div>
 <script>
   document.addEventListener('DOMContentLoaded', function(){
     if(window.attachUserLookup){
