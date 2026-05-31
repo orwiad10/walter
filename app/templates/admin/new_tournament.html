@@ -84,6 +84,18 @@
         <td><input type="datetime-local" name="start_time"></td>
       </tr>
       <tr>
+        <td>League</td>
+        <td>
+          <select name="league_id">
+            <option value="">No league</option>
+            {% for league in leagues or [] %}
+            <option value="{{ league.id }}"{% if request.form.get('league_id')|int == league.id %} selected{% endif %}>{{ league.name }}</option>
+            {% endfor %}
+          </select>
+          <p class="form-help">Optional: add this tournament to an existing league when it is created.</p>
+        </td>
+      </tr>
+      <tr>
         <td>Require Join Approval</td>
         <td>
           <label><input type="checkbox" name="join_requires_approval" value="1"> Require staff approval before players join</label>

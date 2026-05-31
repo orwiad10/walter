@@ -239,7 +239,9 @@ class Tournament(db.Model):
     deck_timer_remaining = db.Column(db.Integer, nullable=True)
     passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
     join_requires_approval = db.Column(db.Boolean, default=False)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=True)
 
+    league = db.relationship('League', backref=db.backref('tournaments', lazy=True))
     head_judge = db.relationship('User', foreign_keys=[head_judge_id])
 
     def floor_judge_ids(self):
@@ -407,6 +409,44 @@ class Match(db.Model):
     )
 
     __table_args__ = (UniqueConstraint('round_id', 'table_number', name='_round_table_uc'),)
+
+class League(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    start_date = db.Column(db.Date, nullable=True)
+    end_date = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+
+class LeaguePlayer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    league = db.relationship('League', backref=db.backref('players', cascade='all, delete-orphan'))
+    user = db.relationship('User')
+
+    __table_args__ = (UniqueConstraint('league_id', 'user_id', name='_league_user_uc'),)
+
+
+class LeagueResult(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=False)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    points = db.Column(db.Integer, default=0)
+    wins = db.Column(db.Integer, default=0)
+    draws = db.Column(db.Integer, default=0)
+    losses = db.Column(db.Integer, default=0)
+    deck_archetype = db.Column(db.String(120), nullable=True)
+    imported_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
+
+    league = db.relationship('League', backref=db.backref('results', cascade='all, delete-orphan'))
+    tournament = db.relationship('Tournament')
+    user = db.relationship('User')
+
+    __table_args__ = (UniqueConstraint('league_id', 'tournament_id', 'user_id', name='_league_tournament_user_uc'),)
 
 
 class LostFoundItem(db.Model):

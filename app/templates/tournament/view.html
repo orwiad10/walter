@@ -1,28 +1,34 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>{{ t.name }}</h2>
-<p>Format: {{ t.format }}{% if t.format == 'Draft' and t.is_cube %} (Cube){% endif %} | Cut: {{ t.cut|upper }}</p>
-<p>Rules Enforcement Level: {{ t.rules_enforcement_level }}</p>
-<p>Head Judge: {{ t.head_judge.name if t.head_judge else 'None' }}</p>
-<p>Floor Judges:
-  {% if floor_judges %}
-    {% for u in floor_judges %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}
-  {% else %}None{% endif %}
-</p>
-{% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
-<p><a class="btn" href="{{ url_for('assign_judges', tid=t.id) }}">Assign Judges</a></p>
-{% endif %}
-{% if show_passcode %}
-<p>Tournament Passcode: {{ t.passcode }}</p>
-{% endif %}
+<section class="page-header modern-hero tournament-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">Tournament Control</span>
+    <h2>{{ t.name }}</h2>
+    <p class="page-description">{{ t.format }}{% if t.format == 'Draft' and t.is_cube %} · Cube{% endif %} · {{ t.cut|upper }} cut · {{ t.rules_enforcement_level }} REL</p>
+  </div>
+  <div class="page-header__actions">
+    {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
+    <a class="btn ghost" href="{{ url_for('assign_judges', tid=t.id) }}">Assign Judges</a>
+    {% endif %}
+    {% if show_passcode %}<span class="metric-pill">Passcode {{ t.passcode }}</span>{% endif %}
+  </div>
+</section>
+
+<section class="tournament-summary-grid">
+  <div class="summary-card"><span>Players</span><strong>{{ players|length }}</strong></div>
+  <div class="summary-card"><span>Rounds</span><strong>{{ rounds|length }} / {{ t.rounds_override or rec_rounds }}</strong></div>
+  <div class="summary-card"><span>Head Judge</span><strong>{{ t.head_judge.name if t.head_judge else 'None' }}</strong></div>
+  <div class="summary-card"><span>Floor Judges</span><strong>{% if floor_judges %}{% for u in floor_judges %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}None{% endif %}</strong></div>
+</section>
+
 {% include 'tournament/_timer_bar.html' %}
 {% set round_limit = t.rounds_override or rec_rounds %}
 {% set current_rounds = rounds|length %}
-<div class="toolbar">
-  <button class="btn" onclick="window.print()">Print</button>
+<div class="toolbar tournament-toolbar">
+  <button class="btn ghost" onclick="window.print()">Print</button>
   {% if not is_player %}
   <div class="join-controls">
-    <a class="btn" href="{{ url_for('tournament_join_link', tid=t.id) }}" target="_blank" rel="noopener">Player Join QR</a>
+    <a class="btn ghost" href="{{ url_for('tournament_join_link', tid=t.id) }}" target="_blank" rel="noopener">Player Join QR</a>
     {% if current_user.is_authenticated %}
       {% set join_pending = user_join_request and user_join_request.status == 'pending' %}
       {% set join_rejected = user_join_request and user_join_request.status == 'rejected' %}
@@ -46,25 +52,19 @@
     {% endif %}
   </div>
   {% endif %}
-  <a class="btn" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
-  {% if t.cut.startswith('top') %}
-  <a class="btn" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>
-  {% endif %}
+  <a class="btn secondary" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
+  {% if t.cut.startswith('top') %}<a class="btn secondary" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>{% endif %}
   {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
     {% if current_rounds < round_limit or t.cut.startswith('top') %}
-    <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}">
-      <button class="btn" type="submit">Pair</button>
-    </form>
+    <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}"><button class="btn" type="submit">Pair Next Round</button></form>
     {% endif %}
-    <form method="post" action="{{ url_for('set_rounds', tid=t.id) }}">
-      <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}">
-      <button class="btn" type="submit">Set Rounds</button>
+    <form method="post" action="{{ url_for('set_rounds', tid=t.id) }}" class="rounds-form">
+      <input type="number" name="rounds" min="1" value="{{ t.rounds_override or rec_rounds }}" aria-label="Round count">
+      <button class="btn ghost" type="submit">Set Rounds</button>
     </form>
-    {% if t.format == 'Draft' %}
-    <a class="btn" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>
-    {% endif %}
-  <a class="btn" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
-{% endif %}
+    {% if t.format == 'Draft' %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
+    <a class="btn ghost" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
+  {% endif %}
 </div>
 
 {% if is_player %}
@@ -490,7 +490,8 @@ Sideboard
 </script>
 {% endif %}
 
-<h3>Players ({{ players|length }})</h3>
+<section class="panel-card">
+<div class="section-heading"><div><h3>Players ({{ players|length }})</h3><p>Registered player roster and deck submission status.</p></div></div>
 <table class="players-table">
   <thead>
     <tr>
@@ -528,11 +529,18 @@ Sideboard
   {% endfor %}
   </tbody>
 </table>
+</section>
 
-<h3>Rounds</h3>
-<ol>
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Rounds</h3><p>Jump into pairings, tables, and result entry for each round.</p></div></div>
+  {% if rounds %}
+  <div class="round-link-grid">
   {% for r in rounds %}
-    <li><a href="{{ url_for('view_round', tid=t.id, rid=r.id) }}">Round {{ r.number }}</a></li>
+    <a class="round-link-card" href="{{ url_for('view_round', tid=t.id, rid=r.id) }}">Round {{ r.number }}</a>
   {% endfor %}
-</ol>
+  </div>
+  {% else %}
+  <p class="empty-state compact-empty">No rounds paired yet.</p>
+  {% endif %}
+</section>
 {% endblock %}
