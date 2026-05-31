@@ -1,31 +1,77 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Staff Management</h2>
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">Tournament Tools</span>
+    <h2>Staff Management</h2>
+    <p class="page-description">Review coverage by event, monitor breaks, and keep judge assignments visible at a glance.</p>
+  </div>
+  <div class="page-header__actions">
+    <a class="btn ghost" href="{{ url_for('schedule') }}">View Schedule</a>
+  </div>
+</section>
+
+<section class="staff-board">
 {% for item in data %}
-  <h3>{{ item.t.name }}{% if item.start %} ({{ item.start.strftime('%H:%M') }} - {% if item.end %}{{ item.end.strftime('%H:%M') }}{% else %}?{% endif %}){% endif %}</h3>
-  <p>Head Judge: {{ item.head.name if item.head else 'None' }}</p>
-  <p>Floor Judges:</p>
-  <ul>
-  {% if item.floor %}
-    {% for u in item.floor %}
-    <li>
-      {{ u.name }}
-      {% if u.break_end and u.break_end > server_now %}
-        - On break (<span class="timer" data-timer-end="{{ u.break_end.isoformat() }}Z" data-server-now="{{ server_now.isoformat() }}Z" data-tournament-id="{{ u.id }}" data-tournament-name="{{ u.name }}" data-timer-type="break"></span>)
-        <form method="post" action="{{ url_for('judge_break', uid=u.id) }}" style="display:inline;">
-          <button class="btn" type="submit">Clear</button>
-        </form>
+  <article class="staff-card">
+    <header class="staff-card-header">
+      <div>
+        <span class="eyebrow">{{ item.t.format }}{% if item.t.format == 'Draft' and item.t.is_cube %} · Cube{% endif %}</span>
+        <h3>{{ item.t.name }}</h3>
+        <p class="muted-text">
+          {% if item.start %}
+            {{ item.start.strftime('%H:%M') }} – {% if item.end %}{{ item.end.strftime('%H:%M') }}{% else %}?{% endif %}
+          {% else %}
+            Unscheduled
+          {% endif %}
+        </p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('assign_judges', tid=item.t.id) }}">Assign</a>
+    </header>
+
+    <div class="staff-role-grid">
+      <div class="staff-role-card head-role">
+        <span>Head Judge</span>
+        <strong>{{ item.head.name if item.head else 'Unassigned' }}</strong>
+      </div>
+      <div class="staff-role-card">
+        <span>Floor team</span>
+        <strong>{{ item.floor|length }}</strong>
+      </div>
+    </div>
+
+    <div class="judge-list">
+      <h4>Floor Judges</h4>
+      {% if item.floor %}
+        {% for u in item.floor %}
+        <div class="judge-row">
+          <div>
+            <strong>{{ u.name }}</strong>
+            {% if u.break_end and u.break_end > server_now %}
+            <span class="break-badge">On break · <span class="timer" data-timer-end="{{ u.break_end.isoformat() }}Z" data-server-now="{{ server_now.isoformat() }}Z" data-tournament-id="{{ u.id }}" data-tournament-name="{{ u.name }}" data-timer-type="break"></span></span>
+            {% else %}
+            <span class="muted-text">Available</span>
+            {% endif %}
+          </div>
+          {% if u.break_end and u.break_end > server_now %}
+          <form method="post" action="{{ url_for('judge_break', uid=u.id) }}">
+            <button class="btn ghost" type="submit">Clear Break</button>
+          </form>
+          {% else %}
+          <form method="post" action="{{ url_for('judge_break', uid=u.id) }}" class="break-form">
+            <input type="number" name="minutes" value="15" min="1" aria-label="Break minutes">
+            <button class="btn" type="submit">Start Break</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
       {% else %}
-        <form method="post" action="{{ url_for('judge_break', uid=u.id) }}" style="display:inline;">
-          <input type="number" name="minutes" value="15" min="1" style="width:4em;">
-          <button class="btn" type="submit">Break</button>
-        </form>
+      <p class="empty-state compact-empty">No floor judges assigned.</p>
       {% endif %}
-    </li>
-    {% endfor %}
-  {% else %}
-    <li>None</li>
-  {% endif %}
-  </ul>
+    </div>
+  </article>
+{% else %}
+  <p class="empty-state">No tournaments found.</p>
 {% endfor %}
+</section>
 {% endblock %}

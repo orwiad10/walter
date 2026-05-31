@@ -1298,3 +1298,361 @@ ul.flashes {
   gap: 0.75rem;
   align-items: center;
 }
+
+/* Modern operations pages */
+.modern-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+
+.modern-hero::after {
+  content: '';
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  right: -70px;
+  top: -90px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.24), transparent 65%);
+  pointer-events: none;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brand-primary-dark);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.metric-pill,
+.break-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--brand-accent-dark);
+  font-weight: 700;
+}
+
+.panel-card,
+.staff-card,
+.league-card,
+.summary-card,
+.stat-card {
+  background: var(--brand-surface-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(6px);
+}
+
+.panel-card {
+  padding: 24px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.section-heading p,
+.muted-text,
+.form-help {
+  margin: 4px 0 0;
+  color: var(--brand-muted);
+}
+
+.modern-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modern-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-weight: 700;
+  color: var(--brand-muted);
+}
+
+.grid-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.start-actions {
+  justify-content: flex-start;
+}
+
+.compact-form {
+  margin-top: 14px;
+  gap: 12px;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--brand-muted);
+  text-align: center;
+}
+
+.compact-empty {
+  padding: 12px;
+  text-align: left;
+}
+
+.compact-card {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.info-row {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.info-row strong {
+  color: var(--brand-muted);
+}
+
+.lost-list {
+  margin-bottom: 0;
+}
+
+.inline-heading {
+  margin-bottom: 0;
+}
+
+.lost-grid {
+  gap: 22px;
+}
+
+.lost-card {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+
+.lost-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-hover);
+}
+
+.lost-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+
+.lost-image img,
+.lost-image-placeholder {
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.lost-image-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.18), rgba(37, 99, 235, 0.12));
+  color: rgba(15, 23, 42, 0.28);
+  font-size: 4rem;
+  font-weight: 900;
+}
+
+.lost-card-header h3,
+.league-card h3 {
+  margin: 0;
+}
+
+.lost-description {
+  margin: 0;
+}
+
+.lost-reporter p {
+  margin: 0;
+}
+
+.lost-update {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+}
+
+.staff-board,
+.league-card-grid,
+.league-actions-grid,
+.tournament-summary-grid,
+.stats-grid,
+.round-link-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.staff-board {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.staff-card {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.staff-card-header,
+.judge-row,
+.league-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.staff-role-grid,
+.stats-grid,
+.tournament-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.staff-role-card,
+.summary-card,
+.stat-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.staff-role-card span,
+.summary-card span,
+.stat-card span {
+  color: var(--brand-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.staff-role-card strong,
+.summary-card strong,
+.stat-card strong {
+  font-size: 1.15rem;
+}
+
+.head-role {
+  background: rgba(249, 115, 22, 0.1);
+}
+
+.judge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.judge-list h4 {
+  margin: 0;
+}
+
+.judge-row {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--border-soft);
+}
+
+.judge-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.break-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.break-form input {
+  width: 76px;
+}
+
+.tournament-toolbar {
+  margin-bottom: 0;
+}
+
+.rounds-form input {
+  width: 86px;
+}
+
+.round-link-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.round-link-card {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  font-weight: 800;
+  text-align: center;
+}
+
+.league-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.league-card {
+  padding: 20px;
+}
+
+.league-actions-grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.league-table input[type="text"] {
+  width: 100%;
+  min-width: 180px;
+}
+
+@media (max-width: 720px) {
+  .grid-form,
+  .league-actions-grid {
+    grid-template-columns: 1fr;
+  }
+  .staff-card-header,
+  .judge-row,
+  .league-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .break-form {
+    width: 100%;
+  }
+  .break-form .btn,
+  .judge-row form .btn {
+    width: 100%;
+  }
+}

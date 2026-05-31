@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">Tournament Tools</span>
+    <h2>Leagues</h2>
+    <p class="page-description">Create seasonal leaderboards, assign players, and import completed tournament results.</p>
+  </div>
+</section>
+
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Create a League</h3>
+      <p>League standings count each player's best 75% of imported tournament results.</p>
+    </div>
+  </div>
+  <form method="post" class="modern-form grid-form">
+    <label>League name
+      <input type="text" name="name" required placeholder="Summer Cube League">
+    </label>
+    <label>Start date
+      <input type="date" name="start_date">
+    </label>
+    <label>End date
+      <input type="date" name="end_date">
+    </label>
+    <label>Import tournament now
+      <select name="tournament_id">
+        <option value="">Choose later</option>
+        {% for tournament in tournaments %}
+        <option value="{{ tournament.id }}">{{ tournament.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="wide-field">Assign players
+      <select name="player_ids" multiple size="8">
+        {% for user in users %}
+        <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="form-actions wide-field start-actions">
+      <button class="btn" type="submit">Create League</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Existing Leagues</h3>
+      <p>Open a league to import results, edit archetypes, and view the leaderboard.</p>
+    </div>
+  </div>
+  {% if leagues %}
+  <div class="league-card-grid">
+    {% for league in leagues %}
+    <article class="league-card">
+      <div>
+        <h3><a href="{{ url_for('league_detail', league_id=league.id) }}">{{ league.name }}</a></h3>
+        <p class="muted-text">
+          {% if league.start_date or league.end_date %}
+            {{ league.start_date or 'Open' }} → {{ league.end_date or 'Open' }}
+          {% else %}
+            Open date range
+          {% endif %}
+        </p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('league_detail', league_id=league.id) }}">Manage</a>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state">No leagues have been created yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

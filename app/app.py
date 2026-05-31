@@ -156,6 +156,9 @@ def create_app():
                     text("UPDATE tournament SET pairing_options='{}' WHERE pairing_options IS NULL")
                 )
                 db.session.commit()
+            if 'league_id' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN league_id INTEGER'))
+                db.session.commit()
         if 'user' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'break_end' not in columns:
@@ -202,7 +205,11 @@ def create_app():
                 db.session.execute(text('ALTER TABLE report ADD COLUMN actions_taken TEXT'))
                 db.session.commit()
         TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
-        from .models import LostFoundItem, TournamentPlayerDeck
+        from .models import LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult
+
+        League.__table__.create(bind=db.engine, checkfirst=True)
+        LeaguePlayer.__table__.create(bind=db.engine, checkfirst=True)
+        LeagueResult.__table__.create(bind=db.engine, checkfirst=True)
 
         media_engine = db.engines['media']
         LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
@@ -234,6 +241,9 @@ def create_app():
         Report,
         TournamentJoinRequest,
         LostFoundItem,
+        League,
+        LeaguePlayer,
+        LeagueResult,
         all_permission_keys,
     )
     from .pairing import pair_round, recommended_rounds, compute_standings, player_points
@@ -1394,6 +1404,7 @@ def create_app():
     @app.route('/admin/tournaments/new', methods=['GET','POST'])
     def new_tournament():
         require_permission('tournaments.manage')
+        leagues = db.session.query(League).order_by(League.name).all()
         if request.method == 'POST':
             name = request.form['name'].strip()
             fmt = request.form['format']
@@ -1401,7 +1412,7 @@ def create_app():
             cut = request.form.get('cut', 'none') if structure == 'swiss' and pairing_type != 'round_robin' else 'none'
             if fmt == 'Commander' and cut not in ('none','top4','top16','top32','top64'):
                 flash('Commander supports cuts to Top 4, 16, 32, or 64.', 'error')
-                return render_template('admin/new_tournament.html')
+                return render_template('admin/new_tournament.html', leagues=leagues)
             commander_points = request.form.get('commander_points', '3,2,1,0,1')
             round_length = int(request.form.get('round_length', 50))
             draft_time = request.form.get('draft_time')
@@ -1410,7 +1421,7 @@ def create_app():
             start_time = parse_datetime_local(start_time_str)
             if start_time_str and start_time is None:
                 flash('Invalid start time format.', 'error')
-                return render_template('admin/new_tournament.html')
+                return render_template('admin/new_tournament.html', leagues=leagues)
             rel = request.form.get('rules_enforcement_level', 'None') or 'None'
             is_cube = request.form.get('is_cube') == '1'
             if fmt != 'Draft':
@@ -1421,7 +1432,7 @@ def create_app():
                 start_table_number = int(start_table_raw)
             except ValueError:
                 flash('Starting table number must be a whole number.', 'error')
-                return render_template('admin/new_tournament.html')
+                return render_template('admin/new_tournament.html', leagues=leagues)
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            pairing_type=pairing_type,
                            commander_points=commander_points,
@@ -1433,11 +1444,14 @@ def create_app():
                            is_cube=is_cube,
                            join_requires_approval=join_requires_approval,
                            start_table_number=start_table_number)
+            league_id = request.form.get('league_id')
+            if league_id:
+                t.league_id = int(league_id)
             errors, _, _, _, _ = validate_table_assignment(t, start_number=start_table_number)
             if errors:
                 for message in errors:
                     flash(message, 'error')
-                return render_template('admin/new_tournament.html')
+                return render_template('admin/new_tournament.html', leagues=leagues)
             try:
                 db.session.add(t)
                 # warn on overlapping schedule
@@ -1460,7 +1474,7 @@ def create_app():
                 db.session.rollback()
                 log_site('tournament_create', 'failure', str(e))
                 flash('Error creating tournament.', 'error')
-        return render_template('admin/new_tournament.html')
+        return render_template('admin/new_tournament.html', leagues=leagues)
 
     @app.route('/admin/tournaments/<int:tid>/edit', methods=['GET','POST'])
     def edit_tournament(tid):
@@ -1606,6 +1620,198 @@ def create_app():
             flash(f'{u.name} break cleared.', 'success')
         db.session.commit()
         return redirect(url_for('staff_management'))
+
+    def parse_date_input(value):
+        value = (value or '').strip()
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, '%Y-%m-%d').date()
+        except ValueError:
+            return None
+
+    def league_player_record(tournament, user_id):
+        wins = draws = losses = 0
+        entry = (
+            db.session.query(TournamentPlayer)
+            .filter_by(tournament_id=tournament.id, user_id=user_id)
+            .first()
+        )
+        if not entry:
+            return wins, draws, losses
+        matches = (
+            db.session.query(Match)
+            .join(Round)
+            .filter(Round.tournament_id == tournament.id)
+            .filter(
+                (Match.player1_id == entry.id) |
+                (Match.player2_id == entry.id) |
+                (Match.player3_id == entry.id) |
+                (Match.player4_id == entry.id)
+            )
+            .all()
+        )
+        is_commander = (tournament.format or '').lower() == 'commander'
+        for match in matches:
+            if not match.completed or not match.result:
+                continue
+            result = match.result
+            if match.player2_id is None:
+                wins += 1
+                continue
+            if is_commander:
+                if result.is_draw:
+                    draws += 1
+                    continue
+                place = None
+                if match.player1_id == entry.id:
+                    place = result.p1_place
+                elif match.player2_id == entry.id:
+                    place = result.p2_place
+                elif match.player3_id == entry.id:
+                    place = result.p3_place
+                elif match.player4_id == entry.id:
+                    place = result.p4_place
+                if place == 1:
+                    wins += 1
+                elif place:
+                    losses += 1
+                continue
+            if result.player1_wins == result.player2_wins:
+                draws += 1
+            elif (result.player1_wins > result.player2_wins and match.player1_id == entry.id) or (
+                result.player2_wins > result.player1_wins and match.player2_id == entry.id
+            ):
+                wins += 1
+            else:
+                losses += 1
+        return wins, draws, losses
+
+    def import_tournament_to_league(league, tournament):
+        if tournament.league_id != league.id:
+            tournament.league_id = league.id
+        standings = compute_standings(tournament, db.session)
+        imported = 0
+        for row in standings:
+            tp = row['tp']
+            if not db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=tp.user_id).first():
+                db.session.add(LeaguePlayer(league_id=league.id, user_id=tp.user_id))
+            result = (
+                db.session.query(LeagueResult)
+                .filter_by(league_id=league.id, tournament_id=tournament.id, user_id=tp.user_id)
+                .first()
+            )
+            if not result:
+                result = LeagueResult(league_id=league.id, tournament_id=tournament.id, user_id=tp.user_id)
+            result.wins, result.draws, result.losses = league_player_record(tournament, tp.user_id)
+            result.points = (result.wins * 3) + result.draws
+            db.session.add(result)
+            imported += 1
+        db.session.commit()
+        return imported
+
+    def build_league_context(league):
+        league_players = db.session.query(LeaguePlayer).filter_by(league_id=league.id).all()
+        results = db.session.query(LeagueResult).filter_by(league_id=league.id).all()
+        player_rows = []
+        results_by_player = {}
+        for result in results:
+            results_by_player.setdefault(result.user_id, []).append(result)
+        for lp in league_players:
+            player_results = sorted(
+                results_by_player.get(lp.user_id, []),
+                key=lambda r: (r.points or 0, r.wins or 0, -(r.losses or 0)),
+                reverse=True,
+            )
+            played = len(player_results)
+            counted_count = math.ceil(played * 0.75) if played else 0
+            counted = player_results[:counted_count]
+            player_rows.append({
+                'player': lp.user,
+                'played': played,
+                'counted_count': counted_count,
+                'league_points': sum(r.points or 0 for r in counted),
+                'raw_points': sum(r.points or 0 for r in player_results),
+                'wins': sum(r.wins or 0 for r in counted),
+                'draws': sum(r.draws or 0 for r in counted),
+                'losses': sum(r.losses or 0 for r in counted),
+            })
+        player_rows.sort(key=lambda r: (-r['league_points'], -r['wins'], r['losses'], r['player'].name.lower()))
+        league_tournament_ids = [t.id for t in league.tournaments]
+        available_tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
+        users = db.session.query(User).order_by(User.name).all()
+        return player_rows, results, available_tournaments, users, league_tournament_ids
+
+    @app.route('/admin/leagues', methods=['GET', 'POST'])
+    def leagues():
+        require_permission('tournaments.manage')
+        users = db.session.query(User).order_by(User.name).all()
+        tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
+        if request.method == 'POST':
+            name = request.form.get('name', '').strip()
+            start_date = parse_date_input(request.form.get('start_date'))
+            end_date = parse_date_input(request.form.get('end_date'))
+            if not name:
+                flash('League name is required.', 'error')
+                return redirect(url_for('leagues'))
+            league = League(name=name, start_date=start_date, end_date=end_date)
+            db.session.add(league)
+            db.session.flush()
+            for user_id in request.form.getlist('player_ids'):
+                db.session.add(LeaguePlayer(league_id=league.id, user_id=int(user_id)))
+            tournament_id = request.form.get('tournament_id')
+            if tournament_id:
+                tournament = db.session.get(Tournament, int(tournament_id))
+                if tournament:
+                    import_tournament_to_league(league, tournament)
+                else:
+                    db.session.commit()
+            else:
+                db.session.commit()
+            flash('League created.', 'success')
+            return redirect(url_for('league_detail', league_id=league.id))
+        league_list = db.session.query(League).order_by(League.created_at.desc()).all()
+        return render_template('admin/leagues.html', leagues=league_list, users=users, tournaments=tournaments)
+
+    @app.route('/admin/leagues/<int:league_id>', methods=['GET', 'POST'])
+    def league_detail(league_id):
+        require_permission('tournaments.manage')
+        league = db.session.get(League, league_id)
+        if not league:
+            abort(404)
+        if request.method == 'POST':
+            action = request.form.get('action')
+            if action == 'add_players':
+                added = 0
+                for user_id in request.form.getlist('player_ids'):
+                    if not db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=int(user_id)).first():
+                        db.session.add(LeaguePlayer(league_id=league.id, user_id=int(user_id)))
+                        added += 1
+                db.session.commit()
+                flash(f'Added {added} players to the league.', 'success')
+            elif action == 'import_tournament':
+                tournament = db.session.get(Tournament, int(request.form.get('tournament_id') or 0))
+                if tournament:
+                    imported = import_tournament_to_league(league, tournament)
+                    flash(f'Imported {imported} player results from {tournament.name}.', 'success')
+                else:
+                    flash('Select a tournament to import.', 'error')
+            elif action == 'update_archetypes':
+                for result in db.session.query(LeagueResult).filter_by(league_id=league.id).all():
+                    result.deck_archetype = (request.form.get(f'archetype_{result.id}') or '').strip()
+                db.session.commit()
+                flash('Deck archetypes updated.', 'success')
+            return redirect(url_for('league_detail', league_id=league.id))
+        leaderboard, results, available_tournaments, users, league_tournament_ids = build_league_context(league)
+        return render_template(
+            'admin/league_detail.html',
+            league=league,
+            leaderboard=leaderboard,
+            results=results,
+            available_tournaments=available_tournaments,
+            users=users,
+            league_tournament_ids=league_tournament_ids,
+        )
 
     @app.route('/admin/schedule')
     def schedule():
