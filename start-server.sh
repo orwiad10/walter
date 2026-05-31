@@ -1,76 +1,184 @@
-#!/bin/bash
-CONFIG_FILE="config.yaml"
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "Missing $CONFIG_FILE"
+#!/usr/bin/env bash
+# Bash script to set up and run the MTG Tournament Swiss App.
+# Installs dependencies, initializes the database, creates an admin user,
+# and starts the Flask development server.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/config.yaml"
+REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "Missing config.yaml" >&2
   exit 1
 fi
 
-read_yaml() {
-  python - <<PY
-import yaml,sys
-cfg=yaml.safe_load(open(sys.argv[1]))
-print(cfg.get(sys.argv[2],''))
+# Ensure PyYAML is available so config.yaml can be parsed before installing the
+# rest of the application requirements.
+python - <<'PY'
+import subprocess
+import sys
+try:
+    import yaml  # noqa: F401
+except ModuleNotFoundError:
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'PyYAML'])
 PY
-}
+
+# Load settings from YAML config.
+eval "$(python - "$CONFIG_FILE" <<'PY'
+import shlex
+import sys
+
+import yaml
+
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    cfg = yaml.safe_load(f) or {}
+
+keys = [
+    'db_file',
+    'log_db_file',
+    'admin_email',
+    'admin_pass',
+    'flask_secret',
+    'password_seed',
+    'flask_ip',
+    'flask_port',
+]
+
+for key in keys:
+    value = cfg.get(key, '')
+    if value is None:
+        value = ''
+    print(f'{key.upper()}={shlex.quote(str(value))}')
+PY
+)"
 
 DEFAULT_DB_FILE="mtg_tournament.db"
 DEFAULT_LOG_DB_FILE="mtg_tournament_logs.db"
 
-DB_FILE=$(read_yaml "$CONFIG_FILE" db_file)
-LOG_DB_FILE=$(read_yaml "$CONFIG_FILE" log_db_file)
-ADMIN_EMAIL=$(read_yaml "$CONFIG_FILE" admin_email)
-ADMIN_PASS=$(read_yaml "$CONFIG_FILE" admin_pass)
-FLASK_SECRET=$(read_yaml "$CONFIG_FILE" flask_secret)
-PASSWORD_SEED=$(read_yaml "$CONFIG_FILE" password_seed)
-FLASK_IP=$(read_yaml "$CONFIG_FILE" flask_ip)
-FLASK_PORT=$(read_yaml "$CONFIG_FILE" flask_port)
-LAST_TABLE_NUMBER=$(read_yaml "$CONFIG_FILE" last_table_number)
+DB_FILE="${DB_FILE:-$DEFAULT_DB_FILE}"
+LOG_DB_FILE="${LOG_DB_FILE:-$DEFAULT_LOG_DB_FILE}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
+ADMIN_PASS="${ADMIN_PASS:-admin123}"
+FLASK_SECRET="${FLASK_SECRET:-dev-secret-change-me}"
+PASSWORD_SEED="${PASSWORD_SEED:-dev-password-seed-change-me}"
+FLASK_IP="${FLASK_IP:-127.0.0.1}"
+FLASK_PORT="${FLASK_PORT:-5000}"
 
-if [ -z "$DB_FILE" ]; then
-  DB_FILE="$DEFAULT_DB_FILE"
-fi
-if [ -z "$LOG_DB_FILE" ]; then
-  LOG_DB_FILE="$DEFAULT_LOG_DB_FILE"
-fi
-if [ -z "$ADMIN_EMAIL" ]; then
-  ADMIN_EMAIL="admin@example.com"
-fi
-if [ -z "$ADMIN_PASS" ]; then
-  ADMIN_PASS="admin123"
-fi
-if [ -z "$FLASK_SECRET" ]; then
-  FLASK_SECRET="dev-secret-change-me"
-fi
-if [ -z "$PASSWORD_SEED" ]; then
-  PASSWORD_SEED="dev-password-seed-change-me"
-fi
-if [ -z "$FLASK_IP" ]; then
-  FLASK_IP="127.0.0.1"
-fi
-if [ -z "$FLASK_PORT" ]; then
-  FLASK_PORT="5000"
-fi
-if [ -z "$LAST_TABLE_NUMBER" ]; then
-  LAST_TABLE_NUMBER=""
-fi
+cd "$SCRIPT_DIR"
 
-if [ "$DB_FILE" = "$DEFAULT_DB_FILE" ]; then
-  TS=$(date +%Y%m%d%H%M%S)
-  DB_FILE="mtg_tournament_${TS}.db"
-  LOG_DB_FILE="mtg_tournament_logs_${TS}.db"
-elif [ "$LOG_DB_FILE" = "$DEFAULT_LOG_DB_FILE" ]; then
-  LOG_DB_FILE="${DB_FILE%.db}_logs.db"
+export PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"
+export PASSWORD_SEED
+export FLASK_SECRET
+export FLASK_RUN_HOST="$FLASK_IP"
+export FLASK_RUN_PORT="$FLASK_PORT"
+
+TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+
+if [[ "$DB_FILE" == "$DEFAULT_DB_FILE" ]]; then
+  DB_FILE="mtg_tournament_${TIMESTAMP}.db"
+  LOG_DB_FILE="mtg_tournament_logs_${TIMESTAMP}.db"
+elif [[ "$LOG_DB_FILE" == "$DEFAULT_LOG_DB_FILE" ]]; then
+  DB_DIR="$(dirname "$DB_FILE")"
+  DB_BASE="$(basename "$DB_FILE")"
+  DB_BASE="${DB_BASE%.*}"
+  if [[ -z "$DB_DIR" || "$DB_DIR" == "." ]]; then
+    LOG_DB_FILE="${DB_BASE}_logs.db"
+  else
+    LOG_DB_FILE="$DB_DIR/${DB_BASE}_logs.db"
+  fi
 fi
 
 export MTG_DB_PATH="$DB_FILE"
 export MTG_LOG_DB_PATH="$LOG_DB_FILE"
-export FLASK_APP=app.app:app
-export FLASK_SECRET="$FLASK_SECRET"
-export PASSWORD_SEED="$PASSWORD_SEED"
-export FLASK_RUN_HOST="$FLASK_IP"
-export FLASK_RUN_PORT="$FLASK_PORT"
-export MTG_LAST_TABLE_NUMBER="$LAST_TABLE_NUMBER"
-python -m pip install -r requirements.txt >/dev/null
-python -m flask db-init
-python -m flask create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASS"
-flask --app app.app run --debug --host "$FLASK_IP" --port "$FLASK_PORT"
+
+printf 'Installing dependencies...\n'
+python -m pip install -r "$REQUIREMENTS_FILE" >/dev/null
+
+printf 'Stopping existing Flask server on port %s if present...\n' "$FLASK_PORT"
+python - "$FLASK_PORT" <<'PY'
+import os
+import sys
+import time
+
+import psutil
+
+port = int(sys.argv[1])
+current_pid = os.getpid()
+pids = set()
+
+for conn in psutil.net_connections(kind='inet'):
+    if conn.status == psutil.CONN_LISTEN and conn.laddr and conn.laddr.port == port and conn.pid:
+        pids.add(conn.pid)
+
+for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+    try:
+        pid = proc.info['pid']
+        if pid == current_pid:
+            continue
+        name = proc.info.get('name') or ''
+        cmdline = proc.info.get('cmdline') or []
+        first = os.path.basename(cmdline[0]) if cmdline else ''
+        if name == 'flask' or first == 'flask':
+            pids.add(pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        continue
+
+for pid in sorted(pids):
+    if pid == current_pid:
+        continue
+    try:
+        proc = psutil.Process(pid)
+        print(f'Terminating process {pid} ({proc.name()})')
+        proc.terminate()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+
+deadline = time.time() + 5
+while time.time() < deadline:
+    remaining = []
+    for pid in pids:
+        try:
+            proc = psutil.Process(pid)
+            if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+                remaining.append(proc)
+        except psutil.NoSuchProcess:
+            pass
+    if not remaining:
+        break
+    time.sleep(0.2)
+
+for pid in sorted(pids):
+    try:
+        proc = psutil.Process(pid)
+        if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+            print(f'Force killing process {pid} ({proc.name()})')
+            proc.kill()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+PY
+
+printf 'Setting Flask environment...\n'
+export FLASK_APP="app.app:app"
+
+printf 'Initializing database...\n'
+python -m flask --app app.app db-init
+
+printf 'Creating default admin user...\n'
+python -m flask --app app.app create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASS"
+
+printf 'Starting Flask development server...\n'
+nohup python -m flask --app app.app run --debug --host="$FLASK_IP" --port="$FLASK_PORT" > "$SCRIPT_DIR/flask-server.log" 2>&1 &
+FLASK_PID=$!
+printf 'Flask server started with PID %s. Logs: %s\n' "$FLASK_PID" "$SCRIPT_DIR/flask-server.log"
+
+sleep 3
+
+APP_URL="http://${FLASK_IP}:${FLASK_PORT}/"
+if command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$APP_URL" >/dev/null 2>&1 || true
+elif command -v open >/dev/null 2>&1; then
+  open "$APP_URL" >/dev/null 2>&1 || true
+fi
+
+printf 'Application URL: %s\n' "$APP_URL"
