@@ -1,6 +1,6 @@
 from .app import db
 from flask_login import UserMixin
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from sqlalchemy import UniqueConstraint
 import uuid
 import os
@@ -68,7 +68,7 @@ DEFAULT_ROLE_PERMISSIONS = {
 
 
 def utc_now():
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 DEFAULT_ROLE_LEVELS = {
     'admin': 0,
