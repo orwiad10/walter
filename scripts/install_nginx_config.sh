@@ -181,11 +181,7 @@ escape_sed_replacement() {
   printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
 }
 
-render_tls_config() {
-  if [[ -z "$TLS_DOMAIN" ]]; then
-    return 0
-  fi
-
+render_config() {
   local escaped_domain escaped_cert_dir escaped_acme_webroot
   escaped_domain="$(escape_sed_replacement "$TLS_DOMAIN")"
   escaped_cert_dir="$(escape_sed_replacement "$CERT_DIR")"
@@ -229,7 +225,7 @@ disable_packaged_default_site() {
   fi
 }
 
-render_tls_config
+render_config
 
 if [[ -n "$TLS_DOMAIN" ]]; then
   log "Ensuring ACME challenge webroot exists at $ACME_WEBROOT"
@@ -270,10 +266,10 @@ if [[ "$RELOAD_NGINX" -eq 1 ]]; then
 
   if command -v systemctl >/dev/null 2>&1; then
     log "Reloading Nginx with systemctl"
-    run_root systemctl reload nginx
+    run_root systemctl reload nginx || run_root systemctl restart nginx
   else
     log "Reloading Nginx with nginx -s reload"
-    run_root nginx -s reload
+    run_root nginx -s reload || run_root nginx
   fi
 else
   log "Skipping Nginx validation and reload (--no-reload)."

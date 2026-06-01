@@ -7,3 +7,9 @@ password_seed: dev-password-seed-change-me
 flask_ip: 127.0.0.1
 flask_port: 5000
 last_table_number: 200
+# Optional production HTTPS settings. When tls_domain is set, start-server.sh
+# checks for a Let's Encrypt certificate and requests or renews it as needed.
+# tls_domain: tournaments.example.com
+# letsencrypt_email: admin@example.com
+# letsencrypt_renewal_days: 30
+# acme_webroot: /var/www/letsencrypt

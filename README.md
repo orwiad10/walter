@@ -26,9 +26,20 @@ If you still see the default Nginx welcome page after installing, re-run `./scri
 
 ### HTTPS with TLS 1.3 and Let's Encrypt
 
-For production, create the Let's Encrypt certificate files on the production machine first. Do **not** add `fullchain.pem`, `privkey.pem`, `chain.pem`, or any other certificate/private-key material to this repository.
+For production, set `tls_domain` in `config.yaml` to your public DNS name before running `./start-server.sh`. The startup script then checks `/etc/letsencrypt/live/<domain>/fullchain.pem`; if the certificate is missing or expires within `letsencrypt_renewal_days` days (default: 30), it installs Certbot/OpenSSL if needed, installs the HTTP Nginx config for HTTP-01 validation, requests a Let's Encrypt certificate, and then installs the rendered HTTPS Nginx config. Do **not** add `fullchain.pem`, `privkey.pem`, `chain.pem`, or any other certificate/private-key material to this repository.
 
-One common webroot flow is:
+Example `config.yaml` options:
+
+```yaml
+tls_domain: tournaments.example.com
+letsencrypt_email: admin@example.com
+# Optional overrides:
+# letsencrypt_renewal_days: 30
+# tls_cert_dir: /etc/letsencrypt/live/tournaments.example.com
+# acme_webroot: /var/www/letsencrypt
+```
+
+You can still manage the Nginx config manually:
 
 1) Install Nginx with the HTTP config so Certbot can complete HTTP-01 validation:
    - `./scripts/install_nginx_config.sh`

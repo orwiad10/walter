@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.yaml"
 REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
 VENV_DIR="$SCRIPT_DIR/.venv"
+NGINX_INSTALL_SCRIPT="$SCRIPT_DIR/scripts/install_nginx_config.sh"
 
 PYTHON_BIN=""
 
@@ -87,6 +88,114 @@ install_nginx() {
     exit 1
   fi
 }
+install_certbot() {
+  if [[ "${OSTYPE:-}" != linux* ]]; then
+    return 0
+  fi
+
+  if command -v certbot >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "Certbot/OpenSSL support was not found. Attempting to install it with the system package manager..." >&2
+
+  if command -v apt-get >/dev/null 2>&1; then
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y certbot openssl
+  elif command -v dnf >/dev/null 2>&1; then
+    run_as_root dnf install -y certbot openssl
+  elif command -v yum >/dev/null 2>&1; then
+    run_as_root yum install -y certbot openssl
+  elif command -v zypper >/dev/null 2>&1; then
+    run_as_root zypper --non-interactive install certbot openssl
+  elif command -v pacman >/dev/null 2>&1; then
+    run_as_root pacman -Sy --noconfirm certbot openssl
+  elif command -v apk >/dev/null 2>&1; then
+    run_as_root apk add --no-cache certbot openssl
+  else
+    echo "Certbot and OpenSSL are required for Let's Encrypt certificates, and no supported package manager was found. Install certbot and openssl manually." >&2
+    exit 1
+  fi
+}
+
+ensure_nginx_running() {
+  if [[ "${OSTYPE:-}" != linux* ]]; then
+    return 0
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_as_root systemctl start nginx || true
+  else
+    run_as_root nginx || true
+  fi
+}
+
+cert_expires_within() {
+  local cert_file="$1"
+  local days="$2"
+  local seconds=$((days * 24 * 60 * 60))
+
+  [[ ! -f "$cert_file" ]] && return 0
+  ! openssl x509 -checkend "$seconds" -noout -in "$cert_file" >/dev/null 2>&1
+}
+
+ensure_letsencrypt_certificate() {
+  if [[ "${OSTYPE:-}" != linux* ]]; then
+    return 0
+  fi
+
+  if [[ -z "${TLS_DOMAIN:-}" ]]; then
+    echo "No tls_domain configured; skipping Let's Encrypt certificate check."
+    return 0
+  fi
+
+  if [[ "$TLS_DOMAIN" == *"/"* || "$TLS_DOMAIN" == *" "* ]]; then
+    echo "tls_domain must be a DNS name, not a path or value with spaces: $TLS_DOMAIN" >&2
+    exit 1
+  fi
+
+  install_certbot
+
+  local cert_dir="${TLS_CERT_DIR:-/etc/letsencrypt/live/$TLS_DOMAIN}"
+  local acme_webroot="${ACME_WEBROOT:-/var/www/letsencrypt}"
+  local renewal_days="${LETSENCRYPT_RENEWAL_DAYS:-30}"
+  local fullchain="$cert_dir/fullchain.pem"
+  local certbot_args=(certonly --webroot -w "$acme_webroot" -d "$TLS_DOMAIN" --non-interactive --agree-tos --keep-until-expiring)
+
+  if [[ -n "${LETSENCRYPT_EMAIL:-}" ]]; then
+    certbot_args+=(--email "$LETSENCRYPT_EMAIL" --no-eff-email)
+  else
+    echo "No letsencrypt_email configured; requesting the certificate without an email address." >&2
+    certbot_args+=(--register-unsafely-without-email)
+  fi
+
+  if [[ -n "${LETSENCRYPT_SERVER:-}" ]]; then
+    certbot_args+=(--server "$LETSENCRYPT_SERVER")
+  fi
+
+  if cert_expires_within "$fullchain" "$renewal_days"; then
+    if [[ -f "$fullchain" ]]; then
+      echo "Let's Encrypt certificate for $TLS_DOMAIN expires within $renewal_days days; requesting a replacement."
+      certbot_args+=(--force-renewal)
+    else
+      echo "No Let's Encrypt certificate found for $TLS_DOMAIN; requesting one."
+    fi
+
+    echo "Installing HTTP Nginx config so Let's Encrypt can validate $TLS_DOMAIN..."
+    run_as_root mkdir -p "$acme_webroot/.well-known/acme-challenge"
+    "$NGINX_INSTALL_SCRIPT" --acme-webroot "$acme_webroot"
+    ensure_nginx_running
+
+    run_as_root certbot "${certbot_args[@]}"
+  else
+    echo "Let's Encrypt certificate for $TLS_DOMAIN is present and valid for more than $renewal_days days."
+  fi
+
+  echo "Installing TLS Nginx config for $TLS_DOMAIN..."
+  "$NGINX_INSTALL_SCRIPT" --tls-domain "$TLS_DOMAIN" --cert-dir "$cert_dir" --acme-webroot "$acme_webroot"
+  ensure_nginx_running
+}
+
 
 install_python_package_support() {
   echo "Python packaging support was not found. Attempting to install pip and venv support with the system package manager..." >&2
@@ -192,6 +301,12 @@ keys = [
     'password_seed',
     'flask_ip',
     'flask_port',
+    'tls_domain',
+    'tls_cert_dir',
+    'letsencrypt_email',
+    'letsencrypt_renewal_days',
+    'letsencrypt_server',
+    'acme_webroot',
 ]
 
 for key in keys:
@@ -213,6 +328,12 @@ FLASK_SECRET="${FLASK_SECRET:-dev-secret-change-me}"
 PASSWORD_SEED="${PASSWORD_SEED:-dev-password-seed-change-me}"
 FLASK_IP="${FLASK_IP:-127.0.0.1}"
 FLASK_PORT="${FLASK_PORT:-5000}"
+TLS_DOMAIN="${TLS_DOMAIN:-}"
+TLS_CERT_DIR="${TLS_CERT_DIR:-}"
+LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
+LETSENCRYPT_RENEWAL_DAYS="${LETSENCRYPT_RENEWAL_DAYS:-30}"
+LETSENCRYPT_SERVER="${LETSENCRYPT_SERVER:-}"
+ACME_WEBROOT="${ACME_WEBROOT:-/var/www/letsencrypt}"
 
 cd "$SCRIPT_DIR"
 
@@ -221,6 +342,8 @@ export PASSWORD_SEED
 export FLASK_SECRET
 export FLASK_RUN_HOST="$FLASK_IP"
 export FLASK_RUN_PORT="$FLASK_PORT"
+
+ensure_letsencrypt_certificate
 
 TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 
