@@ -5,7 +5,8 @@
    - change settings as needed in config.yaml
 
 2) Start Server
-   - run start-server.ps1 to install pre-reqs and start flask
+   - Windows: run start-server.ps1 to install pre-reqs and start the app with Waitress
+   - Linux/macOS: run start-server.sh to install pre-reqs and start the app with Waitress
 
 ## Features
    - Player & Admin login

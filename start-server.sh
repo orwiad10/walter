@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bash script to set up and run the MTG Tournament Swiss App.
 # Installs dependencies, initializes the database, creates an admin user,
-# and starts the Flask development server.
+# and starts the app with Waitress.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -211,7 +211,7 @@ export MTG_LOG_DB_PATH="$LOG_DB_FILE"
 printf 'Installing dependencies...\n'
 "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS_FILE" >/dev/null
 
-printf 'Stopping existing Flask server on port %s if present...\n' "$FLASK_PORT"
+printf 'Stopping existing Flask/Waitress server on port %s if present...\n' "$FLASK_PORT"
 "$PYTHON_BIN" - "$FLASK_PORT" <<'PY'
 import os
 import sys
@@ -235,7 +235,8 @@ for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         name = proc.info.get('name') or ''
         cmdline = proc.info.get('cmdline') or []
         first = os.path.basename(cmdline[0]) if cmdline else ''
-        if name == 'flask' or first == 'flask':
+        command_text = ' '.join(cmdline).lower()
+        if name == 'flask' or first == 'flask' or first == 'waitress-serve' or 'waitress' in command_text:
             pids.add(pid)
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         continue
@@ -274,19 +275,16 @@ for pid in sorted(pids):
         pass
 PY
 
-printf 'Setting Flask environment...\n'
-export FLASK_APP="app.app:app"
-
 printf 'Initializing database...\n'
 "$PYTHON_BIN" -m flask --app app.app db-init
 
 printf 'Creating default admin user...\n'
 "$PYTHON_BIN" -m flask --app app.app create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASS"
 
-printf 'Starting Flask development server...\n'
-nohup "$PYTHON_BIN" -m flask --app app.app run --debug --host="$FLASK_IP" --port="$FLASK_PORT" > "$SCRIPT_DIR/flask-server.log" 2>&1 &
-FLASK_PID=$!
-printf 'Flask server started with PID %s. Logs: %s\n' "$FLASK_PID" "$SCRIPT_DIR/flask-server.log"
+printf 'Starting Waitress server...\n'
+nohup "$PYTHON_BIN" -m waitress --host="$FLASK_IP" --port="$FLASK_PORT" app.app:app > "$SCRIPT_DIR/waitress-server.log" 2>&1 &
+WAITRESS_PID=$!
+printf 'Waitress server started with PID %s. Logs: %s\n' "$WAITRESS_PID" "$SCRIPT_DIR/waitress-server.log"
 
 sleep 3
 
