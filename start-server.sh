@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.yaml"
 REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
+VENV_DIR="$SCRIPT_DIR/.venv"
 
 PYTHON_BIN=""
 
@@ -27,7 +28,7 @@ run_as_root() {
   elif command -v sudo >/dev/null 2>&1; then
     sudo "$@"
   else
-    echo "Installing Python requires root privileges. Re-run as root or install python3 and python3-pip manually." >&2
+    echo "Installing Python support packages requires root privileges. Re-run as root or install python3, python3-pip, and python3-venv manually." >&2
     exit 1
   fi
 }
@@ -37,7 +38,7 @@ install_python() {
 
   if command -v apt-get >/dev/null 2>&1; then
     run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update
-    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv
   elif command -v dnf >/dev/null 2>&1; then
     run_as_root dnf install -y python3 python3-pip
   elif command -v yum >/dev/null 2>&1; then
@@ -51,7 +52,63 @@ install_python() {
   elif command -v brew >/dev/null 2>&1; then
     brew install python
   else
-    echo "Python 3 is required, and no supported package manager was found. Install python3 and python3-pip manually." >&2
+    echo "Python 3 is required, and no supported package manager was found. Install python3, python3-pip, and python3-venv manually." >&2
+    exit 1
+  fi
+}
+
+install_python_package_support() {
+  echo "Python packaging support was not found. Attempting to install pip and venv support with the system package manager..." >&2
+
+  if command -v apt-get >/dev/null 2>&1; then
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python3-venv
+  elif command -v dnf >/dev/null 2>&1; then
+    run_as_root dnf install -y python3-pip
+  elif command -v yum >/dev/null 2>&1; then
+    run_as_root yum install -y python3-pip
+  elif command -v zypper >/dev/null 2>&1; then
+    run_as_root zypper --non-interactive install python3-pip
+  elif command -v pacman >/dev/null 2>&1; then
+    run_as_root pacman -Sy --noconfirm python-pip
+  elif command -v apk >/dev/null 2>&1; then
+    run_as_root apk add --no-cache py3-pip
+  elif command -v brew >/dev/null 2>&1; then
+    brew install python
+  else
+    echo "pip/venv support is required, and no supported package manager was found. Install python3-pip and python3-venv manually." >&2
+    exit 1
+  fi
+}
+
+ensure_venv() {
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    PYTHON_BIN="$VENV_DIR/bin/python"
+    return 0
+  fi
+
+  if ! "$PYTHON_BIN" -m venv "$VENV_DIR"; then
+    rm -rf "$VENV_DIR"
+    install_python_package_support
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
+  fi
+
+  PYTHON_BIN="$VENV_DIR/bin/python"
+}
+
+ensure_pip() {
+  if "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if "$PYTHON_BIN" -m ensurepip --upgrade >/dev/null 2>&1 && "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  install_python_package_support
+  "$PYTHON_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+    echo "pip is still unavailable for $PYTHON_BIN after installing package support." >&2
     exit 1
   fi
 }
@@ -68,6 +125,9 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
   echo "Missing config.yaml" >&2
   exit 1
 fi
+
+ensure_venv
+ensure_pip
 
 # Ensure PyYAML is available so config.yaml can be parsed before installing the
 # rest of the application requirements.
