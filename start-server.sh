@@ -139,6 +139,46 @@ cert_expires_within() {
   ! openssl x509 -checkend "$seconds" -noout -in "$cert_file" >/dev/null 2>&1
 }
 
+is_truthy() {
+  local value="${1,,}"
+  case "$value" in
+    1|true|yes|y|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_letsencrypt_settings() {
+  local domain_lower email_lower email_domain
+  domain_lower="${TLS_DOMAIN,,}"
+
+  case "$domain_lower" in
+    example.com|*.example.com|example.net|*.example.net|example.org|*.example.org|localhost|*.localhost|*.test|*.invalid)
+      echo "tls_domain is set to a reserved/example name ($TLS_DOMAIN). Set tls_domain in config.yaml to your real public DNS name before requesting a Let's Encrypt certificate." >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ -n "${LETSENCRYPT_EMAIL:-}" ]]; then
+    email_lower="${LETSENCRYPT_EMAIL,,}"
+    email_domain="${email_lower##*@}"
+    if [[ "$email_lower" != *@* || -z "$email_domain" || "$email_domain" == "$email_lower" ]]; then
+      echo "letsencrypt_email must be a valid email address, not: $LETSENCRYPT_EMAIL" >&2
+      exit 1
+    fi
+
+    case "$email_domain" in
+      example.com|*.example.com|example.net|*.example.net|example.org|*.example.org|localhost|*.localhost|*.test|*.invalid)
+        echo "letsencrypt_email uses a reserved/example domain ($LETSENCRYPT_EMAIL). Set letsencrypt_email in config.yaml to a real email address, or leave it blank to request without email." >&2
+        exit 1
+        ;;
+    esac
+  fi
+}
+
 ensure_letsencrypt_certificate() {
   if [[ "${OSTYPE:-}" != linux* ]]; then
     return 0
@@ -154,13 +194,20 @@ ensure_letsencrypt_certificate() {
     exit 1
   fi
 
+  validate_letsencrypt_settings
   install_certbot
 
   local cert_dir="${TLS_CERT_DIR:-/etc/letsencrypt/live/$TLS_DOMAIN}"
   local acme_webroot="${ACME_WEBROOT:-/var/www/letsencrypt}"
   local renewal_days="${LETSENCRYPT_RENEWAL_DAYS:-30}"
+  local dry_run=0
   local fullchain="$cert_dir/fullchain.pem"
   local certbot_args=(certonly --webroot -w "$acme_webroot" -d "$TLS_DOMAIN" --non-interactive --agree-tos --keep-until-expiring)
+
+  if is_truthy "${LETSENCRYPT_DRY_RUN:-false}"; then
+    dry_run=1
+    certbot_args+=(--dry-run)
+  fi
 
   if [[ -n "${LETSENCRYPT_EMAIL:-}" ]]; then
     certbot_args+=(--email "$LETSENCRYPT_EMAIL" --no-eff-email)
@@ -173,8 +220,10 @@ ensure_letsencrypt_certificate() {
     certbot_args+=(--server "$LETSENCRYPT_SERVER")
   fi
 
-  if cert_expires_within "$fullchain" "$renewal_days"; then
-    if [[ -f "$fullchain" ]]; then
+  if [[ "$dry_run" -eq 1 ]] || cert_expires_within "$fullchain" "$renewal_days"; then
+    if [[ "$dry_run" -eq 1 ]]; then
+      echo "Running Let's Encrypt dry run for $TLS_DOMAIN; no certificate files will be created or replaced."
+    elif [[ -f "$fullchain" ]]; then
       echo "Let's Encrypt certificate for $TLS_DOMAIN expires within $renewal_days days; requesting a replacement."
       certbot_args+=(--force-renewal)
     else
@@ -189,6 +238,11 @@ ensure_letsencrypt_certificate() {
     run_as_root certbot "${certbot_args[@]}"
   else
     echo "Let's Encrypt certificate for $TLS_DOMAIN is present and valid for more than $renewal_days days."
+  fi
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    echo "Skipping TLS Nginx config install because letsencrypt_dry_run does not create or renew certificate files."
+    return 0
   fi
 
   echo "Installing TLS Nginx config for $TLS_DOMAIN..."
@@ -305,6 +359,7 @@ keys = [
     'tls_cert_dir',
     'letsencrypt_email',
     'letsencrypt_renewal_days',
+    'letsencrypt_dry_run',
     'letsencrypt_server',
     'acme_webroot',
 ]
@@ -332,6 +387,7 @@ TLS_DOMAIN="${TLS_DOMAIN:-}"
 TLS_CERT_DIR="${TLS_CERT_DIR:-}"
 LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
 LETSENCRYPT_RENEWAL_DAYS="${LETSENCRYPT_RENEWAL_DAYS:-30}"
+LETSENCRYPT_DRY_RUN="${LETSENCRYPT_DRY_RUN:-false}"
 LETSENCRYPT_SERVER="${LETSENCRYPT_SERVER:-}"
 ACME_WEBROOT="${ACME_WEBROOT:-/var/www/letsencrypt}"
 
