@@ -7,6 +7,7 @@
 2) Start Server
    - Windows: run start-server.ps1 to install pre-reqs and start the app with Waitress
    - Linux/macOS: run start-server.sh to install pre-reqs and start the app with Waitress
+     - On Linux, this also ensures Nginx is installed for the included reverse-proxy setup.
 
 
 ## Nginx reverse proxy (Linux)

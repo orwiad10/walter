@@ -57,6 +57,37 @@ install_python() {
   fi
 }
 
+
+install_nginx() {
+  if [[ "${OSTYPE:-}" != linux* ]]; then
+    return 0
+  fi
+
+  if command -v nginx >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "Nginx was not found. Attempting to install nginx with the system package manager..." >&2
+
+  if command -v apt-get >/dev/null 2>&1; then
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y nginx
+  elif command -v dnf >/dev/null 2>&1; then
+    run_as_root dnf install -y nginx
+  elif command -v yum >/dev/null 2>&1; then
+    run_as_root yum install -y nginx
+  elif command -v zypper >/dev/null 2>&1; then
+    run_as_root zypper --non-interactive install nginx
+  elif command -v pacman >/dev/null 2>&1; then
+    run_as_root pacman -Sy --noconfirm nginx
+  elif command -v apk >/dev/null 2>&1; then
+    run_as_root apk add --no-cache nginx
+  else
+    echo "Nginx is required on Linux, and no supported package manager was found. Install nginx manually." >&2
+    exit 1
+  fi
+}
+
 install_python_package_support() {
   echo "Python packaging support was not found. Attempting to install pip and venv support with the system package manager..." >&2
 
@@ -112,6 +143,8 @@ ensure_pip() {
     exit 1
   fi
 }
+
+install_nginx
 
 if ! detect_python; then
   install_python
