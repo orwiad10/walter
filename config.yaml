@@ -12,4 +12,5 @@ last_table_number: 200
 # tls_domain: tournaments.example.com
 # letsencrypt_email: admin@example.com
 # letsencrypt_renewal_days: 30
+# letsencrypt_dry_run: false
 # acme_webroot: /var/www/letsencrypt

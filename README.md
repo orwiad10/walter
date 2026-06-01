@@ -28,6 +28,8 @@ If you still see the default Nginx welcome page after installing, re-run `./scri
 
 For production, set `tls_domain` in `config.yaml` to your public DNS name before running `./start-server.sh`. The startup script then checks `/etc/letsencrypt/live/<domain>/fullchain.pem`; if the certificate is missing or expires within `letsencrypt_renewal_days` days (default: 30), it installs Certbot/OpenSSL if needed, installs the HTTP Nginx config for HTTP-01 validation, requests a Let's Encrypt certificate, and then installs the rendered HTTPS Nginx config. Do **not** add `fullchain.pem`, `privkey.pem`, `chain.pem`, or any other certificate/private-key material to this repository.
 
+The `tournaments.example.com` and `admin@example.com` values below are placeholders only. Replace them with a real public DNS name that points at your server and a real contact email address before enabling TLS; `./start-server.sh` stops early with a clear error if those reserved example values are still configured.
+
 Example `config.yaml` options:
 
 ```yaml
@@ -35,9 +37,12 @@ tls_domain: tournaments.example.com
 letsencrypt_email: admin@example.com
 # Optional overrides:
 # letsencrypt_renewal_days: 30
+# letsencrypt_dry_run: false
 # tls_cert_dir: /etc/letsencrypt/live/tournaments.example.com
 # acme_webroot: /var/www/letsencrypt
 ```
+
+To test the ACME/HTTP-01 validation flow without creating or replacing certificate files, set `letsencrypt_dry_run: true` in `config.yaml`. Dry-run mode still requires a real public DNS name that points at the server, installs the temporary HTTP Nginx config needed for validation, runs Certbot with `--dry-run`, and then skips installing the TLS Nginx config because Certbot does not write live certificate files during a dry run.
 
 You can still manage the Nginx config manually:
 
