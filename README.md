@@ -20,7 +20,9 @@ This repository includes a sample Nginx reverse-proxy config for running the app
 2) Install and enable the Nginx site config:
    - `./scripts/install_nginx_config.sh`
 
-The installer copies the config to `/etc/nginx/sites-available` and enables it via `/etc/nginx/sites-enabled` on Debian/Ubuntu-style systems. On systems that use `/etc/nginx/conf.d`, it installs `walter.conf` there instead. Use `./scripts/install_nginx_config.sh --help` to see options such as `--dry-run`, `--config`, `--site-name`, and `--no-reload`.
+The installer copies the config to `/etc/nginx/sites-available` and enables it via `/etc/nginx/sites-enabled` on Debian/Ubuntu-style systems. On systems that use `/etc/nginx/conf.d`, it installs `walter.conf` there instead. It also disables the packaged default Nginx site so requests to the server IP show Walter instead of the "Welcome to nginx!" page. Use `./scripts/install_nginx_config.sh --help` to see options such as `--dry-run`, `--config`, `--site-name`, `--no-reload`, and `--keep-default-site`.
+
+If you still see the default Nginx welcome page after installing, re-run `./scripts/install_nginx_config.sh` and confirm that Nginx reloaded successfully. If you see a `502 Bad Gateway` page instead, make sure the Waitress host and port in `config.yaml` match the upstream address in `nginx/walter.conf`; the included config expects Waitress at `127.0.0.1:5000`.
 
 ## Features
    - Player & Admin login

@@ -10,6 +10,7 @@ CONFIG_FILE="$DEFAULT_CONFIG"
 SITE_NAME="walter"
 DRY_RUN=0
 RELOAD_NGINX=1
+DISABLE_DEFAULT_SITE=1
 
 usage() {
   cat <<USAGE
@@ -24,6 +25,8 @@ Options:
   -n, --site-name NAME  Installed site name (default: $SITE_NAME)
       --dry-run         Print actions without changing files
       --no-reload       Do not validate or reload Nginx after installing
+      --keep-default-site
+                        Leave the packaged default Nginx site enabled
   -h, --help            Show this help
 USAGE
 }
@@ -78,6 +81,10 @@ while [[ $# -gt 0 ]]; do
       RELOAD_NGINX=0
       shift
       ;;
+    --keep-default-site)
+      DISABLE_DEFAULT_SITE=0
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -105,6 +112,29 @@ if [[ ! -d /etc/nginx && "$DRY_RUN" -ne 1 ]]; then
   exit 1
 fi
 
+
+disable_packaged_default_site() {
+  if [[ "$DISABLE_DEFAULT_SITE" -ne 1 ]]; then
+    return 0
+  fi
+
+  local default_site="/etc/nginx/sites-enabled/default"
+  if [[ -e "$default_site" || -L "$default_site" ]]; then
+    log "Disabling packaged default site at $default_site so Walter answers port 80"
+    if [[ -L "$default_site" ]]; then
+      run_root rm -f "$default_site"
+    else
+      run_root mv -f "$default_site" "/etc/nginx/default.disabled"
+    fi
+  fi
+
+  local default_conf="/etc/nginx/conf.d/default.conf"
+  if [[ -e "$default_conf" || -L "$default_conf" ]]; then
+    log "Disabling packaged default config at $default_conf so Walter answers port 80"
+    run_root mv -f "$default_conf" "$default_conf.disabled"
+  fi
+}
+
 if [[ -d /etc/nginx/sites-available ]]; then
   TARGET_AVAILABLE="/etc/nginx/sites-available/$SITE_NAME"
   TARGET_ENABLED="/etc/nginx/sites-enabled/$SITE_NAME"
@@ -130,6 +160,8 @@ else
   log "Installing $CONFIG_FILE to $TARGET_CONF"
   run_root install -m 0644 "$CONFIG_FILE" "$TARGET_CONF"
 fi
+
+disable_packaged_default_site
 
 if [[ "$RELOAD_NGINX" -eq 1 ]]; then
   log "Validating Nginx configuration"
