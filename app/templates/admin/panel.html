@@ -18,4 +18,10 @@
   <button class="btn" type="submit">Reveal</button>
 </form>
 {% endif %}
+
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Backup &amp; Transfer</h3><p>Export or import tournaments, users, roles, and permission settings.</p></div></div>
+  <p>Create a private JSON backup for moving data between WaLTER instances or restoring a backup.</p>
+  <div class="form-actions"><a class="btn" href="{{ url_for('admin_backup') }}">Open Backup &amp; Transfer</a></div>
+</section>
 {% endblock %}

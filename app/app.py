@@ -8,6 +8,7 @@ from flask import (
     abort,
     session,
     send_from_directory,
+    send_file,
     Response,
     jsonify,
 )
@@ -38,6 +39,7 @@ from sqlalchemy import inspect, text, or_
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
 
@@ -1410,6 +1412,576 @@ def create_app():
             total += (t.round_length or 50)
         return t.start_time + timedelta(minutes=total)
 
+    def iso_datetime(value):
+        return value.isoformat() if value else None
+
+    def iso_date(value):
+        return value.isoformat() if value else None
+
+    def parse_iso_datetime(value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            return None
+
+    def parse_iso_date(value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value).date()
+        except (TypeError, ValueError):
+            return None
+
+    def encode_binary(value):
+        if value is None:
+            return None
+        return base64.b64encode(value).decode('ascii')
+
+    def decode_binary(value):
+        if not value:
+            return None
+        try:
+            return base64.b64decode(value.encode('ascii'))
+        except Exception:
+            return None
+
+    def json_loads_safe(value, default=None):
+        if default is None:
+            default = []
+        try:
+            return json.loads(value or 'null') or default
+        except Exception:
+            return default
+
+    BACKUP_FORMAT = 'walter-admin-backup'
+    ENCRYPTED_BACKUP_FORMAT = 'walter-admin-backup-encrypted'
+    BACKUP_ENCRYPTION_ITERATIONS = 390000
+
+    def export_backup_payload():
+        roles = db.session.query(Role).order_by(Role.level, Role.name).all()
+        users = db.session.query(User).order_by(User.id).all()
+        leagues = db.session.query(League).order_by(League.id).all()
+        tournaments = db.session.query(Tournament).order_by(Tournament.id).all()
+        tournament_ids = [t.id for t in tournaments]
+        players = db.session.query(TournamentPlayer).order_by(TournamentPlayer.id).all()
+        player_ids = [p.id for p in players]
+        rounds = db.session.query(Round).order_by(Round.id).all()
+        round_ids = [r.id for r in rounds]
+        matches = db.session.query(Match).order_by(Match.id).all()
+        decks = db.session.query(TournamentPlayerDeck).order_by(TournamentPlayerDeck.id).all()
+        join_requests = db.session.query(TournamentJoinRequest).order_by(TournamentJoinRequest.id).all()
+        league_players = db.session.query(LeaguePlayer).order_by(LeaguePlayer.id).all()
+        league_results = db.session.query(LeagueResult).order_by(LeagueResult.id).all()
+
+        return {
+            'format': BACKUP_FORMAT,
+            'version': 1,
+            'exported_at': datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+            'permissions': PERMISSION_GROUPS,
+            'roles': [
+                {
+                    'id': r.id,
+                    'name': r.name,
+                    'permissions': r.permissions_dict(),
+                    'level': r.level,
+                }
+                for r in roles
+            ],
+            'users': [
+                {
+                    'id': u.id,
+                    'email': u.email,
+                    'name': u.name,
+                    'password_hash': u.password_hash,
+                    'salt': u.salt,
+                    'is_admin': bool(u.is_admin),
+                    'created_at': iso_datetime(u.created_at),
+                    'notes': u.notes,
+                    'role_id': u.role_id,
+                    'role_name': u.role.name if u.role else None,
+                    'break_end': iso_datetime(u.break_end),
+                    'public_key': encode_binary(u.public_key),
+                    'private_key_encrypted': encode_binary(u.private_key_encrypted),
+                    'private_key_salt': encode_binary(u.private_key_salt),
+                    'private_key_nonce': encode_binary(u.private_key_nonce),
+                    'permission_overrides': u.permission_overrides_dict(),
+                }
+                for u in users
+            ],
+            'leagues': [
+                {
+                    'id': l.id,
+                    'name': l.name,
+                    'start_date': iso_date(l.start_date),
+                    'end_date': iso_date(l.end_date),
+                    'created_at': iso_datetime(l.created_at),
+                }
+                for l in leagues
+            ],
+            'league_players': [
+                {
+                    'id': lp.id,
+                    'league_id': lp.league_id,
+                    'user_id': lp.user_id,
+                    'created_at': iso_datetime(lp.created_at),
+                }
+                for lp in league_players
+            ],
+            'tournaments': [
+                {
+                    'id': t.id,
+                    'name': t.name,
+                    'format': t.format,
+                    'structure': t.structure,
+                    'cut': t.cut,
+                    'pairing_type': t.pairing_type,
+                    'pairing_options': json_loads_safe(t.pairing_options, {}) if t.pairing_options else None,
+                    'rules_enforcement_level': t.rules_enforcement_level,
+                    'is_cube': bool(t.is_cube),
+                    'rounds_override': t.rounds_override,
+                    'start_table_number': t.start_table_number,
+                    'created_at': iso_datetime(t.created_at),
+                    'commander_points': t.commander_points,
+                    'guid': t.guid,
+                    'round_length': t.round_length,
+                    'draft_time': t.draft_time,
+                    'deck_build_time': t.deck_build_time,
+                    'start_time': iso_datetime(t.start_time),
+                    'head_judge_id': t.head_judge_id,
+                    'floor_judges': t.floor_judge_ids(),
+                    'round_timer_end': iso_datetime(t.round_timer_end),
+                    'draft_timer_end': iso_datetime(t.draft_timer_end),
+                    'deck_timer_end': iso_datetime(t.deck_timer_end),
+                    'round_timer_remaining': t.round_timer_remaining,
+                    'draft_timer_remaining': t.draft_timer_remaining,
+                    'deck_timer_remaining': t.deck_timer_remaining,
+                    'passcode': t.passcode,
+                    'join_requires_approval': bool(t.join_requires_approval),
+                    'league_id': t.league_id,
+                }
+                for t in tournaments
+            ],
+            'tournament_players': [
+                {
+                    'id': p.id,
+                    'tournament_id': p.tournament_id,
+                    'user_id': p.user_id,
+                    'points': p.points,
+                    'game_wins': p.game_wins,
+                    'game_losses': p.game_losses,
+                    'game_draws': p.game_draws,
+                    'dropped': bool(p.dropped),
+                }
+                for p in players
+            ],
+            'tournament_player_decks': [
+                {
+                    'id': d.id,
+                    'tournament_player_id': d.tournament_player_id,
+                    'source': d.source,
+                    'mainboard': json_loads_safe(d.mainboard, []),
+                    'sideboard': json_loads_safe(d.sideboard, []),
+                    'raw_text': d.raw_text,
+                    'moxfield_url': d.moxfield_url,
+                    'image_path': d.image_path,
+                    'created_at': iso_datetime(d.created_at),
+                    'updated_at': iso_datetime(d.updated_at),
+                    'is_submitted': bool(d.is_submitted),
+                    'submitted_at': iso_datetime(d.submitted_at),
+                }
+                for d in decks if d.tournament_player_id in player_ids
+            ],
+            'tournament_join_requests': [
+                {
+                    'id': jr.id,
+                    'tournament_id': jr.tournament_id,
+                    'user_id': jr.user_id,
+                    'status': jr.status,
+                    'created_at': iso_datetime(jr.created_at),
+                    'updated_at': iso_datetime(jr.updated_at),
+                    'note': jr.note,
+                    'approved_by_id': jr.approved_by_id,
+                }
+                for jr in join_requests if jr.tournament_id in tournament_ids
+            ],
+            'rounds': [
+                {
+                    'id': r.id,
+                    'tournament_id': r.tournament_id,
+                    'number': r.number,
+                }
+                for r in rounds if r.tournament_id in tournament_ids
+            ],
+            'matches': [
+                {
+                    'id': m.id,
+                    'round_id': m.round_id,
+                    'player1_id': m.player1_id,
+                    'player2_id': m.player2_id,
+                    'player3_id': m.player3_id,
+                    'player4_id': m.player4_id,
+                    'table_number': m.table_number,
+                    'completed': bool(m.completed),
+                    'result': {
+                        'player1_wins': m.result.player1_wins,
+                        'player2_wins': m.result.player2_wins,
+                        'draws': m.result.draws,
+                        'p1_place': m.result.p1_place,
+                        'p2_place': m.result.p2_place,
+                        'p3_place': m.result.p3_place,
+                        'p4_place': m.result.p4_place,
+                        'is_draw': bool(m.result.is_draw),
+                    } if m.result else None,
+                }
+                for m in matches if m.round_id in round_ids
+            ],
+            'league_results': [
+                {
+                    'id': lr.id,
+                    'league_id': lr.league_id,
+                    'tournament_id': lr.tournament_id,
+                    'user_id': lr.user_id,
+                    'points': lr.points,
+                    'wins': lr.wins,
+                    'draws': lr.draws,
+                    'losses': lr.losses,
+                    'deck_archetype': lr.deck_archetype,
+                    'imported_at': iso_datetime(lr.imported_at),
+                }
+                for lr in league_results
+            ],
+        }
+
+    def derive_backup_key(password, salt):
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=BACKUP_ENCRYPTION_ITERATIONS,
+        )
+        return kdf.derive(password.encode('utf-8'))
+
+    def encrypt_backup_payload(payload, password):
+        salt = os.urandom(16)
+        nonce = os.urandom(12)
+        key = derive_backup_key(password, salt)
+        plaintext = json.dumps(payload, sort_keys=True).encode('utf-8')
+        ciphertext = AESGCM(key).encrypt(nonce, plaintext, None)
+        return {
+            'format': ENCRYPTED_BACKUP_FORMAT,
+            'version': 1,
+            'encryption': {
+                'algorithm': 'AES-256-GCM',
+                'kdf': 'PBKDF2-HMAC-SHA256',
+                'iterations': BACKUP_ENCRYPTION_ITERATIONS,
+                'salt': encode_binary(salt),
+                'nonce': encode_binary(nonce),
+            },
+            'ciphertext': encode_binary(ciphertext),
+        }
+
+    def decrypt_backup_payload(payload, password):
+        if not password:
+            raise ValueError('This backup is encrypted. Enter the backup password to import it.')
+        encryption = payload.get('encryption') or {}
+        if payload.get('version') != 1:
+            raise ValueError('Unsupported encrypted backup version.')
+        if encryption.get('algorithm') != 'AES-256-GCM' or encryption.get('kdf') != 'PBKDF2-HMAC-SHA256':
+            raise ValueError('Unsupported backup encryption settings.')
+        if int(encryption.get('iterations') or 0) != BACKUP_ENCRYPTION_ITERATIONS:
+            raise ValueError('Unsupported backup encryption settings.')
+        salt = decode_binary(encryption.get('salt'))
+        nonce = decode_binary(encryption.get('nonce'))
+        ciphertext = decode_binary(payload.get('ciphertext'))
+        if not salt or not nonce or not ciphertext:
+            raise ValueError('Encrypted backup is missing encryption data.')
+        try:
+            key = derive_backup_key(password, salt)
+            plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
+            return json.loads(plaintext.decode('utf-8'))
+        except Exception as exc:
+            raise ValueError('Unable to decrypt backup. Check the backup password and try again.') from exc
+
+    def decode_backup_file(payload, password=None):
+        if isinstance(payload, dict) and payload.get('format') == ENCRYPTED_BACKUP_FORMAT:
+            return decrypt_backup_payload(payload, password)
+        return payload
+
+    def apply_backup_payload(payload, overwrite=False):
+        if not isinstance(payload, dict) or payload.get('format') != BACKUP_FORMAT:
+            raise ValueError('This is not a valid WaLTER backup file.')
+        if payload.get('version') != 1:
+            raise ValueError('Unsupported backup version.')
+
+        counts = {key: 0 for key in ['roles', 'users', 'leagues', 'tournaments', 'players', 'decks', 'join_requests', 'rounds', 'matches', 'league_players', 'league_results']}
+        role_map = {}
+        user_map = {}
+        league_map = {}
+        tournament_map = {}
+        player_map = {}
+        round_map = {}
+
+        for item in payload.get('roles', []):
+            name = (item.get('name') or '').strip()
+            if not name:
+                continue
+            role = db.session.query(Role).filter_by(name=name).first()
+            if not role:
+                role = Role(name=name)
+                db.session.add(role)
+            if overwrite or not role.id:
+                role.permissions = json.dumps(item.get('permissions') or {})
+                role.level = int(item.get('level') or 500)
+                counts['roles'] += 1
+            role_map[item.get('id')] = role
+        db.session.flush()
+
+        for item in payload.get('users', []):
+            email = (item.get('email') or '').strip().lower() or None
+            name = (item.get('name') or '').strip()
+            if not name:
+                continue
+            user = db.session.query(User).filter_by(email=email).first() if email else None
+            if not user:
+                user = db.session.query(User).filter(User.email.is_(None), User.name == name).first()
+            is_new = user is None
+            if is_new:
+                user = User(name=name)
+                db.session.add(user)
+            if overwrite or is_new:
+                role = role_map.get(item.get('role_id'))
+                if not role and item.get('role_name'):
+                    role = db.session.query(Role).filter_by(name=item.get('role_name')).first()
+                user.email = email
+                user.name = name
+                user.password_hash = item.get('password_hash')
+                user.salt = item.get('salt')
+                user.is_admin = bool(item.get('is_admin'))
+                user.created_at = parse_iso_datetime(item.get('created_at')) or user.created_at
+                user.notes = item.get('notes')
+                user.role = role
+                user.break_end = parse_iso_datetime(item.get('break_end'))
+                user.public_key = decode_binary(item.get('public_key'))
+                user.private_key_encrypted = decode_binary(item.get('private_key_encrypted'))
+                user.private_key_salt = decode_binary(item.get('private_key_salt'))
+                user.private_key_nonce = decode_binary(item.get('private_key_nonce'))
+                overrides = item.get('permission_overrides') or {}
+                user.permission_overrides = json.dumps(overrides) if overrides else None
+                counts['users'] += 1
+            user_map[item.get('id')] = user
+        db.session.flush()
+
+        for item in payload.get('leagues', []):
+            name = (item.get('name') or '').strip()
+            if not name:
+                continue
+            league = db.session.query(League).filter_by(name=name).first()
+            is_new = league is None
+            if is_new:
+                league = League(name=name)
+                db.session.add(league)
+            if overwrite or is_new:
+                league.name = name
+                league.start_date = parse_iso_date(item.get('start_date'))
+                league.end_date = parse_iso_date(item.get('end_date'))
+                league.created_at = parse_iso_datetime(item.get('created_at')) or league.created_at
+                counts['leagues'] += 1
+            league_map[item.get('id')] = league
+        db.session.flush()
+
+        for item in payload.get('tournaments', []):
+            guid = (item.get('guid') or '').strip() or None
+            tournament = db.session.query(Tournament).filter_by(guid=guid).first() if guid else None
+            if not tournament:
+                tournament = db.session.query(Tournament).filter_by(name=item.get('name')).first()
+            is_new = tournament is None
+            if is_new:
+                tournament = Tournament(name=item.get('name') or 'Imported Tournament', format=item.get('format') or 'Constructed')
+                db.session.add(tournament)
+            if overwrite or is_new:
+                tournament.name = item.get('name') or tournament.name
+                tournament.format = item.get('format') or tournament.format
+                tournament.structure = item.get('structure') or tournament.structure
+                tournament.cut = item.get('cut') or tournament.cut
+                tournament.pairing_type = item.get('pairing_type') or tournament.pairing_type
+                pairing_options = item.get('pairing_options')
+                tournament.pairing_options = json.dumps(pairing_options) if pairing_options is not None else None
+                tournament.rules_enforcement_level = item.get('rules_enforcement_level') or tournament.rules_enforcement_level
+                tournament.is_cube = bool(item.get('is_cube'))
+                tournament.rounds_override = item.get('rounds_override')
+                tournament.start_table_number = item.get('start_table_number') or 1
+                tournament.created_at = parse_iso_datetime(item.get('created_at')) or tournament.created_at
+                tournament.commander_points = item.get('commander_points') or tournament.commander_points
+                if guid:
+                    tournament.guid = guid
+                tournament.round_length = item.get('round_length') or tournament.round_length
+                tournament.draft_time = item.get('draft_time')
+                tournament.deck_build_time = item.get('deck_build_time')
+                tournament.start_time = parse_iso_datetime(item.get('start_time'))
+                tournament.head_judge = user_map.get(item.get('head_judge_id'))
+                floor_ids = [user_map[uid].id for uid in item.get('floor_judges') or [] if uid in user_map and user_map[uid].id]
+                tournament.floor_judges = json.dumps(floor_ids)
+                tournament.round_timer_end = parse_iso_datetime(item.get('round_timer_end'))
+                tournament.draft_timer_end = parse_iso_datetime(item.get('draft_timer_end'))
+                tournament.deck_timer_end = parse_iso_datetime(item.get('deck_timer_end'))
+                tournament.round_timer_remaining = item.get('round_timer_remaining')
+                tournament.draft_timer_remaining = item.get('draft_timer_remaining')
+                tournament.deck_timer_remaining = item.get('deck_timer_remaining')
+                tournament.passcode = item.get('passcode') or tournament.passcode
+                tournament.join_requires_approval = bool(item.get('join_requires_approval'))
+                tournament.league = league_map.get(item.get('league_id'))
+                counts['tournaments'] += 1
+            tournament_map[item.get('id')] = tournament
+        db.session.flush()
+
+        for item in payload.get('tournament_players', []):
+            tournament = tournament_map.get(item.get('tournament_id'))
+            user = user_map.get(item.get('user_id'))
+            if not tournament or not user:
+                continue
+            player = db.session.query(TournamentPlayer).filter_by(tournament_id=tournament.id, user_id=user.id).first()
+            is_new = player is None
+            if is_new:
+                player = TournamentPlayer(tournament=tournament, user=user)
+                db.session.add(player)
+            if overwrite or is_new:
+                player.points = item.get('points') or 0
+                player.game_wins = item.get('game_wins') or 0
+                player.game_losses = item.get('game_losses') or 0
+                player.game_draws = item.get('game_draws') or 0
+                player.dropped = bool(item.get('dropped'))
+                counts['players'] += 1
+            player_map[item.get('id')] = player
+        db.session.flush()
+
+        for item in payload.get('league_players', []):
+            league = league_map.get(item.get('league_id'))
+            user = user_map.get(item.get('user_id'))
+            if not league or not user:
+                continue
+            lp = db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=user.id).first()
+            is_new = lp is None
+            if is_new:
+                lp = LeaguePlayer(league=league, user=user)
+                db.session.add(lp)
+            if overwrite or is_new:
+                lp.created_at = parse_iso_datetime(item.get('created_at')) or lp.created_at
+                counts['league_players'] += 1
+        db.session.flush()
+
+        for item in payload.get('tournament_player_decks', []):
+            player = player_map.get(item.get('tournament_player_id'))
+            if not player:
+                continue
+            deck = db.session.query(TournamentPlayerDeck).filter_by(tournament_player_id=player.id).first()
+            is_new = deck is None
+            if is_new:
+                deck = TournamentPlayerDeck(tournament_player=player, source=item.get('source') or 'text')
+                db.session.add(deck)
+            if overwrite or is_new:
+                deck.source = item.get('source') or deck.source
+                deck.mainboard = json.dumps(item.get('mainboard') or [])
+                deck.sideboard = json.dumps(item.get('sideboard') or [])
+                deck.raw_text = item.get('raw_text')
+                deck.moxfield_url = item.get('moxfield_url')
+                deck.image_path = item.get('image_path')
+                deck.created_at = parse_iso_datetime(item.get('created_at')) or deck.created_at
+                deck.updated_at = parse_iso_datetime(item.get('updated_at')) or deck.updated_at
+                deck.is_submitted = bool(item.get('is_submitted'))
+                deck.submitted_at = parse_iso_datetime(item.get('submitted_at'))
+                counts['decks'] += 1
+        db.session.flush()
+
+        for item in payload.get('tournament_join_requests', []):
+            tournament = tournament_map.get(item.get('tournament_id'))
+            user = user_map.get(item.get('user_id'))
+            if not tournament or not user:
+                continue
+            jr = db.session.query(TournamentJoinRequest).filter_by(tournament_id=tournament.id, user_id=user.id).first()
+            is_new = jr is None
+            if is_new:
+                jr = TournamentJoinRequest(tournament=tournament, user=user)
+                db.session.add(jr)
+            if overwrite or is_new:
+                jr.status = item.get('status') or jr.status
+                jr.created_at = parse_iso_datetime(item.get('created_at')) or jr.created_at
+                jr.updated_at = parse_iso_datetime(item.get('updated_at')) or jr.updated_at
+                jr.note = item.get('note')
+                jr.approved_by = user_map.get(item.get('approved_by_id'))
+                counts['join_requests'] += 1
+        db.session.flush()
+
+        for item in payload.get('rounds', []):
+            tournament = tournament_map.get(item.get('tournament_id'))
+            if not tournament:
+                continue
+            round_obj = db.session.query(Round).filter_by(tournament_id=tournament.id, number=item.get('number')).first()
+            is_new = round_obj is None
+            if is_new:
+                round_obj = Round(tournament=tournament, number=item.get('number') or 1)
+                db.session.add(round_obj)
+            if overwrite or is_new:
+                counts['rounds'] += 1
+            round_map[item.get('id')] = round_obj
+        db.session.flush()
+
+        for item in payload.get('matches', []):
+            round_obj = round_map.get(item.get('round_id'))
+            player1 = player_map.get(item.get('player1_id'))
+            if not round_obj or not player1:
+                continue
+            match = db.session.query(Match).filter_by(round_id=round_obj.id, table_number=item.get('table_number')).first()
+            is_new = match is None
+            if is_new:
+                match = Match(round=round_obj, player1=player1, table_number=item.get('table_number') or 1)
+                db.session.add(match)
+            if overwrite or is_new:
+                match.player1 = player1
+                match.player2 = player_map.get(item.get('player2_id'))
+                match.player3 = player_map.get(item.get('player3_id'))
+                match.player4 = player_map.get(item.get('player4_id'))
+                match.table_number = item.get('table_number') or match.table_number
+                match.completed = bool(item.get('completed'))
+                result_data = item.get('result')
+                if result_data:
+                    if not match.result:
+                        match.result = MatchResult()
+                    match.result.player1_wins = result_data.get('player1_wins') or 0
+                    match.result.player2_wins = result_data.get('player2_wins') or 0
+                    match.result.draws = result_data.get('draws') or 0
+                    match.result.p1_place = result_data.get('p1_place')
+                    match.result.p2_place = result_data.get('p2_place')
+                    match.result.p3_place = result_data.get('p3_place')
+                    match.result.p4_place = result_data.get('p4_place')
+                    match.result.is_draw = bool(result_data.get('is_draw'))
+                counts['matches'] += 1
+        db.session.flush()
+
+        for item in payload.get('league_results', []):
+            league = league_map.get(item.get('league_id'))
+            tournament = tournament_map.get(item.get('tournament_id'))
+            user = user_map.get(item.get('user_id'))
+            if not league or not tournament or not user:
+                continue
+            lr = db.session.query(LeagueResult).filter_by(league_id=league.id, tournament_id=tournament.id, user_id=user.id).first()
+            is_new = lr is None
+            if is_new:
+                lr = LeagueResult(league=league, tournament=tournament, user=user)
+                db.session.add(lr)
+            if overwrite or is_new:
+                lr.points = item.get('points') or 0
+                lr.wins = item.get('wins') or 0
+                lr.draws = item.get('draws') or 0
+                lr.losses = item.get('losses') or 0
+                lr.deck_archetype = item.get('deck_archetype')
+                lr.imported_at = parse_iso_datetime(item.get('imported_at')) or lr.imported_at
+                counts['league_results'] += 1
+
+        db.session.commit()
+        return counts
+
     def resolve_structure_and_pairing(form):
         """Determine structure and pairing from the submitted form data."""
         selection = (form.get('structure') or 'swiss').lower()
@@ -1989,6 +2561,66 @@ def create_app():
             connections=connections,
             uptime=uptime_seconds,
             password_seed=password_seed,
+        )
+
+    @app.route('/admin/backup', methods=['GET', 'POST'])
+    def admin_backup():
+        require_admin()
+        if request.method == 'POST':
+            upload = request.files.get('backup_file')
+            overwrite = request.form.get('overwrite') == 'yes'
+            backup_password = request.form.get('backup_password', '')
+            if not upload or not upload.filename:
+                flash('Choose a WaLTER backup JSON file to import.', 'error')
+                return redirect(url_for('admin_backup'))
+            try:
+                payload = decode_backup_file(json.load(upload.stream), backup_password)
+                counts = apply_backup_payload(payload, overwrite=overwrite)
+            except Exception as exc:
+                db.session.rollback()
+                log_site('backup_import', 'failure', str(exc))
+                flash(f'Backup import failed: {exc}', 'error')
+                return redirect(url_for('admin_backup'))
+            summary = ', '.join(f'{value} {key.replace("_", " ")}' for key, value in counts.items() if value)
+            flash(f'Backup imported successfully. Updated {summary or "no records"}.', 'success')
+            log_site('backup_import', 'success', summary or 'no records')
+            return redirect(url_for('admin_backup'))
+
+        roles_count = db.session.query(Role).count()
+        users_count = db.session.query(User).count()
+        tournaments_count = db.session.query(Tournament).count()
+        return render_template(
+            'admin/backup.html',
+            roles_count=roles_count,
+            users_count=users_count,
+            tournaments_count=tournaments_count,
+        )
+
+    @app.route('/admin/backup/export', methods=['GET', 'POST'])
+    def admin_backup_export():
+        require_admin()
+        password = request.form.get('export_password', '') if request.method == 'POST' else ''
+        password_confirm = request.form.get('export_password_confirm', '') if request.method == 'POST' else ''
+        if password or password_confirm:
+            if password != password_confirm:
+                flash('Backup encryption passwords do not match.', 'error')
+                return redirect(url_for('admin_backup'))
+            if len(password) < 8:
+                flash('Backup encryption password must be at least 8 characters.', 'error')
+                return redirect(url_for('admin_backup'))
+        payload = export_backup_payload()
+        encrypted = bool(password)
+        if encrypted:
+            payload = encrypt_backup_payload(payload, password)
+        buffer = io.BytesIO(json.dumps(payload, indent=2, sort_keys=True).encode('utf-8'))
+        suffix = 'encrypted-' if encrypted else ''
+        filename = f"walter-backup-{suffix}{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.json"
+        log_site('backup_export', 'success', f'{filename}:encrypted={encrypted}')
+        return send_file(
+            buffer,
+            mimetype='application/json',
+            as_attachment=True,
+            download_name=filename,
         )
 
     @app.route('/admin/permissions', methods=['GET', 'POST'])
