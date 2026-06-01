@@ -179,13 +179,23 @@ validate_letsencrypt_settings() {
   fi
 }
 
+install_http_nginx_config() {
+  if [[ "${OSTYPE:-}" != linux* ]]; then
+    return 0
+  fi
+
+  echo "No tls_domain configured; installing HTTP Nginx config for LAN access."
+  "$NGINX_INSTALL_SCRIPT" --acme-webroot "${ACME_WEBROOT:-/var/www/letsencrypt}" --app-config "$CONFIG_FILE"
+  ensure_nginx_running
+}
+
 ensure_letsencrypt_certificate() {
   if [[ "${OSTYPE:-}" != linux* ]]; then
     return 0
   fi
 
   if [[ -z "${TLS_DOMAIN:-}" ]]; then
-    echo "No tls_domain configured; skipping Let's Encrypt certificate check."
+    install_http_nginx_config
     return 0
   fi
 
@@ -232,7 +242,7 @@ ensure_letsencrypt_certificate() {
 
     echo "Installing HTTP Nginx config so Let's Encrypt can validate $TLS_DOMAIN..."
     run_as_root mkdir -p "$acme_webroot/.well-known/acme-challenge"
-    "$NGINX_INSTALL_SCRIPT" --acme-webroot "$acme_webroot"
+    "$NGINX_INSTALL_SCRIPT" --acme-webroot "$acme_webroot" --app-config "$CONFIG_FILE"
     ensure_nginx_running
 
     run_as_root certbot "${certbot_args[@]}"
@@ -246,7 +256,7 @@ ensure_letsencrypt_certificate() {
   fi
 
   echo "Installing TLS Nginx config for $TLS_DOMAIN..."
-  "$NGINX_INSTALL_SCRIPT" --tls-domain "$TLS_DOMAIN" --cert-dir "$cert_dir" --acme-webroot "$acme_webroot"
+  "$NGINX_INSTALL_SCRIPT" --tls-domain "$TLS_DOMAIN" --cert-dir "$cert_dir" --acme-webroot "$acme_webroot" --app-config "$CONFIG_FILE"
   ensure_nginx_running
 }
 

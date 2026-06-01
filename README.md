@@ -12,17 +12,17 @@
 
 ## Nginx reverse proxy (Linux)
 
-This repository includes a sample Nginx reverse-proxy config for running the app behind Nginx on port 80. The config proxies traffic to Waitress at `127.0.0.1:5000`; update `nginx/walter.conf` if your `config.yaml` uses a different `flask_port` or if you want to set a real `server_name`.
+This repository includes a sample Nginx reverse-proxy config for running the app behind Nginx on port 80. The config proxies traffic to the Waitress address rendered from `flask_ip` and `flask_port` in `config.yaml`; update `nginx/walter.conf` only if you want to set a real `server_name`.
 
 1) Start the app with Waitress:
    - `./start-server.sh`
 
-2) Install and enable the Nginx site config:
+2) Install and enable the Nginx site config if you are not using `start-server.sh`:
    - `./scripts/install_nginx_config.sh`
 
-The installer copies the config to `/etc/nginx/sites-available` and enables it via `/etc/nginx/sites-enabled` on Debian/Ubuntu-style systems. On systems that use `/etc/nginx/conf.d`, it installs `walter.conf` there instead. It also disables the packaged default Nginx site so requests to the server IP show Walter instead of the "Welcome to nginx!" page. Use `./scripts/install_nginx_config.sh --help` to see options such as `--dry-run`, `--config`, `--site-name`, `--no-reload`, and `--keep-default-site`.
+On Linux, `start-server.sh` installs the HTTP Nginx site automatically when `tls_domain` is blank so other computers on the LAN can browse to `http://<server-lan-ip>/` without connecting directly to the Waitress port. The installer copies the config to `/etc/nginx/sites-available` and enables it via `/etc/nginx/sites-enabled` on Debian/Ubuntu-style systems. On systems that use `/etc/nginx/conf.d`, it installs `walter.conf` there instead. It also disables the packaged default Nginx site so requests to the server IP show Walter instead of the "Welcome to nginx!" page. Use `./scripts/install_nginx_config.sh --help` to see options such as `--dry-run`, `--config`, `--site-name`, `--no-reload`, and `--keep-default-site`.
 
-If you still see the default Nginx welcome page after installing, re-run `./scripts/install_nginx_config.sh` and confirm that Nginx reloaded successfully. If you see a `502 Bad Gateway` page instead, make sure the Waitress host and port in `config.yaml` match the upstream address in `nginx/walter.conf`; the included config expects Waitress at `127.0.0.1:5000`.
+If LAN clients still cannot reach the app, browse to the server's LAN address on port 80 (for example, `http://192.168.1.25/`) and make sure host firewall rules allow inbound HTTP. If you see the default Nginx welcome page after installing, re-run `./scripts/install_nginx_config.sh` and confirm that Nginx reloaded successfully. If you see a `502 Bad Gateway` page instead, make sure the Waitress host and port in `config.yaml` match the upstream address in `nginx/walter.conf`; the rendered config expects Waitress at the `flask_ip` and `flask_port` values from `config.yaml`.
 
 ### HTTPS with TLS 1.3 and Let's Encrypt
 
