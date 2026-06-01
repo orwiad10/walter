@@ -8,6 +8,62 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.yaml"
 REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
 
+PYTHON_BIN=""
+
+detect_python() {
+  local candidate
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info.major >= 3 else 1)' >/dev/null 2>&1; then
+      PYTHON_BIN="$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+run_as_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    echo "Installing Python requires root privileges. Re-run as root or install python3 and python3-pip manually." >&2
+    exit 1
+  fi
+}
+
+install_python() {
+  echo "Python 3 was not found. Attempting to install python3 and pip with the system package manager..." >&2
+
+  if command -v apt-get >/dev/null 2>&1; then
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get update
+    run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip
+  elif command -v dnf >/dev/null 2>&1; then
+    run_as_root dnf install -y python3 python3-pip
+  elif command -v yum >/dev/null 2>&1; then
+    run_as_root yum install -y python3 python3-pip
+  elif command -v zypper >/dev/null 2>&1; then
+    run_as_root zypper --non-interactive install python3 python3-pip
+  elif command -v pacman >/dev/null 2>&1; then
+    run_as_root pacman -Sy --noconfirm python python-pip
+  elif command -v apk >/dev/null 2>&1; then
+    run_as_root apk add --no-cache python3 py3-pip
+  elif command -v brew >/dev/null 2>&1; then
+    brew install python
+  else
+    echo "Python 3 is required, and no supported package manager was found. Install python3 and python3-pip manually." >&2
+    exit 1
+  fi
+}
+
+if ! detect_python; then
+  install_python
+  if ! detect_python; then
+    echo "Python 3 installation completed, but no usable python3/python command was found." >&2
+    exit 1
+  fi
+fi
+
 if [[ ! -f "$CONFIG_FILE" ]]; then
   echo "Missing config.yaml" >&2
   exit 1
@@ -15,7 +71,7 @@ fi
 
 # Ensure PyYAML is available so config.yaml can be parsed before installing the
 # rest of the application requirements.
-python - <<'PY'
+"$PYTHON_BIN" - <<'PY'
 import subprocess
 import sys
 try:
@@ -25,7 +81,7 @@ except ModuleNotFoundError:
 PY
 
 # Load settings from YAML config.
-eval "$(python - "$CONFIG_FILE" <<'PY'
+eval "$("$PYTHON_BIN" - "$CONFIG_FILE" <<'PY'
 import shlex
 import sys
 
@@ -93,10 +149,10 @@ export MTG_DB_PATH="$DB_FILE"
 export MTG_LOG_DB_PATH="$LOG_DB_FILE"
 
 printf 'Installing dependencies...\n'
-python -m pip install -r "$REQUIREMENTS_FILE" >/dev/null
+"$PYTHON_BIN" -m pip install -r "$REQUIREMENTS_FILE" >/dev/null
 
 printf 'Stopping existing Flask server on port %s if present...\n' "$FLASK_PORT"
-python - "$FLASK_PORT" <<'PY'
+"$PYTHON_BIN" - "$FLASK_PORT" <<'PY'
 import os
 import sys
 import time
@@ -162,13 +218,13 @@ printf 'Setting Flask environment...\n'
 export FLASK_APP="app.app:app"
 
 printf 'Initializing database...\n'
-python -m flask --app app.app db-init
+"$PYTHON_BIN" -m flask --app app.app db-init
 
 printf 'Creating default admin user...\n'
-python -m flask --app app.app create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASS"
+"$PYTHON_BIN" -m flask --app app.app create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASS"
 
 printf 'Starting Flask development server...\n'
-nohup python -m flask --app app.app run --debug --host="$FLASK_IP" --port="$FLASK_PORT" > "$SCRIPT_DIR/flask-server.log" 2>&1 &
+nohup "$PYTHON_BIN" -m flask --app app.app run --debug --host="$FLASK_IP" --port="$FLASK_PORT" > "$SCRIPT_DIR/flask-server.log" 2>&1 &
 FLASK_PID=$!
 printf 'Flask server started with PID %s. Logs: %s\n' "$FLASK_PID" "$SCRIPT_DIR/flask-server.log"
 
