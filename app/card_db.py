@@ -6,10 +6,11 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 ATOMIC_CARDS_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"
 CURRENT_SCHEMA_VERSION = "3"
+CARD_DB_USER_AGENT = "Walter/1.0 (MTG tournament card database updater)"
 
 
 def _normalize_name(name: str) -> str:
@@ -241,12 +242,17 @@ def _read_atomic_cards_from_zip(path: str) -> List[Dict[str, Any]]:
         return records
 
 
+def _card_database_request(url: str) -> Request:
+    return Request(url, headers={'User-Agent': CARD_DB_USER_AGENT})
+
+
 def build_card_database(path: str, source_url: Optional[str] = None) -> None:
     ensure_directory(path)
     url = source_url or ATOMIC_CARDS_URL
+    request = _card_database_request(url)
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         temp_name = tmp.name
-        with urlopen(url) as response:
+        with urlopen(request) as response:
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
