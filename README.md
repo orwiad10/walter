@@ -24,6 +24,24 @@ The installer copies the config to `/etc/nginx/sites-available` and enables it v
 
 If you still see the default Nginx welcome page after installing, re-run `./scripts/install_nginx_config.sh` and confirm that Nginx reloaded successfully. If you see a `502 Bad Gateway` page instead, make sure the Waitress host and port in `config.yaml` match the upstream address in `nginx/walter.conf`; the included config expects Waitress at `127.0.0.1:5000`.
 
+### HTTPS with TLS 1.3 and Let's Encrypt
+
+For production, create the Let's Encrypt certificate files on the production machine first. Do **not** add `fullchain.pem`, `privkey.pem`, `chain.pem`, or any other certificate/private-key material to this repository.
+
+One common webroot flow is:
+
+1) Install Nginx with the HTTP config so Certbot can complete HTTP-01 validation:
+   - `./scripts/install_nginx_config.sh`
+
+2) Create the certificate on the server, replacing the domain and email:
+   - `sudo mkdir -p /var/www/letsencrypt/.well-known/acme-challenge`
+   - `sudo certbot certonly --webroot -w /var/www/letsencrypt -d tournaments.example.com --email admin@example.com --agree-tos --no-eff-email`
+
+3) Install the TLS config rendered for your production domain:
+   - `./scripts/install_nginx_config.sh --tls-domain tournaments.example.com`
+
+The TLS template lives at `nginx/walter-tls.conf`. It serves HTTPS on port 443, redirects normal HTTP traffic to HTTPS, leaves `/.well-known/acme-challenge/` available on port 80 for Let's Encrypt renewals, only enables TLS 1.3, and restricts TLS 1.3 cipher suites to the FIPS-suitable AES-GCM suites `TLS_AES_256_GCM_SHA384` and `TLS_AES_128_GCM_SHA256`. If your certificate lives somewhere other than `/etc/letsencrypt/live/<domain>`, pass `--cert-dir /path/to/live/certdir`; if your ACME challenge webroot differs, pass `--acme-webroot /path/to/webroot`.
+
 ## Features
    - Player & Admin login
    - Tournaments: Commander, Draft, Constructed

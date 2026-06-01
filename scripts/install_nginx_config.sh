@@ -5,12 +5,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_CONFIG="$REPO_DIR/nginx/walter.conf"
+DEFAULT_TLS_CONFIG="$REPO_DIR/nginx/walter-tls.conf"
 
 CONFIG_FILE="$DEFAULT_CONFIG"
 SITE_NAME="walter"
 DRY_RUN=0
 RELOAD_NGINX=1
 DISABLE_DEFAULT_SITE=1
+TLS_DOMAIN=""
+CERT_DIR=""
+ACME_WEBROOT="/var/www/letsencrypt"
+GENERATED_CONFIG=""
+CONFIG_EXPLICIT=0
 
 usage() {
   cat <<USAGE
@@ -22,6 +28,10 @@ Copies the Walter Nginx config into the correct Linux Nginx location:
 
 Options:
   -c, --config PATH     Source Nginx config to install (default: $DEFAULT_CONFIG)
+      --tls-domain NAME  Render and install the TLS 1.3 Let's Encrypt config for NAME
+      --cert-dir PATH    Let's Encrypt live cert directory (default: /etc/letsencrypt/live/NAME)
+      --acme-webroot PATH
+                        Webroot for HTTP-01 challenges (default: $ACME_WEBROOT)
   -n, --site-name NAME  Installed site name (default: $SITE_NAME)
       --dry-run         Print actions without changing files
       --no-reload       Do not validate or reload Nginx after installing
@@ -62,6 +72,7 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       CONFIG_FILE="$2"
+      CONFIG_EXPLICIT=1
       shift 2
       ;;
     -n|--site-name)
@@ -71,6 +82,33 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       SITE_NAME="$2"
+      shift 2
+      ;;
+    --tls-domain)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        log "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      TLS_DOMAIN="$2"
+      shift 2
+      ;;
+    --cert-dir)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        log "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      CERT_DIR="$2"
+      shift 2
+      ;;
+    --acme-webroot)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        log "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      ACME_WEBROOT="$2"
       shift 2
       ;;
     --dry-run)
@@ -97,6 +135,31 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+
+if [[ -n "$TLS_DOMAIN" ]]; then
+  if [[ "$CONFIG_EXPLICIT" -eq 0 ]]; then
+    CONFIG_FILE="$DEFAULT_TLS_CONFIG"
+  fi
+
+  if [[ "$TLS_DOMAIN" == *"/"* || "$TLS_DOMAIN" == *" "* ]]; then
+    log "TLS domain must be a DNS name, not a path or value with spaces: $TLS_DOMAIN" >&2
+    exit 1
+  fi
+
+  CERT_DIR="${CERT_DIR:-/etc/letsencrypt/live/$TLS_DOMAIN}"
+
+  if [[ "$DRY_RUN" -ne 1 ]]; then
+    for cert_file in "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem" "$CERT_DIR/chain.pem"; do
+      if [[ ! -f "$cert_file" ]]; then
+        log "Missing Let's Encrypt certificate file: $cert_file" >&2
+        log "Create certificates on this machine first, for example:" >&2
+        log "  certbot certonly --webroot -w $ACME_WEBROOT -d $TLS_DOMAIN" >&2
+        exit 1
+      fi
+    done
+  fi
+fi
+
 if [[ -z "$CONFIG_FILE" || ! -f "$CONFIG_FILE" ]]; then
   log "Nginx config not found: $CONFIG_FILE" >&2
   exit 1
@@ -112,6 +175,37 @@ if [[ ! -d /etc/nginx && "$DRY_RUN" -ne 1 ]]; then
   exit 1
 fi
 
+
+
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
+}
+
+render_tls_config() {
+  if [[ -z "$TLS_DOMAIN" ]]; then
+    return 0
+  fi
+
+  local escaped_domain escaped_cert_dir escaped_acme_webroot
+  escaped_domain="$(escape_sed_replacement "$TLS_DOMAIN")"
+  escaped_cert_dir="$(escape_sed_replacement "$CERT_DIR")"
+  escaped_acme_webroot="$(escape_sed_replacement "$ACME_WEBROOT")"
+
+  GENERATED_CONFIG="$(mktemp)"
+  sed \
+    -e "s/__WALTER_DOMAIN__/$escaped_domain/g" \
+    -e "s/__WALTER_CERT_DIR__/$escaped_cert_dir/g" \
+    -e "s/__WALTER_ACME_WEBROOT__/$escaped_acme_webroot/g" \
+    "$CONFIG_FILE" > "$GENERATED_CONFIG"
+  CONFIG_FILE="$GENERATED_CONFIG"
+}
+
+cleanup_generated_config() {
+  if [[ -n "$GENERATED_CONFIG" && -f "$GENERATED_CONFIG" ]]; then
+    rm -f "$GENERATED_CONFIG"
+  fi
+}
+trap cleanup_generated_config EXIT
 
 disable_packaged_default_site() {
   if [[ "$DISABLE_DEFAULT_SITE" -ne 1 ]]; then
@@ -134,6 +228,13 @@ disable_packaged_default_site() {
     run_root mv -f "$default_conf" "$default_conf.disabled"
   fi
 }
+
+render_tls_config
+
+if [[ -n "$TLS_DOMAIN" ]]; then
+  log "Ensuring ACME challenge webroot exists at $ACME_WEBROOT"
+  run_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge"
+fi
 
 if [[ -d /etc/nginx/sites-available ]]; then
   TARGET_AVAILABLE="/etc/nginx/sites-available/$SITE_NAME"
