@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_CONFIG="$REPO_DIR/nginx/walter.conf"
 DEFAULT_TLS_CONFIG="$REPO_DIR/nginx/walter-tls.conf"
+DEFAULT_APP_CONFIG="$REPO_DIR/config.yaml"
 
 CONFIG_FILE="$DEFAULT_CONFIG"
 SITE_NAME="walter"
@@ -15,6 +16,9 @@ DISABLE_DEFAULT_SITE=1
 TLS_DOMAIN=""
 CERT_DIR=""
 ACME_WEBROOT="/var/www/letsencrypt"
+APP_CONFIG="$DEFAULT_APP_CONFIG"
+FLASK_IP="127.0.0.1"
+FLASK_PORT="5000"
 GENERATED_CONFIG=""
 CONFIG_EXPLICIT=0
 
@@ -32,6 +36,7 @@ Options:
       --cert-dir PATH    Let's Encrypt live cert directory (default: /etc/letsencrypt/live/NAME)
       --acme-webroot PATH
                         Webroot for HTTP-01 challenges (default: $ACME_WEBROOT)
+      --app-config PATH Config file to read flask_ip/flask_port from (default: $DEFAULT_APP_CONFIG)
   -n, --site-name NAME  Installed site name (default: $SITE_NAME)
       --dry-run         Print actions without changing files
       --no-reload       Do not validate or reload Nginx after installing
@@ -111,6 +116,15 @@ while [[ $# -gt 0 ]]; do
       ACME_WEBROOT="$2"
       shift 2
       ;;
+    --app-config)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        log "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      APP_CONFIG="$2"
+      shift 2
+      ;;
     --dry-run)
       DRY_RUN=1
       shift
@@ -176,22 +190,69 @@ if [[ ! -d /etc/nginx && "$DRY_RUN" -ne 1 ]]; then
 fi
 
 
+read_config_value() {
+  local key="$1"
+  local file="$2"
+
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*:" {
+      sub("^[[:space:]]*" key "[[:space:]]*:[[:space:]]*", "")
+      sub("[[:space:]]+#.*$", "")
+      sub("^[[:space:]]+", "")
+      sub("[[:space:]]+$", "")
+      if (($0 ~ /^".*"$/) || ($0 ~ /^'"'"'.*'"'"'$/)) {
+        print substr($0, 2, length($0) - 2)
+      } else {
+        print
+      }
+      exit
+    }
+  ' "$file"
+}
+
+load_app_config() {
+  if [[ ! -f "$APP_CONFIG" ]]; then
+    log "Application config not found: $APP_CONFIG" >&2
+    exit 1
+  fi
+
+  local configured_ip configured_port
+  configured_ip="$(read_config_value flask_ip "$APP_CONFIG")"
+  configured_port="$(read_config_value flask_port "$APP_CONFIG")"
+
+  FLASK_IP="${configured_ip:-$FLASK_IP}"
+  FLASK_PORT="${configured_port:-$FLASK_PORT}"
+
+  if [[ -z "$FLASK_IP" || "$FLASK_IP" == *[[:space:]]* || "$FLASK_IP" == *"/"* ]]; then
+    log "flask_ip in $APP_CONFIG must be a single IP address or hostname, not: $FLASK_IP" >&2
+    exit 1
+  fi
+
+  if [[ ! "$FLASK_PORT" =~ ^[0-9]+$ || "$FLASK_PORT" -lt 1 || "$FLASK_PORT" -gt 65535 ]]; then
+    log "flask_port in $APP_CONFIG must be a TCP port from 1 to 65535, not: $FLASK_PORT" >&2
+    exit 1
+  fi
+}
 
 escape_sed_replacement() {
   printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
 }
 
 render_config() {
-  local escaped_domain escaped_cert_dir escaped_acme_webroot
+  local escaped_domain escaped_cert_dir escaped_acme_webroot escaped_flask_ip escaped_flask_port
   escaped_domain="$(escape_sed_replacement "$TLS_DOMAIN")"
   escaped_cert_dir="$(escape_sed_replacement "$CERT_DIR")"
   escaped_acme_webroot="$(escape_sed_replacement "$ACME_WEBROOT")"
+  escaped_flask_ip="$(escape_sed_replacement "$FLASK_IP")"
+  escaped_flask_port="$(escape_sed_replacement "$FLASK_PORT")"
 
   GENERATED_CONFIG="$(mktemp)"
   sed \
     -e "s/__WALTER_DOMAIN__/$escaped_domain/g" \
     -e "s/__WALTER_CERT_DIR__/$escaped_cert_dir/g" \
     -e "s/__WALTER_ACME_WEBROOT__/$escaped_acme_webroot/g" \
+    -e "s/__WALTER_FLASK_IP__/$escaped_flask_ip/g" \
+    -e "s/__WALTER_FLASK_PORT__/$escaped_flask_port/g" \
     "$CONFIG_FILE" > "$GENERATED_CONFIG"
   CONFIG_FILE="$GENERATED_CONFIG"
 }
@@ -225,6 +286,7 @@ disable_packaged_default_site() {
   fi
 }
 
+load_app_config
 render_config
 
 if [[ -n "$TLS_DOMAIN" ]]; then
