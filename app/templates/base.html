@@ -52,6 +52,7 @@
               {% if current_user.has_permission('admin.panel') %}
               <a class="dropdown-item" href="{{ url_for('admin_panel') }}">Admin Panel</a>
               <a class="dropdown-item" href="{{ url_for('site_logs') }}">Site Logs</a>
+              <a class="dropdown-item" href="{{ url_for('admin_backup') }}">Backup &amp; Transfer</a>
               <a class="dropdown-item" href="{{ url_for('admin_reports') }}">Reports <span id="nav-reports-count" class="nav-badge{% if not nav_open_reports %} hidden{% endif %}">{{ nav_open_reports }}</span></a>
               {% endif %}
               {% if current_user.has_permission('admin.permissions') %}

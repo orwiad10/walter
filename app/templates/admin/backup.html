@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Admin</span>
+    <h2>Backup &amp; Transfer</h2>
+    <p class="page-description">Export or import tournaments, users, roles, and permission settings between WaLTER instances.</p>
+  </div>
+</section>
+
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Export backup</h3>
+      <p>The JSON backup includes {{ tournaments_count }} tournaments, {{ users_count }} users, and {{ roles_count }} roles.</p>
+    </div>
+  </div>
+  <p>
+    Exports include role permissions, user permission overrides, login hashes, tournament players,
+    rounds, pairings, match results, deck submissions, join requests, and league links. Keep the file private.
+  </p>
+  <form method="post" action="{{ url_for('admin_backup_export') }}" class="stacked-form">
+    <div class="form-grid two-column">
+      <label>Encryption password (optional)
+        <input type="password" name="export_password" minlength="8" autocomplete="new-password" placeholder="Leave blank for an unencrypted JSON backup">
+      </label>
+      <label>Confirm encryption password
+        <input type="password" name="export_password_confirm" minlength="8" autocomplete="new-password">
+      </label>
+    </div>
+    <p class="page-description">
+      Enter a password to protect the backup with AES-256-GCM encryption. You must keep this password;
+      encrypted backups cannot be imported without it.
+    </p>
+    <div class="form-actions">
+      <button class="btn" type="submit">Download backup JSON</button>
+      <a class="btn btn-secondary" href="{{ url_for('admin_backup_export') }}">Download without encryption</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Import backup</h3>
+      <p>Use this to seed or restore another WaLTER instance from a previously exported JSON backup.</p>
+    </div>
+  </div>
+  <form method="post" enctype="multipart/form-data" class="stacked-form">
+    <label>Backup JSON file
+      <input type="file" name="backup_file" accept="application/json,.json" required>
+    </label>
+    <label>Backup password (only for encrypted backups)
+      <input type="password" name="backup_password" autocomplete="current-password" placeholder="Required if the backup was encrypted">
+    </label>
+    <label class="checkbox-card">
+      <input type="checkbox" name="overwrite" value="yes">
+      <span>Overwrite matching records</span>
+      <small>When checked, matching roles, users, tournaments, and related records are updated. Leave unchecked to only add missing records.</small>
+    </label>
+    <p class="page-description">
+      Matching uses role name, user email (or name when no email exists), tournament GUID, and related tournament/user links.
+      Importing does not delete records that are absent from the backup.
+    </p>
+    <div class="form-actions">
+      <button class="btn" type="submit">Import backup</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
