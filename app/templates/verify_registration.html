@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="auth-card">
+  <h2 class="auth-card__title">Verify your email</h2>
+  <p class="auth-card__subtitle">Enter the 6-digit one-time PIN sent to your email address to finish creating your account.</p>
+  <form method="post" class="form-stacked">
+    <div class="form-field">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" value="{{ email }}" required>
+    </div>
+    <div class="form-field">
+      <label for="pin">Verification PIN</label>
+      <input id="pin" name="pin" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+    </div>
+    <div class="form-field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <div class="form-actions">
+      <button class="btn" type="submit">Verify Email</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -2,7 +2,10 @@
 {% block content %}
 <section class="auth-card">
   <h2 class="auth-card__title">Create your account</h2>
-  <p class="auth-card__subtitle">Register once to manage decks, join tournaments, and stay connected with staff.</p>
+  <p class="auth-card__subtitle">Register once to manage decks, join tournaments, and stay connected with staff. We will email you a one-time 6-digit PIN to verify your account.</p>
+  {% if invite_only %}
+  <p class="auth-card__subtitle">Account creation is currently invite only. Select your invited tournament and enter its passcode to continue.</p>
+  {% endif %}
   <form method="post" class="form-stacked">
     <div class="form-field">
       <label for="name">Name</label>

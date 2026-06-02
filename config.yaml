@@ -14,3 +14,11 @@ last_table_number: 200
 # letsencrypt_renewal_days: 30
 # letsencrypt_dry_run: false
 # acme_webroot: /var/www/letsencrypt
+
+# Mailgun settings for account verification email.
+# mailgun_api_key: key-your-mailgun-api-key
+# mailgun_domain: mg.example.com
+# mailgun_from_email: Walter <noreply@example.com>
+# registration_pin_ttl_minutes: 15
+# When true, public registration requires a valid tournament invite/passcode.
+account_creation_invite_only: false

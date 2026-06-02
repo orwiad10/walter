@@ -372,6 +372,11 @@ keys = [
     'letsencrypt_dry_run',
     'letsencrypt_server',
     'acme_webroot',
+    'mailgun_api_key',
+    'mailgun_domain',
+    'mailgun_from_email',
+    'registration_pin_ttl_minutes',
+    'account_creation_invite_only',
 ]
 
 for key in keys:
@@ -400,6 +405,11 @@ LETSENCRYPT_RENEWAL_DAYS="${LETSENCRYPT_RENEWAL_DAYS:-30}"
 LETSENCRYPT_DRY_RUN="${LETSENCRYPT_DRY_RUN:-false}"
 LETSENCRYPT_SERVER="${LETSENCRYPT_SERVER:-}"
 ACME_WEBROOT="${ACME_WEBROOT:-/var/www/letsencrypt}"
+MAILGUN_API_KEY="${MAILGUN_API_KEY:-}"
+MAILGUN_DOMAIN="${MAILGUN_DOMAIN:-}"
+MAILGUN_FROM_EMAIL="${MAILGUN_FROM_EMAIL:-}"
+REGISTRATION_PIN_TTL_MINUTES="${REGISTRATION_PIN_TTL_MINUTES:-15}"
+ACCOUNT_CREATION_INVITE_ONLY="${ACCOUNT_CREATION_INVITE_ONLY:-false}"
 
 cd "$SCRIPT_DIR"
 
@@ -408,6 +418,11 @@ export PASSWORD_SEED
 export FLASK_SECRET
 export FLASK_RUN_HOST="$FLASK_IP"
 export FLASK_RUN_PORT="$FLASK_PORT"
+export MAILGUN_API_KEY
+export MAILGUN_DOMAIN
+export MAILGUN_FROM_EMAIL
+export REGISTRATION_PIN_TTL_MINUTES
+export ACCOUNT_CREATION_INVITE_ONLY
 
 ensure_letsencrypt_certificate
 
