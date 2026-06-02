@@ -1,8 +1,9 @@
+import json
 import random
 from itertools import product
 
 from app.app import db
-from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult
+from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult, Venue
 from app.pairing import pair_round, compute_standings
 from datetime import datetime
 
@@ -278,6 +279,67 @@ def test_bulk_register_adds_existing_users(client, session):
     assert existing_two.id in tournament_player_ids
     new_user = session.query(User).filter_by(name='New Person').one()
     assert new_user.id in tournament_player_ids
+
+
+def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session):
+    bulk_role = Role(
+        name='bulk venue manager',
+        permissions=json.dumps({'tournaments.bulk_manage': True}),
+        level=100,
+    )
+    user = User(email='bulk-venue-manager@example.com', name='Bulk Venue Manager', role=bulk_role)
+    user.set_password('secret')
+    tournament = Tournament(name='Bulk Venue Event', format='Modern')
+    venue = Venue(name='Bulk Venue')
+    session.add_all([bulk_role, user, tournament, venue])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/tournaments/bulk',
+            data={
+                'bulk_action': 'venue',
+                'bulk_venue_id': str(venue.id),
+                'tournament_ids': [str(tournament.id)],
+            },
+        )
+
+    assert response.status_code == 302
+    assert response.location == '/'
+    session.expire_all()
+    assert session.get(Tournament, tournament.id).venue_id == venue.id
+
+
+def test_bulk_edit_tournaments_rejects_invalid_venue_id(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(
+        email='bulk-invalid-venue-admin@example.com',
+        name='Bulk Invalid Admin',
+        role=admin_role,
+        is_admin=True,
+    )
+    admin.set_password('secret')
+    tournament = Tournament(name='Invalid Venue Event', format='Modern')
+    venue = Venue(name='Existing Venue')
+    session.add_all([admin, tournament, venue])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/tournaments/bulk',
+            data={
+                'bulk_action': 'venue',
+                'bulk_venue_id': 'not-a-venue-id',
+                'tournament_ids': [str(tournament.id)],
+            },
+        )
+
+    assert response.status_code == 302
+    assert response.location == '/'
+    session.expire_all()
+    assert session.get(Tournament, tournament.id).venue_id is None
 
 
 def test_tournament_name_uses_format_timestamp_and_venue(client, session):
