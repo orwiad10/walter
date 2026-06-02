@@ -24,6 +24,9 @@
         {% if t.rules_enforcement_level %}
         <span><strong>REL</strong>{{ t.rules_enforcement_level }}</span>
         {% endif %}
+        {% if t.venue %}
+        <span><strong>Venue</strong>{{ t.venue.name }}</span>
+        {% endif %}
         <span><strong>Players</strong>{{ player_counts[t.id] }}</span>
         {% if t.head_judge %}
         <span><strong>Head Judge</strong>{{ t.head_judge.name }}</span>

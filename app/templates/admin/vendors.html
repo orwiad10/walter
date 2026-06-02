@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Venue Management</span>
+    <h2>Vendor Management</h2>
+    <p class="page-description">Track vendor websites, booths, services, and venue assignments.</p>
+  </div>
+  <div class="page-header__actions">
+    <a class="btn secondary" href="{{ url_for('venue_management') }}">Venues</a>
+    <a class="btn secondary" href="{{ url_for('artist_management') }}">Artist Profiles</a>
+  </div>
+</section>
+<section class="panel-card">
+  <h3>Create Vendor</h3>
+  <form method="post" class="compact-form">
+    <input name="name" placeholder="Vendor name" required>
+    <input name="website" type="url" placeholder="Website">
+    <input name="booth_number" placeholder="Booth number">
+    <select name="venue_id">
+      <option value="">No venue</option>
+      {% for venue in venues %}<option value="{{ venue.id }}">{{ venue.name }}</option>{% endfor %}
+    </select>
+    <textarea name="services_provided" rows="2" placeholder="Services provided"></textarea>
+    <button class="btn" type="submit">Create Vendor</button>
+  </form>
+</section>
+<section class="panel-card">
+  <h3>Vendors</h3>
+  {% if vendors %}
+  <table class="table">
+    <thead><tr><th>Name</th><th>Website</th><th>Booth</th><th>Venue</th><th>Services</th><th></th></tr></thead>
+    <tbody>
+      {% for vendor in vendors %}
+      <tr>
+        <td>
+          <form id="vendor-form-{{ vendor.id }}" method="post" action="{{ url_for('update_vendor', vendor_id=vendor.id) }}"></form>
+          <input form="vendor-form-{{ vendor.id }}" name="name" value="{{ vendor.name }}" required>
+        </td>
+        <td><input form="vendor-form-{{ vendor.id }}" name="website" type="url" value="{{ vendor.website or '' }}"></td>
+        <td><input form="vendor-form-{{ vendor.id }}" name="booth_number" value="{{ vendor.booth_number or '' }}"></td>
+        <td><select form="vendor-form-{{ vendor.id }}" name="venue_id"><option value="">No venue</option>{% for venue in venues %}<option value="{{ venue.id }}"{% if vendor.venue_id == venue.id %} selected{% endif %}>{{ venue.name }}</option>{% endfor %}</select></td>
+        <td><textarea form="vendor-form-{{ vendor.id }}" name="services_provided" rows="2">{{ vendor.services_provided or '' }}</textarea></td>
+        <td><button form="vendor-form-{{ vendor.id }}" class="btn" type="submit">Save</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No vendors created yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

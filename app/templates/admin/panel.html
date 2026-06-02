@@ -24,6 +24,12 @@
   <p>Create a private JSON backup for moving data between WaLTER instances or restoring a backup.</p>
   <div class="form-actions"><a class="btn" href="{{ url_for('admin_backup') }}">Open Backup &amp; Transfer</a></div>
 </section>
+{% if current_user.has_permission('venues.manage') %}
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Venue Management</h3><p>Create venues and track vendors and artists.</p></div></div>
+  <div class="form-actions"><a class="btn" href="{{ url_for('venue_management') }}">Open Venue Management</a></div>
+</section>
+{% endif %}
 <section class="panel-card">
   <div class="section-heading"><div><h3>Security Controls</h3><p>Audit bad logins and manage IP lockouts.</p></div></div>
   <div class="form-actions">

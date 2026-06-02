@@ -278,3 +278,36 @@ def test_bulk_register_adds_existing_users(client, session):
     assert existing_two.id in tournament_player_ids
     new_user = session.query(User).filter_by(name='New Person').one()
     assert new_user.id in tournament_player_ids
+
+
+def test_tournament_name_uses_format_timestamp_and_venue(client, session):
+    from app.models import Venue, User, Role, Tournament
+
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='admin-tournament-name@example.com', name='Tournament Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    venue = Venue(name='Convention Center')
+    session.add_all([admin, venue])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/tournaments/new',
+            data={
+                'name': 'Store Championship',
+                'format': 'Modern',
+                'structure': 'swiss',
+                'cut': 'top8',
+                'commander_points': '3,2,1,0,1',
+                'round_length': '50',
+                'start_table_number': '1',
+                'start_time': '2026-06-02T19:30',
+                'venue_id': str(venue.id),
+            },
+        )
+
+    assert response.status_code == 302
+    tournament = session.query(Tournament).filter_by(format='Modern').one()
+    assert tournament.name == 'Modern - 20260602 - 1930 - Store Championship'
+    assert tournament.venue_id == venue.id

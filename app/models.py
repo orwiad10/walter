@@ -20,6 +20,9 @@ PERMISSION_GROUPS = {
         'join': 'Join tournaments',
         'approve_join': 'Approve tournament join requests',
     },
+    'venues': {
+        'manage': 'Create and manage venues, vendors, and artists',
+    },
     'users': {
         'manage': 'Manage users',
         'manage_admins': 'Manage admin level users',
@@ -47,16 +50,19 @@ DEFAULT_ROLE_PERMISSIONS = {
         'tournaments.manage': True,
         'users.manage': True,
         'tournaments.approve_join': True,
+        'venues.manage': True,
     },
     'venue judge': {
         'tournaments.manage': True,
         'users.manage': True,
         'tournaments.approve_join': True,
+        'venues.manage': True,
     },
     'event head judge': {
         'tournaments.manage': True,
         'users.manage': True,
         'tournaments.approve_join': True,
+        'venues.manage': True,
     },
     'floor judge': {
         'users.manage': True,
@@ -309,8 +315,10 @@ class Tournament(db.Model):
     passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
     join_requires_approval = db.Column(db.Boolean, default=False)
     league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=True)
+    venue_id = db.Column(db.Integer, db.ForeignKey('venue.id'), nullable=True)
 
     league = db.relationship('League', backref=db.backref('tournaments', lazy=True))
+    venue = db.relationship('Venue', backref=db.backref('tournaments', lazy=True))
     head_judge = db.relationship('User', foreign_keys=[head_judge_id])
 
     def floor_judge_ids(self):
@@ -319,6 +327,39 @@ class Tournament(db.Model):
             return json.loads(self.floor_judges or '[]')
         except Exception:
             return []
+
+
+class Venue(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    address = db.Column(db.Text, nullable=True)
+    website = db.Column(db.Text, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+
+class Vendor(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    venue_id = db.Column(db.Integer, db.ForeignKey('venue.id'), nullable=True)
+    name = db.Column(db.String(200), nullable=False)
+    website = db.Column(db.Text, nullable=True)
+    booth_number = db.Column(db.String(50), nullable=True)
+    services_provided = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    venue = db.relationship('Venue', backref=db.backref('vendors', cascade='all, delete-orphan'))
+
+
+class ArtistProfile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    venue_id = db.Column(db.Integer, db.ForeignKey('venue.id'), nullable=True)
+    name = db.Column(db.String(200), nullable=False)
+    website = db.Column(db.Text, nullable=True)
+    booth_number = db.Column(db.String(50), nullable=True)
+    services_provided = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    venue = db.relationship('Venue', backref=db.backref('artists', cascade='all, delete-orphan'))
 
 class SiteLog(db.Model):
     __bind_key__ = 'logs'

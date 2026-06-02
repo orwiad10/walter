@@ -39,13 +39,19 @@
               <a class="dropdown-item" href="{{ url_for('leagues') }}">Leagues</a>
               <a class="dropdown-item" href="{{ url_for('staff_management') }}">Staff</a>
               <a class="dropdown-item" href="{{ url_for('schedule') }}">Schedule</a>
+              {% if current_user.has_permission('venues.manage') %}
+              <a class="dropdown-item" href="{{ url_for('venue_management') }}">Venue Management</a>
+              {% endif %}
             </div>
           </li>
           {% endif %}
-          {% if current_user.has_permission('users.manage') or current_user.has_permission('admin.panel') or current_user.has_permission('admin.permissions') or current_user.has_permission('admin.login_audit') or current_user.has_permission('admin.ip_blacklist') %}
+          {% if current_user.has_permission('users.manage') or current_user.has_permission('admin.panel') or current_user.has_permission('admin.permissions') or current_user.has_permission('admin.login_audit') or current_user.has_permission('admin.ip_blacklist') or current_user.has_permission('venues.manage') %}
           <li class="nav-item has-dropdown">
             <button class="nav-link" type="button" data-dropdown-toggle aria-expanded="false">Admin</button>
             <div class="dropdown-menu" role="menu">
+              {% if current_user.has_permission('venues.manage') %}
+              <a class="dropdown-item" href="{{ url_for('venue_management') }}">Venue Management</a>
+              {% endif %}
               {% if current_user.has_permission('users.manage') %}
               <a class="dropdown-item" href="{{ url_for('admin_users') }}">Manage Users</a>
               {% endif %}
