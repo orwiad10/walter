@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Tournament Deck Lists</span>
+    <h2>{{ t.name }}</h2>
+    <p class="page-description">Player deck lists shown as x,y mainboard and sideboard tables.</p>
+  </div>
+  <div class="page-header__actions">
+    <a class="btn secondary" href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a>
+  </div>
+</section>
+{% for row in deck_rows %}
+<section class="panel-card">
+  <div class="section-heading"><div><h3>{{ row.player.user.name }}</h3><p>{% if row.deck %}Main {{ row.deck.total_mainboard() }} · Side {{ row.deck.total_sideboard() }}{% if row.deck.is_submitted %} · Submitted{% else %} · Draft{% endif %}{% else %}No deck submitted{% endif %}</p></div></div>
+  {% if row.deck %}
+  <table class="table decklist-xy-table">
+    <thead><tr><th colspan="2">Mainboard (x,y)</th><th colspan="2">Sideboard (x,y)</th></tr><tr><th>x</th><th>y</th><th>x</th><th>y</th></tr></thead>
+    <tbody>
+      {% for card_row in row.rows %}
+      <tr>
+        <td>{{ card_row.main.count if card_row.main else '' }}</td>
+        <td>{{ card_row.main.name if card_row.main else '' }}</td>
+        <td>{{ card_row.side.count if card_row.side else '' }}</td>
+        <td>{{ card_row.side.name if card_row.side else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state compact-empty">No deck submitted.</p>
+  {% endif %}
+</section>
+{% else %}
+<section class="panel-card"><p>No players registered.</p></section>
+{% endfor %}
+{% endblock %}

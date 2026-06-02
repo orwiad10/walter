@@ -1813,3 +1813,38 @@ ul.flashes {
     width: 100%;
   }
 }
+.venue-assets-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.compact-table td {
+  padding: 0.35rem 0.5rem;
+}
+.bulk-select {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+.inline-add-player summary {
+  cursor: pointer;
+  list-style: none;
+}
+.inline-add-player summary::-webkit-details-marker {
+  display: none;
+}
+.inline-add-player summary::after {
+  content: 'Expand';
+  align-self: center;
+  color: var(--accent, #2563eb);
+  font-weight: 700;
+}
+.inline-add-player[open] summary::after {
+  content: 'Collapse';
+}
+.decklist-xy-table th,
+.decklist-xy-table td {
+  vertical-align: top;
+}

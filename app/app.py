@@ -198,6 +198,12 @@ def create_app():
             if 'venue_id' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN venue_id INTEGER'))
                 db.session.commit()
+            if 'started_at' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN started_at DATETIME'))
+                db.session.commit()
+            if 'ended_at' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN ended_at DATETIME'))
+                db.session.commit()
         if 'user' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'break_end' not in columns:
@@ -394,6 +400,8 @@ def create_app():
     def tournament_is_complete(tournament):
         players = list(getattr(tournament, 'players', []) or [])
         rounds = sorted(list(getattr(tournament, 'rounds', []) or []), key=lambda r: r.number)
+        if getattr(tournament, 'ended_at', None):
+            return True
         if not rounds:
             return False
         round_limit = tournament.rounds_override or recommended_rounds(len(players))
@@ -478,8 +486,9 @@ def create_app():
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         visible_tournaments = [t for t in tournaments if not tournament_is_complete(t)]
         player_counts = {t.id: len(t.players) for t in visible_tournaments}
+        venues = db.session.query(Venue).order_by(Venue.name).all() if current_user.is_authenticated and current_user.has_permission('tournaments.bulk_manage') else []
         return render_template('index.html', tournaments=visible_tournaments, player_counts=player_counts,
-                               server_now=datetime.utcnow())
+                               venues=venues, server_now=datetime.utcnow())
 
     def _send_mailgun_email(to_email, subject, text):
         api_key = app.config.get('MAILGUN_API_KEY')
@@ -1448,6 +1457,28 @@ def create_app():
 
     def require_admin():
         require_permission('admin.panel')
+
+    def venue_ids_for_user(user):
+        if not user or not getattr(user, 'is_authenticated', False):
+            return set()
+        if hasattr(user, 'has_permission') and user.has_permission('venues.manage'):
+            return {venue.id for venue in db.session.query(Venue.id).all()}
+        rows = (
+            db.session.query(Tournament.venue_id)
+            .join(TournamentPlayer, TournamentPlayer.tournament_id == Tournament.id)
+            .filter(TournamentPlayer.user_id == user.id, Tournament.venue_id.isnot(None))
+            .distinct()
+            .all()
+        )
+        return {row[0] for row in rows}
+
+    def restrict_to_visible_venues(query, model):
+        visible_ids = venue_ids_for_user(current_user)
+        if current_user.has_permission('venues.manage'):
+            return query
+        if not visible_ids:
+            return query.filter(False)
+        return query.filter(model.venue_id.in_(visible_ids))
 
     def log_site(action, result, error=None):
         log = SiteLog(action=action, result=result, error=error,
@@ -2584,9 +2615,10 @@ def create_app():
         return render_template('admin/edit_tournament.html', **template_context)
 
     @app.route('/admin/venues', methods=['GET', 'POST'])
+    @login_required
     def venue_management():
-        require_permission('venues.manage')
         if request.method == 'POST':
+            require_permission('venues.manage')
             name = request.form.get('name', '').strip()
             if not name:
                 flash('Venue name is required.', 'error')
@@ -2602,10 +2634,19 @@ def create_app():
                 log_site('venue_create', 'success', f'venue_id={venue.id}')
                 flash('Venue created.', 'success')
                 return redirect(url_for('venue_management'))
-        venues = db.session.query(Venue).order_by(Venue.name).all()
-        return render_template('admin/venues.html', venues=venues)
+        venue_query = db.session.query(Venue).order_by(Venue.name)
+        if not current_user.has_permission('venues.manage'):
+            visible_ids = venue_ids_for_user(current_user)
+            venue_query = venue_query.filter(Venue.id.in_(visible_ids)) if visible_ids else venue_query.filter(False)
+        venues = venue_query.all()
+        return render_template(
+            'admin/venues.html',
+            venues=venues,
+            can_manage_venues=current_user.has_permission('venues.manage'),
+        )
 
     @app.route('/admin/venues/<int:venue_id>/update', methods=['POST'])
+    @login_required
     def update_venue(venue_id):
         require_permission('venues.manage')
         venue = db.session.get(Venue, venue_id)
@@ -2625,10 +2666,15 @@ def create_app():
         return redirect(url_for('venue_management'))
 
     @app.route('/admin/venues/vendors', methods=['GET', 'POST'])
+    @login_required
     def vendor_management():
-        require_permission('venues.manage')
-        venues = db.session.query(Venue).order_by(Venue.name).all()
+        venue_query = db.session.query(Venue).order_by(Venue.name)
+        if not current_user.has_permission('venues.manage'):
+            visible_ids = venue_ids_for_user(current_user)
+            venue_query = venue_query.filter(Venue.id.in_(visible_ids)) if visible_ids else venue_query.filter(False)
+        venues = venue_query.all()
         if request.method == 'POST':
+            require_permission('venues.manage')
             name = request.form.get('name', '').strip()
             if not name:
                 flash('Vendor name is required.', 'error')
@@ -2645,10 +2691,11 @@ def create_app():
                 log_site('vendor_create', 'success', f'vendor_id={vendor.id}')
                 flash('Vendor created.', 'success')
                 return redirect(url_for('vendor_management'))
-        vendors = db.session.query(Vendor).order_by(Vendor.name).all()
-        return render_template('admin/vendors.html', vendors=vendors, venues=venues)
+        vendors = restrict_to_visible_venues(db.session.query(Vendor), Vendor).order_by(Vendor.name).all()
+        return render_template('admin/vendors.html', vendors=vendors, venues=venues, can_manage_venues=current_user.has_permission('venues.manage'))
 
     @app.route('/admin/venues/vendors/<int:vendor_id>/update', methods=['POST'])
+    @login_required
     def update_vendor(vendor_id):
         require_permission('venues.manage')
         vendor = db.session.get(Vendor, vendor_id)
@@ -2669,10 +2716,15 @@ def create_app():
         return redirect(url_for('vendor_management'))
 
     @app.route('/admin/venues/artists', methods=['GET', 'POST'])
+    @login_required
     def artist_management():
-        require_permission('venues.manage')
-        venues = db.session.query(Venue).order_by(Venue.name).all()
+        venue_query = db.session.query(Venue).order_by(Venue.name)
+        if not current_user.has_permission('venues.manage'):
+            visible_ids = venue_ids_for_user(current_user)
+            venue_query = venue_query.filter(Venue.id.in_(visible_ids)) if visible_ids else venue_query.filter(False)
+        venues = venue_query.all()
         if request.method == 'POST':
+            require_permission('venues.manage')
             name = request.form.get('name', '').strip()
             if not name:
                 flash('Artist name is required.', 'error')
@@ -2689,10 +2741,11 @@ def create_app():
                 log_site('artist_create', 'success', f'artist_id={artist.id}')
                 flash('Artist profile created.', 'success')
                 return redirect(url_for('artist_management'))
-        artists = db.session.query(ArtistProfile).order_by(ArtistProfile.name).all()
-        return render_template('admin/artists.html', artists=artists, venues=venues)
+        artists = restrict_to_visible_venues(db.session.query(ArtistProfile), ArtistProfile).order_by(ArtistProfile.name).all()
+        return render_template('admin/artists.html', artists=artists, venues=venues, can_manage_venues=current_user.has_permission('venues.manage'))
 
     @app.route('/admin/venues/artists/<int:artist_id>/update', methods=['POST'])
+    @login_required
     def update_artist(artist_id):
         require_permission('venues.manage')
         artist = db.session.get(ArtistProfile, artist_id)
@@ -3271,6 +3324,75 @@ def create_app():
             headers={'Content-Disposition': 'attachment; filename=walter_bad_ips_iptables.sh'},
         )
 
+    @app.route('/admin/tournaments/bulk', methods=['POST'])
+    @login_required
+    def bulk_edit_tournaments():
+        require_permission('admin.panel')
+        require_permission('tournaments.bulk_manage')
+        raw_ids = request.form.getlist('tournament_ids')
+        tournament_ids = []
+        for raw_id in raw_ids:
+            try:
+                tournament_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+        action = (request.form.get('bulk_action') or '').strip()
+        if not tournament_ids:
+            flash('Select at least one tournament.', 'error')
+            return redirect(url_for('index'))
+        tournaments = db.session.query(Tournament).filter(Tournament.id.in_(tournament_ids)).all()
+        tournament_by_id = {t.id: t for t in tournaments}
+        ordered_tournaments = [tournament_by_id[tid] for tid in tournament_ids if tid in tournament_by_id]
+        count = 0
+        now = datetime.utcnow()
+        if action == 'venue':
+            venue_raw = request.form.get('bulk_venue_id')
+            venue_id = int(venue_raw) if venue_raw else None
+            if venue_id and not db.session.get(Venue, venue_id):
+                flash('Selected venue was not found.', 'error')
+                return redirect(url_for('index'))
+            for tournament in ordered_tournaments:
+                tournament.venue_id = venue_id
+                db.session.flush()
+                db.session.add(TournamentLog(tournament_id=tournament.id, action='bulk_set_venue', result='success', error=f'venue_id={venue_id}', user_id=current_user.id))
+                db.session.add(SiteLog(action='bulk_set_tournament_venue', result='success', error=f'tournament_id={tournament.id}; venue_id={venue_id}', user_id=current_user.id))
+                count += 1
+        elif action == 'start':
+            for tournament in ordered_tournaments:
+                tournament.started_at = now
+                if not tournament.start_time:
+                    tournament.start_time = now
+                    tournament.name = format_tournament_name(tournament.format, tournament.start_time, extract_provided_tournament_name(tournament.name))
+                tournament.ended_at = None
+                db.session.flush()
+                db.session.add(TournamentLog(tournament_id=tournament.id, action='bulk_start', result='success', user_id=current_user.id))
+                db.session.add(SiteLog(action='bulk_start_tournament', result='success', error=f'tournament_id={tournament.id}', user_id=current_user.id))
+                count += 1
+        elif action == 'end':
+            for tournament in ordered_tournaments:
+                tournament.ended_at = now
+                tournament.round_timer_end = None
+                tournament.draft_timer_end = None
+                tournament.deck_timer_end = None
+                db.session.flush()
+                db.session.add(TournamentLog(tournament_id=tournament.id, action='bulk_end', result='success', user_id=current_user.id))
+                db.session.add(SiteLog(action='bulk_end_tournament', result='success', error=f'tournament_id={tournament.id}', user_id=current_user.id))
+                count += 1
+        elif action == 'delete':
+            for tournament in ordered_tournaments:
+                tid = tournament.id
+                name = tournament.name
+                db.session.add(TournamentLog(tournament_id=tid, action='bulk_delete', result='success', user_id=current_user.id))
+                db.session.add(SiteLog(action='bulk_delete_tournament', result='success', error=f'tournament_id={tid}; name={name}', user_id=current_user.id))
+                db.session.delete(tournament)
+                count += 1
+        else:
+            flash('Choose a bulk action.', 'error')
+            return redirect(url_for('index'))
+        db.session.commit()
+        flash(f'Bulk action applied to {count} tournament' + ('s' if count != 1 else '') + '.', 'success')
+        return redirect(url_for('index'))
+
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
         require_permission('tournaments.manage')
@@ -3402,6 +3524,30 @@ def create_app():
                                can_view_player_decks=can_view_player_decks,
                                available_users=available_users,
                                server_now=datetime.utcnow())
+
+    @app.route('/t/<int:tid>/decklists')
+    @login_required
+    def tournament_decklists(tid):
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        if not user_can_view_player_decks(current_user, t):
+            abort(403)
+        players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).order_by(TournamentPlayer.id).all()
+        deck_rows = []
+        for player in players:
+            deck = player.deck
+            main_cards = deck.mainboard_cards() if deck else []
+            side_cards = deck.sideboard_cards() if deck else []
+            max_len = max(len(main_cards), len(side_cards), 1)
+            rows = []
+            for index in range(max_len):
+                rows.append({
+                    'main': main_cards[index] if index < len(main_cards) else None,
+                    'side': side_cards[index] if index < len(side_cards) else None,
+                })
+            deck_rows.append({'player': player, 'deck': deck, 'rows': rows})
+        return render_template('tournament/decklists.html', t=t, deck_rows=deck_rows)
 
     @app.route('/t/<int:tid>/players/<int:player_id>/deck')
     @login_required
