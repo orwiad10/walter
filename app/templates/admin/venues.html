@@ -4,13 +4,14 @@
   <div class="page-header__title">
     <span class="eyebrow">Admin</span>
     <h2>Venue Management</h2>
-    <p class="page-description">Create venues and manage the vendor and artist subpages for event locations.</p>
+    <p class="page-description">Create venues and view venue assets available through tournament membership.</p>
   </div>
   <div class="page-header__actions">
     <a class="btn secondary" href="{{ url_for('vendor_management') }}">Vendor Management</a>
     <a class="btn secondary" href="{{ url_for('artist_management') }}">Artist Profiles</a>
   </div>
 </section>
+{% if can_manage_venues %}
 <section class="panel-card">
   <h3>Create Venue</h3>
   <form method="post" class="compact-form">
@@ -21,28 +22,59 @@
     <button class="btn" type="submit">Create Venue</button>
   </form>
 </section>
+{% endif %}
 <section class="panel-card">
   <h3>Venues</h3>
   {% if venues %}
   <table class="table">
-    <thead><tr><th>Name</th><th>Website</th><th>Address</th><th>Notes</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Website</th><th>Address</th><th>Notes</th>{% if can_manage_venues %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for venue in venues %}
       <tr>
         <td>
+          {% if can_manage_venues %}
           <form id="venue-form-{{ venue.id }}" method="post" action="{{ url_for('update_venue', venue_id=venue.id) }}"></form>
           <input form="venue-form-{{ venue.id }}" name="name" value="{{ venue.name }}" required>
+          {% else %}
+          <strong>{{ venue.name }}</strong>
+          {% endif %}
         </td>
-        <td><input form="venue-form-{{ venue.id }}" name="website" type="url" value="{{ venue.website or '' }}"></td>
-        <td><textarea form="venue-form-{{ venue.id }}" name="address" rows="2">{{ venue.address or '' }}</textarea></td>
-        <td><textarea form="venue-form-{{ venue.id }}" name="notes" rows="2">{{ venue.notes or '' }}</textarea></td>
-        <td><button form="venue-form-{{ venue.id }}" class="btn" type="submit">Save</button></td>
+        <td>
+          {% if can_manage_venues %}<input form="venue-form-{{ venue.id }}" name="website" type="url" value="{{ venue.website or '' }}">{% elif venue.website %}<a href="{{ venue.website }}" target="_blank" rel="noopener">Website</a>{% else %}-{% endif %}
+        </td>
+        <td>{% if can_manage_venues %}<textarea form="venue-form-{{ venue.id }}" name="address" rows="2">{{ venue.address or '' }}</textarea>{% else %}{{ venue.address or '-' }}{% endif %}</td>
+        <td>{% if can_manage_venues %}<textarea form="venue-form-{{ venue.id }}" name="notes" rows="2">{{ venue.notes or '' }}</textarea>{% else %}{{ venue.notes or '-' }}{% endif %}</td>
+        {% if can_manage_venues %}<td><button form="venue-form-{{ venue.id }}" class="btn" type="submit">Save</button></td>{% endif %}
+      </tr>
+      <tr>
+        <td colspan="{{ 5 if can_manage_venues else 4 }}">
+          <div class="venue-assets-grid">
+            <div>
+              <h4>Artists</h4>
+              {% if venue.artists %}
+              <table class="table compact-table"><tbody>{% for artist in venue.artists %}<tr><td><a href="{{ url_for('artist_management') }}#artist-{{ artist.id }}">{{ artist.name }}</a></td><td>{{ artist.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+              {% else %}<p class="empty-state compact-empty">No artists.</p>{% endif %}
+            </div>
+            <div>
+              <h4>Vendors</h4>
+              {% if venue.vendors %}
+              <table class="table compact-table"><tbody>{% for vendor in venue.vendors %}<tr><td><a href="{{ url_for('vendor_management') }}#vendor-{{ vendor.id }}">{{ vendor.name }}</a></td><td>{{ vendor.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+              {% else %}<p class="empty-state compact-empty">No vendors.</p>{% endif %}
+            </div>
+            <div>
+              <h4>Tournaments</h4>
+              {% if venue.tournaments %}
+              <table class="table compact-table"><tbody>{% for tournament in venue.tournaments %}<tr><td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td><td>{{ tournament.start_time or '-' }}</td></tr>{% endfor %}</tbody></table>
+              {% else %}<p class="empty-state compact-empty">No tournaments.</p>{% endif %}
+            </div>
+          </div>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p>No venues created yet.</p>
+  <p>No venues available.</p>
   {% endif %}
 </section>
 {% endblock %}

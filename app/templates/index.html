@@ -12,9 +12,33 @@
   {% endif %}
 </section>
 
+{% set can_bulk_edit = current_user.is_authenticated and current_user.has_permission('tournaments.bulk_manage') %}
+{% if can_bulk_edit %}
+<form method="post" action="{{ url_for('bulk_edit_tournaments') }}" class="bulk-tournament-form panel-card" onsubmit="return confirm('Apply this bulk action to selected tournaments?');">
+  <div class="section-heading"><div><h3>Bulk Edit Tournaments</h3><p>Select tournaments below, then add them to a venue, start, end, or delete them.</p></div></div>
+  <div class="form-grid two-column">
+    <label>Action
+      <select name="bulk_action" required>
+        <option value="">Choose action</option>
+        <option value="venue">Add to venue</option>
+        <option value="start">Start</option>
+        <option value="end">End</option>
+        <option value="delete">Delete</option>
+      </select>
+    </label>
+    <label>Venue for Add to venue
+      <select name="bulk_venue_id">
+        <option value="">No venue</option>
+        {% for venue in venues or [] %}<option value="{{ venue.id }}">{{ venue.name }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+  <div class="form-actions"><button class="btn" type="submit">Apply Bulk Action</button></div>
+{% endif %}
 <ul class="cards">
   {% for t in tournaments %}
     <li class="card">
+      {% if can_bulk_edit %}<label class="bulk-select"><input type="checkbox" name="tournament_ids" value="{{ t.id }}"> Select for bulk edit</label>{% endif %}
       <div class="card-header">
         <h3 class="card-title"><a href="{{ url_for('view_tournament', tid=t.id) }}">{{ t.name }}</a></h3>
       </div>
@@ -52,4 +76,5 @@
     </li>
   {% endfor %}
 </ul>
+{% if can_bulk_edit %}</form>{% endif %}
 {% endblock %}

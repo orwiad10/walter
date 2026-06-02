@@ -19,6 +19,7 @@ PERMISSION_GROUPS = {
         'manage': 'Create and manage tournaments',
         'join': 'Join tournaments',
         'approve_join': 'Approve tournament join requests',
+        'bulk_manage': 'Bulk edit tournaments',
     },
     'venues': {
         'manage': 'Create and manage venues, vendors, and artists',
@@ -303,6 +304,8 @@ class Tournament(db.Model):
     deck_build_time = db.Column(db.Integer, nullable=True)
     # Optional scheduled start time for tournament
     start_time = db.Column(db.DateTime, nullable=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    ended_at = db.Column(db.DateTime, nullable=True)
     # Judge assignments
     head_judge_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     floor_judges = db.Column(db.Text, default='[]')  # store list of user ids as JSON

@@ -11,6 +11,7 @@
     <a class="btn secondary" href="{{ url_for('artist_management') }}">Artist Profiles</a>
   </div>
 </section>
+{% if can_manage_venues %}
 <section class="panel-card">
   <h3>Create Vendor</h3>
   <form method="post" class="compact-form">
@@ -25,29 +26,32 @@
     <button class="btn" type="submit">Create Vendor</button>
   </form>
 </section>
+{% endif %}
 <section class="panel-card">
   <h3>Vendors</h3>
   {% if vendors %}
   <table class="table">
-    <thead><tr><th>Name</th><th>Website</th><th>Booth</th><th>Venue</th><th>Services</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Website</th><th>Booth</th><th>Venue</th><th>Services</th>{% if can_manage_venues %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for vendor in vendors %}
-      <tr>
+      <tr id="vendor-{{ vendor.id }}">
         <td>
+          {% if can_manage_venues %}
           <form id="vendor-form-{{ vendor.id }}" method="post" action="{{ url_for('update_vendor', vendor_id=vendor.id) }}"></form>
           <input form="vendor-form-{{ vendor.id }}" name="name" value="{{ vendor.name }}" required>
+          {% else %}<strong>{{ vendor.name }}</strong>{% endif %}
         </td>
-        <td><input form="vendor-form-{{ vendor.id }}" name="website" type="url" value="{{ vendor.website or '' }}"></td>
-        <td><input form="vendor-form-{{ vendor.id }}" name="booth_number" value="{{ vendor.booth_number or '' }}"></td>
-        <td><select form="vendor-form-{{ vendor.id }}" name="venue_id"><option value="">No venue</option>{% for venue in venues %}<option value="{{ venue.id }}"{% if vendor.venue_id == venue.id %} selected{% endif %}>{{ venue.name }}</option>{% endfor %}</select></td>
-        <td><textarea form="vendor-form-{{ vendor.id }}" name="services_provided" rows="2">{{ vendor.services_provided or '' }}</textarea></td>
-        <td><button form="vendor-form-{{ vendor.id }}" class="btn" type="submit">Save</button></td>
+        <td>{% if can_manage_venues %}<input form="vendor-form-{{ vendor.id }}" name="website" type="url" value="{{ vendor.website or '' }}">{% elif vendor.website %}<a href="{{ vendor.website }}" target="_blank" rel="noopener">Website</a>{% else %}-{% endif %}</td>
+        <td>{% if can_manage_venues %}<input form="vendor-form-{{ vendor.id }}" name="booth_number" value="{{ vendor.booth_number or '' }}">{% else %}{{ vendor.booth_number or '-' }}{% endif %}</td>
+        <td>{% if can_manage_venues %}<select form="vendor-form-{{ vendor.id }}" name="venue_id"><option value="">No venue</option>{% for venue in venues %}<option value="{{ venue.id }}"{% if vendor.venue_id == venue.id %} selected{% endif %}>{{ venue.name }}</option>{% endfor %}</select>{% else %}{{ vendor.venue.name if vendor.venue else 'No venue' }}{% endif %}</td>
+        <td>{% if can_manage_venues %}<textarea form="vendor-form-{{ vendor.id }}" name="services_provided" rows="2">{{ vendor.services_provided or '' }}</textarea>{% else %}{{ vendor.services_provided or '-' }}{% endif %}</td>
+        {% if can_manage_venues %}<td><button form="vendor-form-{{ vendor.id }}" class="btn" type="submit">Save</button></td>{% endif %}
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p>No vendors created yet.</p>
+  <p>No vendors available.</p>
   {% endif %}
 </section>
 {% endblock %}
