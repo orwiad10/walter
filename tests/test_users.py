@@ -93,3 +93,103 @@ def test_admin_bulk_delete_users(client, session):
     assert session.get(User, user_one.id) is None
     assert session.get(User, user_two.id) is None
     assert session.get(User, admin.id) is not None
+
+
+def test_registration_sends_mailgun_pin_and_requires_verification(client, session, app, monkeypatch):
+    from app.models import PendingRegistration
+
+    app.config['MAILGUN_API_KEY'] = 'key-test'
+    app.config['MAILGUN_DOMAIN'] = 'mg.example.com'
+    app.config['MAILGUN_FROM_EMAIL'] = 'Walter <noreply@example.com>'
+    sent = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_urlopen(request_obj, timeout=10):
+        sent['url'] = request_obj.full_url
+        sent['body'] = request_obj.data.decode()
+        sent['auth'] = request_obj.headers.get('Authorization')
+        return FakeResponse()
+
+    monkeypatch.setattr('app.app.urllib.request.urlopen', fake_urlopen)
+
+    response = client.post('/register', data={
+        'email': 'new@example.com',
+        'name': 'New User',
+        'password': 'secret',
+        'password_confirm': 'secret',
+    })
+
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/register/verify?email=new@example.com')
+    pending = session.query(PendingRegistration).filter_by(email='new@example.com').one()
+    assert len(pending.verification_pin) == 6
+    assert sent['url'] == 'https://api.mailgun.net/v3/mg.example.com/messages'
+    assert 'new%40example.com' in sent['body']
+    assert pending.verification_pin in sent['body']
+    assert session.query(User).filter_by(email='new@example.com').first() is None
+
+    verify_response = client.post('/register/verify', data={
+        'email': 'new@example.com',
+        'pin': pending.verification_pin,
+        'password': 'secret',
+    })
+
+    assert verify_response.status_code == 302
+    created = session.query(User).filter_by(email='new@example.com').one()
+    assert created.check_password('secret')
+    assert session.query(PendingRegistration).filter_by(email='new@example.com').first() is None
+
+
+def test_invite_only_registration_requires_tournament_passcode(client, session, app, monkeypatch):
+    from app.models import Tournament
+
+    app.config['ACCOUNT_CREATION_INVITE_ONLY'] = True
+
+    response = client.post('/register', data={
+        'email': 'blocked@example.com',
+        'name': 'Blocked User',
+        'password': 'secret',
+        'password_confirm': 'secret',
+    })
+
+    assert response.status_code == 302
+    assert session.query(User).filter_by(email='blocked@example.com').first() is None
+
+    tournament = Tournament(name='Invite Event', format='Constructed', passcode='1234')
+    session.add(tournament)
+    session.commit()
+
+    app.config['MAILGUN_API_KEY'] = 'key-test'
+    app.config['MAILGUN_DOMAIN'] = 'mg.example.com'
+    app.config['MAILGUN_FROM_EMAIL'] = 'Walter <noreply@example.com>'
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr('app.app.urllib.request.urlopen', lambda request_obj, timeout=10: FakeResponse())
+
+    response = client.post('/register', data={
+        'email': 'invited@example.com',
+        'name': 'Invited User',
+        'password': 'secret',
+        'password_confirm': 'secret',
+        'tournament_id': str(tournament.id),
+        'passcode': '1234',
+    })
+
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/register/verify?email=invited@example.com')

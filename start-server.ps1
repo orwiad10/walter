@@ -53,6 +53,11 @@ $FlaskSecret = $cfg.flask_secret
 $PasswordSeed = $cfg.password_seed
 $FlaskIP = $cfg.flask_ip
 $FlaskPort = $cfg.flask_port
+$MailgunApiKey = $cfg.mailgun_api_key
+$MailgunDomain = $cfg.mailgun_domain
+$MailgunFromEmail = $cfg.mailgun_from_email
+$RegistrationPinTtlMinutes = $cfg.registration_pin_ttl_minutes
+$AccountCreationInviteOnly = $cfg.account_creation_invite_only
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 ######enable testing###########
@@ -65,6 +70,8 @@ if([string]::IsNullOrEmpty($FlaskSecret)){ $FlaskSecret = "dev-secret-change-me"
 if([string]::IsNullOrEmpty($PasswordSeed)){ $PasswordSeed = "dev-password-seed-change-me" }
 if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "127.0.0.1" }
 if([string]::IsNullOrEmpty($FlaskPort)){ $FlaskPort = 5000 }
+if([string]::IsNullOrEmpty($RegistrationPinTtlMinutes)){ $RegistrationPinTtlMinutes = 15 }
+if($null -eq $AccountCreationInviteOnly){ $AccountCreationInviteOnly = $false }
 
 #check if Flask/Waitress is already running and stop it if necessary
 $flaskpid = try{
@@ -91,6 +98,11 @@ $env:FLASK_SECRET = $FlaskSecret
 
 $env:FLASK_RUN_HOST = $FlaskIP
 $env:FLASK_RUN_PORT = $FlaskPort
+$env:MAILGUN_API_KEY = $MailgunApiKey
+$env:MAILGUN_DOMAIN = $MailgunDomain
+$env:MAILGUN_FROM_EMAIL = $MailgunFromEmail
+$env:REGISTRATION_PIN_TTL_MINUTES = $RegistrationPinTtlMinutes
+$env:ACCOUNT_CREATION_INVITE_ONLY = $AccountCreationInviteOnly
 
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 

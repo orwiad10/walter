@@ -7,6 +7,7 @@ import os
 import random
 import hashlib
 import json
+import secrets
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -171,6 +172,32 @@ class User(db.Model, UserMixin):
         if not self.role:
             return False
         return self.role.permissions_dict().get(key, False)
+
+
+class PendingRegistration(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    password_hash = db.Column(db.Text, nullable=False)
+    salt = db.Column(db.String(32), nullable=False)
+    verification_pin = db.Column(db.String(6), nullable=False)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=True)
+    tournament_passcode = db.Column(db.String(4), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    expires_at = db.Column(db.DateTime, nullable=False)
+
+    tournament = db.relationship('Tournament')
+
+    def set_password(self, pw):
+        self.salt = os.urandom(16).hex()
+        self.password_hash = hashlib.sha256((self.salt + pw).encode()).hexdigest()
+
+    def check_password(self, pw):
+        return self.password_hash == hashlib.sha256((self.salt + pw).encode()).hexdigest()
+
+    @staticmethod
+    def generate_pin():
+        return f"{secrets.randbelow(1000000):06d}"
 
 
 class Message(db.Model):

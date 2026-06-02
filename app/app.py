@@ -33,6 +33,8 @@ import io
 import glob
 import secrets
 import csv
+import urllib.parse
+import urllib.request
 from collections import OrderedDict
 from urllib.parse import urlparse
 from sqlalchemy import inspect, text, or_
@@ -84,6 +86,11 @@ def create_app():
     app.config['CARD_DB_URL'] = os.environ.get('MTG_CARD_DB_URL', card_db.ATOMIC_CARDS_URL)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
+    app.config['MAILGUN_API_KEY'] = os.environ.get('MAILGUN_API_KEY', '')
+    app.config['MAILGUN_DOMAIN'] = os.environ.get('MAILGUN_DOMAIN', '')
+    app.config['MAILGUN_FROM_EMAIL'] = os.environ.get('MAILGUN_FROM_EMAIL', '')
+    app.config['ACCOUNT_CREATION_INVITE_ONLY'] = os.environ.get('ACCOUNT_CREATION_INVITE_ONLY', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    app.config['REGISTRATION_PIN_TTL_MINUTES'] = int(os.environ.get('REGISTRATION_PIN_TTL_MINUTES', '15'))
 
     last_table_env = os.environ.get('MTG_LAST_TABLE_NUMBER', '').strip()
     if last_table_env:
@@ -190,7 +197,7 @@ def create_app():
                     {'level': level, 'name': role_name},
                 )
             db.session.commit()
-        from .models import Report, TournamentJoinRequest  # lazy import to avoid circular reference
+        from .models import Report, TournamentJoinRequest, PendingRegistration  # lazy import to avoid circular reference
 
         if 'report' not in inspector.get_table_names():
             Report.__table__.create(bind=db.engine)
@@ -207,6 +214,7 @@ def create_app():
                 db.session.execute(text('ALTER TABLE report ADD COLUMN actions_taken TEXT'))
                 db.session.commit()
         TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
+        PendingRegistration.__table__.create(bind=db.engine, checkfirst=True)
         from .models import LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult
 
         League.__table__.create(bind=db.engine, checkfirst=True)
@@ -242,6 +250,7 @@ def create_app():
         Message,
         Report,
         TournamentJoinRequest,
+        PendingRegistration,
         LostFoundItem,
         League,
         LeaguePlayer,
@@ -398,17 +407,52 @@ def create_app():
         return render_template('index.html', tournaments=visible_tournaments, player_counts=player_counts,
                                server_now=datetime.utcnow())
 
+    def _send_mailgun_email(to_email, subject, text):
+        api_key = app.config.get('MAILGUN_API_KEY')
+        domain = app.config.get('MAILGUN_DOMAIN')
+        from_email = app.config.get('MAILGUN_FROM_EMAIL') or (f"Walter <mailgun@{domain}>" if domain else '')
+        if not api_key or not domain or not from_email:
+            raise RuntimeError('Mailgun is not configured. Set mailgun_api_key, mailgun_domain, and mailgun_from_email in config.yaml.')
+        data = urllib.parse.urlencode({
+            'from': from_email,
+            'to': to_email,
+            'subject': subject,
+            'text': text,
+        }).encode()
+        request_obj = urllib.request.Request(
+            f'https://api.mailgun.net/v3/{domain}/messages',
+            data=data,
+            headers={
+                'Authorization': 'Basic ' + base64.b64encode(f'api:{api_key}'.encode()).decode(),
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            method='POST',
+        )
+        with urllib.request.urlopen(request_obj, timeout=10) as response:
+            if response.status >= 400:
+                raise RuntimeError(f'Mailgun returned HTTP {response.status}')
+
+    def _send_registration_pin(email, pin):
+        _send_mailgun_email(
+            email,
+            'Your Walter verification PIN',
+            f'Use this one-time PIN to verify your Walter account: {pin}\n\nThis PIN expires in {app.config.get("REGISTRATION_PIN_TTL_MINUTES", 15)} minutes.',
+        )
+
     @app.route('/register', methods=['GET','POST'])
     def register():
-        from .models import User, Tournament, TournamentPlayer, Role
+        from .models import User, Tournament, TournamentPlayer, Role, PendingRegistration
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         prefill_tournament_id = request.args.get('tournament_id', '').strip()
         prefill_passcode = request.args.get('passcode', '').strip()
+        invite_only = app.config.get('ACCOUNT_CREATION_INVITE_ONLY', False)
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
             name = request.form['name'].strip()
             password = request.form['password']
             confirm = request.form.get('password_confirm', '')
+            tournament_id = request.form.get('tournament_id')
+            tournament_passcode = request.form.get('passcode', '').strip()
             if password != confirm:
                 flash("Passwords do not match", "error")
                 log_site('register', 'failure', 'password mismatch')
@@ -417,31 +461,114 @@ def create_app():
                 flash("Email already registered", "error")
                 log_site('register', 'failure', 'email exists')
                 return redirect(url_for('register'))
-            role_user = db.session.query(Role).filter_by(name='user').first()
-            u = User(email=email, name=name, role=role_user)
-            u.set_password(password)
-            u.generate_keys(password)
-            db.session.add(u)
-            db.session.commit()
-            log_site('register', 'success')
-            tournament_id = request.form.get('tournament_id')
+
+            selected_tournament = None
             if tournament_id:
-                t = db.session.get(Tournament, int(tournament_id))
-                code = request.form.get('passcode', '')
-                if not t or code != t.passcode:
+                try:
+                    selected_tournament = db.session.get(Tournament, int(tournament_id))
+                except (TypeError, ValueError):
+                    selected_tournament = None
+                if not selected_tournament or tournament_passcode != selected_tournament.passcode:
                     flash("Invalid tournament passcode", "error")
+                    log_site('register', 'failure', 'invalid tournament passcode')
                     return redirect(url_for('register'))
-                tp = TournamentPlayer(tournament_id=int(tournament_id), user_id=u.id)
-                db.session.add(tp)
-                db.session.commit()
-            flash("Registered. Please login.", "success")
-            return redirect(url_for('login', next=request.args.get('next')))
+            elif invite_only:
+                flash("Account creation is invite only. Use a tournament invite link or passcode to register.", "error")
+                log_site('register', 'failure', 'invite required')
+                return redirect(url_for('register'))
+
+            db.session.query(PendingRegistration).filter(PendingRegistration.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)).delete()
+            existing_pending = db.session.query(PendingRegistration).filter_by(email=email).first()
+            if existing_pending:
+                db.session.delete(existing_pending)
+                db.session.flush()
+            pin = PendingRegistration.generate_pin()
+            pending = PendingRegistration(
+                email=email,
+                name=name,
+                verification_pin=pin,
+                tournament_id=selected_tournament.id if selected_tournament else None,
+                tournament_passcode=tournament_passcode if selected_tournament else None,
+                expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=app.config.get('REGISTRATION_PIN_TTL_MINUTES', 15)),
+            )
+            pending.set_password(password)
+            db.session.add(pending)
+            try:
+                _send_registration_pin(email, pin)
+            except Exception as exc:
+                db.session.rollback()
+                app.logger.warning('Unable to send registration PIN via Mailgun: %s', exc)
+                flash("We could not send your verification email. Please contact an administrator.", "error")
+                log_site('register', 'failure', 'mailgun send failed')
+                return redirect(url_for('register'))
+            db.session.commit()
+            log_site('register', 'pin_sent')
+            flash("Check your email for a 6-digit verification PIN to finish creating your account.", "success")
+            return redirect(url_for('verify_registration', email=email, next=request.args.get('next')))
         return render_template(
             'register.html',
             tournaments=tournaments,
             prefill_tournament_id=prefill_tournament_id,
             prefill_passcode=prefill_passcode,
+            invite_only=invite_only,
         )
+
+    @app.route('/register/verify', methods=['GET', 'POST'])
+    def verify_registration():
+        from .models import User, Tournament, TournamentPlayer, Role, PendingRegistration
+        email = (request.values.get('email') or '').strip().lower()
+        if request.method == 'POST':
+            email = request.form['email'].strip().lower()
+            pin = request.form.get('pin', '').strip()
+            password = request.form.get('password', '')
+            pending = db.session.query(PendingRegistration).filter_by(email=email).first()
+            if not pending or pending.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+                if pending:
+                    db.session.delete(pending)
+                    db.session.commit()
+                flash("Verification PIN expired or was not found. Please register again.", "error")
+                log_site('register_verify', 'failure', 'missing or expired pin')
+                return redirect(url_for('register'))
+            if pending.verification_pin != pin or not pending.check_password(password):
+                flash("Invalid PIN or password.", "error")
+                log_site('register_verify', 'failure', 'invalid pin or password')
+                return redirect(url_for('verify_registration', email=email))
+            if db.session.query(User).filter_by(email=email).first():
+                db.session.delete(pending)
+                db.session.commit()
+                flash("Email already registered. Please login.", "error")
+                log_site('register_verify', 'failure', 'email exists')
+                return redirect(url_for('login'))
+
+            selected_tournament = None
+            if pending.tournament_id:
+                selected_tournament = db.session.get(Tournament, pending.tournament_id)
+                if not selected_tournament or pending.tournament_passcode != selected_tournament.passcode:
+                    db.session.delete(pending)
+                    db.session.commit()
+                    flash("Tournament invite expired or is no longer valid. Please register again.", "error")
+                    log_site('register_verify', 'failure', 'invalid pending tournament')
+                    return redirect(url_for('register'))
+
+            role_user = db.session.query(Role).filter_by(name='user').first()
+            u = User(email=email, name=pending.name, role=role_user)
+            u.set_password(password)
+            u.generate_keys(password)
+            db.session.add(u)
+            db.session.flush()
+            if selected_tournament:
+                already_joined = db.session.query(TournamentPlayer).filter_by(
+                    tournament_id=selected_tournament.id,
+                    user_id=u.id,
+                ).first()
+                if not already_joined:
+                    db.session.add(TournamentPlayer(tournament_id=selected_tournament.id, user_id=u.id))
+            db.session.delete(pending)
+            db.session.commit()
+            log_site('register_verify', 'success')
+            flash("Email verified and account created. Please login.", "success")
+            return redirect(url_for('login', next=request.args.get('next')))
+        return render_template('verify_registration.html', email=email)
 
     @app.route('/login', methods=['GET','POST'])
     def login():

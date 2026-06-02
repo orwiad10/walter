@@ -58,6 +58,20 @@ You can still manage the Nginx config manually:
 
 The TLS template lives at `nginx/walter-tls.conf`. It serves HTTPS on port 443, redirects normal HTTP traffic to HTTPS, leaves `/.well-known/acme-challenge/` available on port 80 for Let's Encrypt renewals, only enables TLS 1.3, and restricts TLS 1.3 cipher suites to the FIPS-suitable AES-GCM suites `TLS_AES_256_GCM_SHA384` and `TLS_AES_128_GCM_SHA256`. If your certificate lives somewhere other than `/etc/letsencrypt/live/<domain>`, pass `--cert-dir /path/to/live/certdir`; if your ACME challenge webroot differs, pass `--acme-webroot /path/to/webroot`.
 
+## Account verification and invites
+
+Public account registration sends a one-time 6-digit verification PIN through Mailgun before creating the user account. Set these values in `config.yaml` before enabling public self-service registration:
+
+```yaml
+mailgun_api_key: key-your-mailgun-api-key
+mailgun_domain: mg.example.com
+mailgun_from_email: Walter <noreply@example.com>
+registration_pin_ttl_minutes: 15
+account_creation_invite_only: false
+```
+
+When `account_creation_invite_only` is `true`, new users must register with a valid tournament invite/passcode.
+
 ## Features
    - Player & Admin login
    - Tournaments: Commander, Draft, Constructed
