@@ -91,6 +91,9 @@ def create_app():
     app.config['MAILGUN_FROM_EMAIL'] = os.environ.get('MAILGUN_FROM_EMAIL', '')
     app.config['ACCOUNT_CREATION_INVITE_ONLY'] = os.environ.get('ACCOUNT_CREATION_INVITE_ONLY', '').strip().lower() in {'1', 'true', 'yes', 'on'}
     app.config['REGISTRATION_PIN_TTL_MINUTES'] = int(os.environ.get('REGISTRATION_PIN_TTL_MINUTES', '15'))
+    app.config['ACCOUNT_LOCKOUT_ATTEMPTS'] = int(os.environ.get('ACCOUNT_LOCKOUT_ATTEMPTS', '3') or '3')
+    app.config['IP_BLACKLIST_ATTEMPTS'] = int(os.environ.get('IP_BLACKLIST_ATTEMPTS', '10') or '10')
+    app.config['PASSWORD_RESET_TTL_MINUTES'] = int(os.environ.get('PASSWORD_RESET_TTL_MINUTES', '60') or '60')
 
     last_table_env = os.environ.get('MTG_LAST_TABLE_NUMBER', '').strip()
     if last_table_env:
@@ -197,7 +200,31 @@ def create_app():
                     {'level': level, 'name': role_name},
                 )
             db.session.commit()
-        from .models import Report, TournamentJoinRequest, PendingRegistration  # lazy import to avoid circular reference
+        from .models import (
+            Report,
+            TournamentJoinRequest,
+            PendingRegistration,
+            BadLoginAttempt,
+            BlacklistedIP,
+            PasswordResetToken,
+        )  # lazy import to avoid circular reference
+
+        if 'user' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('user')]
+            if 'failed_login_count' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN failed_login_count INTEGER DEFAULT 0'))
+                db.session.execute(text('UPDATE user SET failed_login_count=0 WHERE failed_login_count IS NULL'))
+                db.session.commit()
+            if 'locked_at' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN locked_at DATETIME'))
+                db.session.commit()
+            if 'lock_reason' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN lock_reason TEXT'))
+                db.session.commit()
+
+        BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
+        BlacklistedIP.__table__.create(bind=db.engine, checkfirst=True)
+        PasswordResetToken.__table__.create(bind=db.engine, checkfirst=True)
 
         if 'report' not in inspector.get_table_names():
             Report.__table__.create(bind=db.engine)
@@ -255,6 +282,9 @@ def create_app():
         League,
         LeaguePlayer,
         LeagueResult,
+        BadLoginAttempt,
+        BlacklistedIP,
+        PasswordResetToken,
         all_permission_keys,
     )
     from .pairing import pair_round, recommended_rounds, compute_standings, player_points
@@ -363,6 +393,14 @@ def create_app():
                 r = Role(name=name, permissions=json.dumps(perms), level=level)
                 db.session.add(r)
             else:
+                current_perms = existing.permissions_dict()
+                changed = False
+                for key, allowed in perms.items():
+                    if key not in current_perms:
+                        current_perms[key] = allowed
+                        changed = True
+                if changed:
+                    existing.permissions = json.dumps(current_perms)
                 if existing.level != level:
                     existing.level = level
         db.session.commit()
@@ -438,6 +476,71 @@ def create_app():
             'Your Walter verification PIN',
             f'Use this one-time PIN to verify your Walter account: {pin}\n\nThis PIN expires in {app.config.get("REGISTRATION_PIN_TTL_MINUTES", 15)} minutes.',
         )
+
+    def _client_ip():
+        forwarded = request.headers.get('X-Forwarded-For', '')
+        if forwarded:
+            return forwarded.split(',')[0].strip()
+        return request.remote_addr or 'unknown'
+
+    def _hash_reset_token(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def _send_password_reset_email(user, token):
+        reset_url = url_for('password_reset_token', token=token, _external=True)
+        _send_mailgun_email(
+            user.email,
+            'Reset your Walter password',
+            (
+                'A password reset was requested for your Walter account. '
+                f'Use this link within {app.config.get("PASSWORD_RESET_TTL_MINUTES", 60)} minutes:\n\n'
+                f'{reset_url}\n\nIf you did not request this reset, ignore this email.'
+            ),
+        )
+
+    def _create_password_reset_token(user):
+        token = secrets.token_urlsafe(32)
+        reset = PasswordResetToken(
+            user=user,
+            token_hash=_hash_reset_token(token),
+            expires_at=datetime.utcnow() + timedelta(minutes=app.config.get('PASSWORD_RESET_TTL_MINUTES', 60)),
+        )
+        db.session.add(reset)
+        db.session.commit()
+        return token
+
+    def _record_bad_login(email, user, result):
+        ip_address = _client_ip()
+        attempt = BadLoginAttempt(
+            email=email or None,
+            user_id=user.id if user else None,
+            ip_address=ip_address,
+            user_agent=request.headers.get('User-Agent', ''),
+            result=result,
+        )
+        db.session.add(attempt)
+        if user and result == 'bad_password':
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            lockout_attempts = max(app.config.get('ACCOUNT_LOCKOUT_ATTEMPTS', 3), 1)
+            if user.failed_login_count >= lockout_attempts and not user.locked_at:
+                user.locked_at = datetime.utcnow()
+                user.lock_reason = f'{user.failed_login_count} incorrect password attempts'
+                app.logger.warning('Account locked for %s after %s bad login attempts', user.email, user.failed_login_count)
+                log_site('account_lock', 'success', f'user_id={user.id}; ip={ip_address}; attempts={user.failed_login_count}')
+        db.session.commit()
+        ip_attempts = db.session.query(BadLoginAttempt).filter_by(ip_address=ip_address).count()
+        threshold = max(app.config.get('IP_BLACKLIST_ATTEMPTS', 10), 1)
+        if ip_attempts >= threshold:
+            existing = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address).first()
+            if not existing:
+                existing = BlacklistedIP(ip_address=ip_address)
+                db.session.add(existing)
+            if not existing.is_active:
+                existing.is_active = True
+            existing.reason = f'{ip_attempts} bad login attempts'
+            db.session.commit()
+            app.logger.warning('IP address %s blacklisted after %s bad login attempts', ip_address, ip_attempts)
+            log_site('ip_blacklist', 'success', f'ip={ip_address}; attempts={ip_attempts}')
 
     @app.route('/register', methods=['GET','POST'])
     def register():
@@ -578,7 +681,15 @@ def create_app():
             password = request.form['password']
             from .models import User
             u = db.session.query(User).filter_by(email=email).first()
+            if u and u.locked_at:
+                flash("Account locked. Use password reset or contact an administrator.", "error")
+                _record_bad_login(email, u, 'account_locked')
+                log_site('login', 'failure', 'account locked')
+                return render_template('login.html')
             if u and u.check_password(password):
+                u.failed_login_count = 0
+                u.lock_reason = None
+                db.session.commit()
                 login_user(u)
                 try:
                     priv_pem = u.decrypt_private_key(password)
@@ -586,15 +697,61 @@ def create_app():
                         session['private_key'] = base64.b64encode(priv_pem).decode()
                 except Exception:
                     session['private_key'] = None
-                log_site('login', 'success')
+                log_site('login', 'success', f'ip={_client_ip()}')
                 if next_url:
                     parsed = urlparse(next_url)
                     if not parsed.netloc and parsed.path.startswith('/'):
                         return redirect(next_url)
                 return redirect(url_for('index'))
+            _record_bad_login(email, u, 'bad_password' if u else 'unknown_user')
             flash("Invalid credentials", "error")
-            log_site('login', 'failure', 'invalid credentials')
+            log_site('login', 'failure', f'invalid credentials; ip={_client_ip()}')
         return render_template('login.html')
+
+    @app.route('/password-reset', methods=['GET', 'POST'])
+    def password_reset_request():
+        if request.method == 'POST':
+            email = request.form.get('email', '').strip().lower()
+            user = db.session.query(User).filter_by(email=email).first() if email else None
+            if user and user.email:
+                try:
+                    token = _create_password_reset_token(user)
+                    _send_password_reset_email(user, token)
+                    log_site('password_reset_request', 'success', f'user_id={user.id}; ip={_client_ip()}')
+                except Exception as exc:
+                    db.session.rollback()
+                    log_site('password_reset_request', 'failure', str(exc))
+                    flash('Password reset email could not be sent. Contact an administrator.', 'error')
+                    return redirect(url_for('password_reset_request'))
+            else:
+                log_site('password_reset_request', 'failure', f'unknown email; ip={_client_ip()}')
+            flash('If the email exists, a reset link has been sent.', 'success')
+            return redirect(url_for('login'))
+        return render_template('password_reset_request.html')
+
+    @app.route('/password-reset/<token>', methods=['GET', 'POST'])
+    def password_reset_token(token):
+        token_hash = _hash_reset_token(token)
+        reset = db.session.query(PasswordResetToken).filter_by(token_hash=token_hash).first()
+        valid = reset and not reset.used_at and reset.expires_at and reset.expires_at >= datetime.utcnow()
+        if not valid:
+            log_site('password_reset', 'failure', f'invalid or expired token; ip={_client_ip()}')
+            flash('Password reset link is invalid or expired.', 'error')
+            return redirect(url_for('password_reset_request'))
+        if request.method == 'POST':
+            password = request.form.get('password', '')
+            password_confirm = request.form.get('password_confirm', '')
+            if password != password_confirm:
+                flash('Passwords do not match.', 'error')
+                return render_template('password_reset_form.html', token=token)
+            reset.user.set_password(password)
+            reset.user.generate_keys(password)
+            reset.used_at = datetime.utcnow()
+            db.session.commit()
+            log_site('password_reset', 'success', f'user_id={reset.user_id}; ip={_client_ip()}')
+            flash('Password reset successfully. Please login.', 'success')
+            return redirect(url_for('login'))
+        return render_template('password_reset_form.html', token=token)
 
     @app.route('/t/<int:tid>/join-link')
     def tournament_join_link(tid):
@@ -1267,6 +1424,15 @@ def create_app():
                              user_id=current_user.id if current_user.is_authenticated else None)
         db.session.add(log)
         db.session.commit()
+
+    @app.before_request
+    def block_blacklisted_ip():
+        ip_address = _client_ip()
+        blocked = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address, is_active=True).first()
+        if blocked:
+            app.logger.warning('Blocked blacklisted IP address %s from %s', ip_address, request.path)
+            log_site('blocked_blacklisted_ip', 'failure', f'ip={ip_address}; path={request.path}')
+            abort(403)
 
     def parse_datetime_local(value):
         if not value:
@@ -2784,6 +2950,45 @@ def create_app():
             l.user = db.session.get(User, l.user_id) if l.user_id else None
         return render_template('admin/site_logs.html', logs=logs)
 
+    @app.route('/admin/security/bad-logins')
+    def admin_bad_logins():
+        require_permission('admin.login_audit')
+        log_site('view_bad_login_audit', 'success')
+        attempts = db.session.query(BadLoginAttempt).order_by(BadLoginAttempt.created_at.desc()).all()
+        return render_template('admin/bad_logins.html', attempts=attempts)
+
+    @app.route('/admin/security/ip-blacklist')
+    def admin_ip_blacklist():
+        require_permission('admin.ip_blacklist')
+        log_site('view_ip_blacklist', 'success')
+        ips = db.session.query(BlacklistedIP).order_by(BlacklistedIP.created_at.desc()).all()
+        return render_template('admin/ip_blacklist.html', ips=ips)
+
+    @app.route('/admin/security/ip-blacklist/<int:ip_id>/toggle', methods=['POST'])
+    def admin_toggle_ip_blacklist(ip_id):
+        require_permission('admin.ip_blacklist')
+        item = db.session.get(BlacklistedIP, ip_id)
+        if not item:
+            abort(404)
+        item.is_active = not item.is_active
+        db.session.commit()
+        log_site('ip_blacklist_toggle', 'success', f'ip={item.ip_address}; active={item.is_active}')
+        flash('IP blacklist entry updated.', 'success')
+        return redirect(url_for('admin_ip_blacklist'))
+
+    @app.route('/admin/security/ip-blacklist/export')
+    def admin_export_ip_blacklist():
+        require_permission('admin.ip_blacklist')
+        log_site('export_ip_blacklist', 'success')
+        ips = db.session.query(BlacklistedIP).filter_by(is_active=True).order_by(BlacklistedIP.ip_address).all()
+        lines = [f'iptables -A INPUT -s {item.ip_address} -j DROP' for item in ips]
+        output = '\n'.join(lines) + ('\n' if lines else '')
+        return Response(
+            output,
+            mimetype='text/plain',
+            headers={'Content-Disposition': 'attachment; filename=walter_bad_ips_iptables.sh'},
+        )
+
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
         require_permission('tournaments.manage')
@@ -4090,6 +4295,12 @@ def create_app():
                     return redirect(redirect_target)
                 u.set_password(password)
                 u.generate_keys(password)
+                log_site('admin_password_reset', 'success', f'user_id={u.id}')
+            if request.form.get('unlock_account') == 'yes':
+                u.failed_login_count = 0
+                u.locked_at = None
+                u.lock_reason = None
+                log_site('admin_account_unlock', 'success', f'user_id={u.id}')
             u.email = email
             u.notes = request.form.get('notes', '').strip() or None
             role_id = request.form.get('role_id')

@@ -377,6 +377,9 @@ keys = [
     'mailgun_from_email',
     'registration_pin_ttl_minutes',
     'account_creation_invite_only',
+    'account_lockout_attempts',
+    'ip_blacklist_attempts',
+    'password_reset_ttl_minutes',
 ]
 
 for key in keys:
@@ -410,6 +413,9 @@ MAILGUN_DOMAIN="${MAILGUN_DOMAIN:-}"
 MAILGUN_FROM_EMAIL="${MAILGUN_FROM_EMAIL:-}"
 REGISTRATION_PIN_TTL_MINUTES="${REGISTRATION_PIN_TTL_MINUTES:-15}"
 ACCOUNT_CREATION_INVITE_ONLY="${ACCOUNT_CREATION_INVITE_ONLY:-false}"
+ACCOUNT_LOCKOUT_ATTEMPTS="${ACCOUNT_LOCKOUT_ATTEMPTS:-3}"
+IP_BLACKLIST_ATTEMPTS="${IP_BLACKLIST_ATTEMPTS:-10}"
+PASSWORD_RESET_TTL_MINUTES="${PASSWORD_RESET_TTL_MINUTES:-60}"
 
 cd "$SCRIPT_DIR"
 
@@ -423,6 +429,9 @@ export MAILGUN_DOMAIN
 export MAILGUN_FROM_EMAIL
 export REGISTRATION_PIN_TTL_MINUTES
 export ACCOUNT_CREATION_INVITE_ONLY
+export ACCOUNT_LOCKOUT_ATTEMPTS
+export IP_BLACKLIST_ATTEMPTS
+export PASSWORD_RESET_TTL_MINUTES
 
 ensure_letsencrypt_certificate
 

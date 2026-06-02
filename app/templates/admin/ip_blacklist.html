@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Security</span>
+    <h2>IP Blacklist</h2>
+    <p class="page-description">IPs are automatically blacklisted after the configured number of bad login attempts.</p>
+  </div>
+  <div class="form-actions"><a class="btn" href="{{ url_for('admin_export_ip_blacklist') }}">Export iptables Rules</a></div>
+</section>
+<table>
+  <tr><th>IP Address</th><th>Status</th><th>Reason</th><th>Created</th><th>Created By</th><th>Actions</th></tr>
+  {% for item in ips %}
+  <tr>
+    <td>{{ item.ip_address }}</td>
+    <td>{{ 'Active' if item.is_active else 'Inactive' }}</td>
+    <td>{{ item.reason or '' }}</td>
+    <td>{{ item.created_at }}</td>
+    <td>{{ item.created_by.name if item.created_by else '' }}</td>
+    <td>
+      <form method="post" action="{{ url_for('admin_toggle_ip_blacklist', ip_id=item.id) }}" class="inline-form">
+        <button class="btn" type="submit">{{ 'Disable' if item.is_active else 'Enable' }}</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6">No blacklisted IP addresses.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -58,6 +58,9 @@ $MailgunDomain = $cfg.mailgun_domain
 $MailgunFromEmail = $cfg.mailgun_from_email
 $RegistrationPinTtlMinutes = $cfg.registration_pin_ttl_minutes
 $AccountCreationInviteOnly = $cfg.account_creation_invite_only
+$AccountLockoutAttempts = $cfg.account_lockout_attempts
+$IpBlacklistAttempts = $cfg.ip_blacklist_attempts
+$PasswordResetTtlMinutes = $cfg.password_reset_ttl_minutes
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 ######enable testing###########
@@ -72,6 +75,9 @@ if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "127.0.0.1" }
 if([string]::IsNullOrEmpty($FlaskPort)){ $FlaskPort = 5000 }
 if([string]::IsNullOrEmpty($RegistrationPinTtlMinutes)){ $RegistrationPinTtlMinutes = 15 }
 if($null -eq $AccountCreationInviteOnly){ $AccountCreationInviteOnly = $false }
+if([string]::IsNullOrEmpty($AccountLockoutAttempts)){ $AccountLockoutAttempts = 3 }
+if([string]::IsNullOrEmpty($IpBlacklistAttempts)){ $IpBlacklistAttempts = 10 }
+if([string]::IsNullOrEmpty($PasswordResetTtlMinutes)){ $PasswordResetTtlMinutes = 60 }
 
 #check if Flask/Waitress is already running and stop it if necessary
 $flaskpid = try{
@@ -103,6 +109,9 @@ $env:MAILGUN_DOMAIN = $MailgunDomain
 $env:MAILGUN_FROM_EMAIL = $MailgunFromEmail
 $env:REGISTRATION_PIN_TTL_MINUTES = $RegistrationPinTtlMinutes
 $env:ACCOUNT_CREATION_INVITE_ONLY = $AccountCreationInviteOnly
+$env:ACCOUNT_LOCKOUT_ATTEMPTS = $AccountLockoutAttempts
+$env:IP_BLACKLIST_ATTEMPTS = $IpBlacklistAttempts
+$env:PASSWORD_RESET_TTL_MINUTES = $PasswordResetTtlMinutes
 
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 
