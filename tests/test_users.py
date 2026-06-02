@@ -248,3 +248,49 @@ def test_admin_can_view_bad_login_audit_and_export_blacklist(client, session):
         export = client.get('/admin/security/ip-blacklist/export')
         assert export.status_code == 200
         assert b'iptables -A INPUT -s 203.0.113.8 -j DROP' in export.data
+
+
+def test_admin_can_manually_lock_and_unlock_user(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='admin-lock@example.com', name='Lock Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    target = User(email='manual-lock@example.com', name='Manual Lock', role=user_role)
+    target.set_password('secret')
+    session.add_all([admin, target])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            f'/admin/users/{target.id}/update',
+            data={
+                'email': target.email,
+                'account_lock_action': 'lock',
+                'lock_reason': 'manual review',
+            },
+        )
+        assert response.status_code == 302
+
+    session.refresh(target)
+    assert target.locked_at is not None
+    assert target.lock_reason == 'manual review'
+
+    with client:
+        client.get('/logout')
+        response = client.post('/login', data={'email': target.email, 'password': 'secret'}, follow_redirects=True)
+        assert b'Account locked' in response.data
+
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            f'/admin/users/{target.id}/update',
+            data={
+                'email': target.email,
+                'account_lock_action': 'unlock',
+            },
+        )
+        assert response.status_code == 302
+
+    session.refresh(target)
+    assert target.locked_at is None
+    assert target.lock_reason is None

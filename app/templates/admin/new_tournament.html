@@ -6,15 +6,15 @@
     <tbody>
       <tr>
         <td>Name</td>
-        <td><input name="name" required></td>
+        <td><input name="name" value="{{ request.form.get('name', '') }}" required><p class="form-help">Tournament names are saved as Format - YYYYMMDD - HHMM - Provided Name.</p></td>
       </tr>
       <tr>
         <td>Format</td>
         <td>
           <select name="format" id="tournament-format" required>
-            <option>Commander</option>
-            <option>Draft</option>
-            <option>Constructed</option>
+            {% for option in formats %}
+            <option value="{{ option }}"{% if request.form.get('format') == option %} selected{% endif %}>{{ option }}</option>
+            {% endfor %}
           </select>
         </td>
       </tr>
@@ -82,6 +82,17 @@
       <tr>
         <td>Start Time</td>
         <td><input type="datetime-local" name="start_time"></td>
+      </tr>
+      <tr>
+        <td>Venue</td>
+        <td>
+          <select name="venue_id">
+            <option value="">No venue</option>
+            {% for venue in venues or [] %}
+            <option value="{{ venue.id }}"{% if request.form.get('venue_id')|int == venue.id %} selected{% endif %}>{{ venue.name }}</option>
+            {% endfor %}
+          </select>
+        </td>
       </tr>
       <tr>
         <td>League</td>

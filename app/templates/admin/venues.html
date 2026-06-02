@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Admin</span>
+    <h2>Venue Management</h2>
+    <p class="page-description">Create venues and manage the vendor and artist subpages for event locations.</p>
+  </div>
+  <div class="page-header__actions">
+    <a class="btn secondary" href="{{ url_for('vendor_management') }}">Vendor Management</a>
+    <a class="btn secondary" href="{{ url_for('artist_management') }}">Artist Profiles</a>
+  </div>
+</section>
+<section class="panel-card">
+  <h3>Create Venue</h3>
+  <form method="post" class="compact-form">
+    <input name="name" placeholder="Venue name" required>
+    <input name="website" type="url" placeholder="Website">
+    <textarea name="address" rows="2" placeholder="Address"></textarea>
+    <textarea name="notes" rows="2" placeholder="Notes"></textarea>
+    <button class="btn" type="submit">Create Venue</button>
+  </form>
+</section>
+<section class="panel-card">
+  <h3>Venues</h3>
+  {% if venues %}
+  <table class="table">
+    <thead><tr><th>Name</th><th>Website</th><th>Address</th><th>Notes</th><th></th></tr></thead>
+    <tbody>
+      {% for venue in venues %}
+      <tr>
+        <td>
+          <form id="venue-form-{{ venue.id }}" method="post" action="{{ url_for('update_venue', venue_id=venue.id) }}"></form>
+          <input form="venue-form-{{ venue.id }}" name="name" value="{{ venue.name }}" required>
+        </td>
+        <td><input form="venue-form-{{ venue.id }}" name="website" type="url" value="{{ venue.website or '' }}"></td>
+        <td><textarea form="venue-form-{{ venue.id }}" name="address" rows="2">{{ venue.address or '' }}</textarea></td>
+        <td><textarea form="venue-form-{{ venue.id }}" name="notes" rows="2">{{ venue.notes or '' }}</textarea></td>
+        <td><button form="venue-form-{{ venue.id }}" class="btn" type="submit">Save</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No venues created yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

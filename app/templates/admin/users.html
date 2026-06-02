@@ -25,7 +25,7 @@
   </div>
   <table class="table">
     <thead>
-      <tr><th><span class="sr-only">Select</span></th><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
+      <tr><th><span class="sr-only">Select</span></th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
     </thead>
     <tbody>
       {% for u in users %}
@@ -34,6 +34,7 @@
         <td>{{ u.name }}</td>
         <td>{{ u.email or '—' }}</td>
         <td>{{ u.role.name if u.role else 'None' }}</td>
+        <td>{% if u.locked_at %}<span class="status-pill warning">Locked</span>{% else %}Unlocked{% endif %}</td>
         <td><a class="btn" href="{{ url_for('admin_user_detail', uid=u.id, q=search_query) }}">Manage</a></td>
       </tr>
       {% endfor %}

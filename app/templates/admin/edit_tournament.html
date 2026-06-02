@@ -6,15 +6,15 @@
     <tbody>
       <tr>
         <td>Name</td>
-        <td><input name="name" value="{{ t.name }}" required></td>
+        <td><input name="name" value="{{ request.form.get('name', provided_name) }}" required><p class="form-help">Tournament names are saved as Format - YYYYMMDD - HHMM - Provided Name.</p></td>
       </tr>
       <tr>
         <td>Format</td>
         <td>
           <select name="format" id="tournament-format" required>
-            <option{% if t.format=='Commander' %} selected{% endif %}>Commander</option>
-            <option{% if t.format=='Draft' %} selected{% endif %}>Draft</option>
-            <option{% if t.format=='Constructed' %} selected{% endif %}>Constructed</option>
+            {% for option in formats %}
+            <option value="{{ option }}"{% if (request.form.get('format') or t.format) == option %} selected{% endif %}>{{ option }}</option>
+            {% endfor %}
           </select>
         </td>
       </tr>
@@ -88,6 +88,17 @@
       <tr>
         <td>Start Time</td>
         <td><input type="datetime-local" name="start_time" value="{{ t.start_time.strftime('%Y-%m-%dT%H:%M') if t.start_time else '' }}"></td>
+      </tr>
+      <tr>
+        <td>Venue</td>
+        <td>
+          <select name="venue_id">
+            <option value="">No venue</option>
+            {% for venue in venues or [] %}
+            <option value="{{ venue.id }}"{% if (request.form.get('venue_id')|int if request.form.get('venue_id') else t.venue_id) == venue.id %} selected{% endif %}>{{ venue.name }}</option>
+            {% endfor %}
+          </select>
+        </td>
       </tr>
       <tr>
         <td>Require Join Approval</td>

@@ -28,13 +28,29 @@
         {% endfor %}
       </select>
     </div>
-    {% if user.locked_at %}
     <div class="form-row">
       <label>Account Lock</label>
-      <div>Locked at {{ user.locked_at }}{% if user.lock_reason %}: {{ user.lock_reason }}{% endif %}</div>
-      <label><input type="checkbox" name="unlock_account" value="yes"> Unlock account</label>
+      <div>
+        {% if user.locked_at %}
+        Locked at {{ user.locked_at }}{% if user.lock_reason %}: {{ user.lock_reason }}{% endif %}
+        {% else %}
+        Account is unlocked.
+        {% endif %}
+      </div>
+      {% if user.id != current_user.id %}
+      <select name="account_lock_action" aria-label="Account lock action">
+        <option value="">No change</option>
+        {% if user.locked_at %}
+        <option value="unlock">Unlock account</option>
+        {% else %}
+        <option value="lock">Lock account</option>
+        {% endif %}
+      </select>
+      <input type="text" name="lock_reason" placeholder="Lock reason" value="{{ user.lock_reason or '' }}">
+      {% else %}
+      <p class="form-help">You cannot lock your own account.</p>
+      {% endif %}
     </div>
-    {% endif %}
     <div class="form-row">
       <label for="user-password">Set Password</label>
       <input id="user-password" type="password" name="password" placeholder="New password">
