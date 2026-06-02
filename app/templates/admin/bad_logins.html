@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Security</span>
+    <h2>Bad Login Audit</h2>
+    <p class="page-description">Review failed password attempts, locked-account attempts, unknown users, source IP addresses, and user agents.</p>
+  </div>
+</section>
+<table>
+  <tr><th>Time</th><th>Email</th><th>User</th><th>IP Address</th><th>Result</th><th>User Agent</th></tr>
+  {% for attempt in attempts %}
+  <tr>
+    <td>{{ attempt.created_at }}</td>
+    <td>{{ attempt.email or '' }}</td>
+    <td>{{ attempt.user.name if attempt.user else '' }}</td>
+    <td>{{ attempt.ip_address }}</td>
+    <td>{{ attempt.result }}</td>
+    <td>{{ attempt.user_agent or '' }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6">No bad login attempts recorded.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

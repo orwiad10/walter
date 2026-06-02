@@ -27,6 +27,8 @@ PERMISSION_GROUPS = {
     'admin': {
         'panel': 'Access admin panel',
         'permissions': 'Manage roles and permissions',
+        'login_audit': 'Audit failed login attempts',
+        'ip_blacklist': 'Manage blacklisted IP addresses',
     },
 }
 
@@ -110,10 +112,16 @@ class User(db.Model, UserMixin):
     private_key_salt = db.Column(db.LargeBinary, nullable=True)
     private_key_nonce = db.Column(db.LargeBinary, nullable=True)
     permission_overrides = db.Column(db.Text, nullable=True)
+    failed_login_count = db.Column(db.Integer, nullable=False, default=0)
+    locked_at = db.Column(db.DateTime, nullable=True)
+    lock_reason = db.Column(db.Text, nullable=True)
 
     def set_password(self, pw):
         self.salt = os.urandom(16).hex()
         self.password_hash = hashlib.sha256((self.salt + pw).encode()).hexdigest()
+        self.failed_login_count = 0
+        self.locked_at = None
+        self.lock_reason = None
 
     def check_password(self, pw):
         if not self.password_hash or not self.salt:
@@ -172,6 +180,40 @@ class User(db.Model, UserMixin):
         if not self.role:
             return False
         return self.role.permissions_dict().get(key, False)
+
+
+class BadLoginAttempt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    ip_address = db.Column(db.String(64), nullable=False)
+    user_agent = db.Column(db.Text, nullable=True)
+    result = db.Column(db.String(50), nullable=False, default='bad_password')
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    user = db.relationship('User')
+
+
+class BlacklistedIP(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    ip_address = db.Column(db.String(64), unique=True, nullable=False)
+    reason = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    created_by = db.relationship('User')
+
+
+class PasswordResetToken(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=True)
+
+    user = db.relationship('User')
 
 
 class PendingRegistration(db.Model):

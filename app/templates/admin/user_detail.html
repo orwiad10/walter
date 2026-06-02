@@ -28,6 +28,13 @@
         {% endfor %}
       </select>
     </div>
+    {% if user.locked_at %}
+    <div class="form-row">
+      <label>Account Lock</label>
+      <div>Locked at {{ user.locked_at }}{% if user.lock_reason %}: {{ user.lock_reason }}{% endif %}</div>
+      <label><input type="checkbox" name="unlock_account" value="yes"> Unlock account</label>
+    </div>
+    {% endif %}
     <div class="form-row">
       <label for="user-password">Set Password</label>
       <input id="user-password" type="password" name="password" placeholder="New password">

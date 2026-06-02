@@ -22,3 +22,11 @@ last_table_number: 200
 # registration_pin_ttl_minutes: 15
 # When true, public registration requires a valid tournament invite/passcode.
 account_creation_invite_only: false
+
+# Account security controls.
+# Lock user accounts after this many bad password attempts.
+account_lockout_attempts: 3
+# Blacklist an IP after this many total bad login attempts.
+ip_blacklist_attempts: 10
+# Password reset links expire after this many minutes.
+password_reset_ttl_minutes: 60

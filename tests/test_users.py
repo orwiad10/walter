@@ -193,3 +193,58 @@ def test_invite_only_registration_requires_tournament_passcode(client, session, 
 
     assert response.status_code == 302
     assert response.headers['Location'].endswith('/register/verify?email=invited@example.com')
+
+
+def test_account_locks_after_three_bad_passwords(client, session, app):
+    app.config['ACCOUNT_LOCKOUT_ATTEMPTS'] = 3
+    user_role = session.query(Role).filter_by(name='user').one()
+    user = User(email='lock@example.com', name='Lock User', role=user_role)
+    user.set_password('secret')
+    session.add(user)
+    session.commit()
+
+    for _ in range(3):
+        response = client.post('/login', data={'email': user.email, 'password': 'wrong'})
+        assert response.status_code == 200
+
+    session.refresh(user)
+    assert user.locked_at is not None
+    assert user.failed_login_count == 3
+
+    response = client.post('/login', data={'email': user.email, 'password': 'secret'})
+    assert response.status_code == 200
+    assert b'Account locked' in response.data
+
+
+def test_ip_blacklisted_after_ten_bad_logins(client, session, app):
+    app.config['IP_BLACKLIST_ATTEMPTS'] = 10
+    for _ in range(10):
+        response = client.post('/login', data={'email': 'missing@example.com', 'password': 'wrong'})
+        assert response.status_code == 200
+
+    from app.models import BlacklistedIP
+    entry = session.query(BlacklistedIP).filter_by(ip_address='127.0.0.1').one()
+    assert entry.is_active
+
+    response = client.get('/')
+    assert response.status_code == 403
+
+
+def test_admin_can_view_bad_login_audit_and_export_blacklist(client, session):
+    from app.models import BadLoginAttempt, BlacklistedIP
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='security-admin@example.com', name='Security Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add(admin)
+    session.add(BadLoginAttempt(email='bad@example.com', ip_address='203.0.113.8', result='bad_password'))
+    session.add(BlacklistedIP(ip_address='203.0.113.8', reason='test'))
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.get('/admin/security/bad-logins')
+        assert response.status_code == 200
+        assert b'bad@example.com' in response.data
+        export = client.get('/admin/security/ip-blacklist/export')
+        assert export.status_code == 200
+        assert b'iptables -A INPUT -s 203.0.113.8 -j DROP' in export.data

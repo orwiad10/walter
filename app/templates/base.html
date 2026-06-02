@@ -42,7 +42,7 @@
             </div>
           </li>
           {% endif %}
-          {% if current_user.has_permission('users.manage') or current_user.has_permission('admin.panel') or current_user.has_permission('admin.permissions') %}
+          {% if current_user.has_permission('users.manage') or current_user.has_permission('admin.panel') or current_user.has_permission('admin.permissions') or current_user.has_permission('admin.login_audit') or current_user.has_permission('admin.ip_blacklist') %}
           <li class="nav-item has-dropdown">
             <button class="nav-link" type="button" data-dropdown-toggle aria-expanded="false">Admin</button>
             <div class="dropdown-menu" role="menu">
@@ -54,6 +54,12 @@
               <a class="dropdown-item" href="{{ url_for('site_logs') }}">Site Logs</a>
               <a class="dropdown-item" href="{{ url_for('admin_backup') }}">Backup &amp; Transfer</a>
               <a class="dropdown-item" href="{{ url_for('admin_reports') }}">Reports <span id="nav-reports-count" class="nav-badge{% if not nav_open_reports %} hidden{% endif %}">{{ nav_open_reports }}</span></a>
+              {% endif %}
+              {% if current_user.has_permission('admin.login_audit') %}
+              <a class="dropdown-item" href="{{ url_for('admin_bad_logins') }}">Bad Login Audit</a>
+              {% endif %}
+              {% if current_user.has_permission('admin.ip_blacklist') %}
+              <a class="dropdown-item" href="{{ url_for('admin_ip_blacklist') }}">IP Blacklist</a>
               {% endif %}
               {% if current_user.has_permission('admin.permissions') %}
               <a class="dropdown-item" href="{{ url_for('permissions') }}">Permissions</a>
