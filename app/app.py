@@ -3327,7 +3327,6 @@ def create_app():
     @app.route('/admin/tournaments/bulk', methods=['POST'])
     @login_required
     def bulk_edit_tournaments():
-        require_permission('admin.panel')
         require_permission('tournaments.bulk_manage')
         raw_ids = request.form.getlist('tournament_ids')
         tournament_ids = []
@@ -3346,9 +3345,13 @@ def create_app():
         count = 0
         now = datetime.utcnow()
         if action == 'venue':
-            venue_raw = request.form.get('bulk_venue_id')
-            venue_id = int(venue_raw) if venue_raw else None
-            if venue_id and not db.session.get(Venue, venue_id):
+            venue_raw = (request.form.get('bulk_venue_id') or '').strip()
+            try:
+                venue_id = int(venue_raw) if venue_raw else None
+            except ValueError:
+                flash('Selected venue was not found.', 'error')
+                return redirect(url_for('index'))
+            if venue_id is not None and not db.session.get(Venue, venue_id):
                 flash('Selected venue was not found.', 'error')
                 return redirect(url_for('index'))
             for tournament in ordered_tournaments:
