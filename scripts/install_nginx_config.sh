@@ -68,6 +68,25 @@ run_root() {
   fi
 }
 
+file_exists_root() {
+  local path="$1"
+
+  if [[ -f "$path" ]]; then
+    return 0
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    return 1
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    sudo test -f "$path"
+    return $?
+  fi
+
+  return 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -c|--config)
@@ -164,7 +183,7 @@ if [[ -n "$TLS_DOMAIN" ]]; then
 
   if [[ "$DRY_RUN" -ne 1 ]]; then
     for cert_file in "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem" "$CERT_DIR/chain.pem"; do
-      if [[ ! -f "$cert_file" ]]; then
+      if ! file_exists_root "$cert_file"; then
         log "Missing Let's Encrypt certificate file: $cert_file" >&2
         log "Create certificates on this machine first, for example:" >&2
         log "  certbot certonly --webroot -w $ACME_WEBROOT -d $TLS_DOMAIN" >&2
