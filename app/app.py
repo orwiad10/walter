@@ -3671,6 +3671,8 @@ def create_app():
         ordered_tournaments = [tournament_by_id[tid] for tid in tournament_ids if tid in tournament_by_id]
         count = 0
         now = datetime.utcnow()
+        user_id = current_user.id if current_user.is_authenticated else None
+        audit_entries = []
         if action == 'start':
             for tournament in ordered_tournaments:
                 tournament.started_at = now
@@ -3682,18 +3684,12 @@ def create_app():
                         extract_provided_tournament_name(tournament.name),
                     )
                 tournament.ended_at = None
-                db.session.add(TournamentLog(
-                    tournament_id=tournament.id,
-                    action='bulk_start',
-                    result='success',
-                    user_id=current_user.id,
-                ))
-                db.session.add(SiteLog(
-                    action='bulk_start_tournament',
-                    result='success',
-                    error=f'tournament_id={tournament.id}',
-                    user_id=current_user.id,
-                ))
+                audit_entries.append({
+                    'tournament_id': tournament.id,
+                    'tournament_action': 'bulk_start',
+                    'site_action': 'bulk_start_tournament',
+                    'site_error': f'tournament_id={tournament.id}',
+                })
                 count += 1
         elif action == 'end':
             for tournament in ordered_tournaments:
@@ -3701,35 +3697,23 @@ def create_app():
                 tournament.round_timer_end = None
                 tournament.draft_timer_end = None
                 tournament.deck_timer_end = None
-                db.session.add(TournamentLog(
-                    tournament_id=tournament.id,
-                    action='bulk_end',
-                    result='success',
-                    user_id=current_user.id,
-                ))
-                db.session.add(SiteLog(
-                    action='bulk_end_tournament',
-                    result='success',
-                    error=f'tournament_id={tournament.id}',
-                    user_id=current_user.id,
-                ))
+                audit_entries.append({
+                    'tournament_id': tournament.id,
+                    'tournament_action': 'bulk_end',
+                    'site_action': 'bulk_end_tournament',
+                    'site_error': f'tournament_id={tournament.id}',
+                })
                 count += 1
         elif action == 'delete':
             for tournament in ordered_tournaments:
                 tid = tournament.id
                 name = tournament.name
-                db.session.add(TournamentLog(
-                    tournament_id=tid,
-                    action='bulk_delete',
-                    result='success',
-                    user_id=current_user.id,
-                ))
-                db.session.add(SiteLog(
-                    action='bulk_delete_tournament',
-                    result='success',
-                    error=f'tournament_id={tid}; name={name}',
-                    user_id=current_user.id,
-                ))
+                audit_entries.append({
+                    'tournament_id': tid,
+                    'tournament_action': 'bulk_delete',
+                    'site_action': 'bulk_delete_tournament',
+                    'site_error': f'tournament_id={tid}; name={name}',
+                })
                 db.session.delete(tournament)
                 count += 1
         else:
@@ -3742,6 +3726,33 @@ def create_app():
             app.logger.exception('Bulk tournament action failed: %s', exc)
             flash('Bulk action failed. Please try again or review the selected tournaments.', 'error')
             return redirect(url_for('index'))
+
+        if audit_entries:
+            try:
+                for entry in audit_entries:
+                    db.session.add(TournamentLog(
+                        tournament_id=entry['tournament_id'],
+                        action=entry['tournament_action'],
+                        result='success',
+                        user_id=user_id,
+                    ))
+                    db.session.add(SiteLog(
+                        action=entry['site_action'],
+                        result='success',
+                        error=entry['site_error'],
+                        user_id=user_id,
+                    ))
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                app.logger.exception(
+                    'Bulk tournament audit logging failed after action commit: user_id=%s action=%s tournament_ids=%s error=%s',
+                    user_id,
+                    action,
+                    [entry['tournament_id'] for entry in audit_entries],
+                    exc,
+                )
+
         flash(f'Bulk action applied to {count} tournament' + ('s' if count != 1 else '') + '.', 'success')
         return redirect(url_for('index'))
 
