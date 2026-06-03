@@ -461,6 +461,80 @@ def test_venue_bulk_add_keeps_assignment_when_audit_logging_fails(client, sessio
     session.expire_all()
     assert session.get(Tournament, tournament.id).venue_id == venue.id
 
+
+def test_bulk_delete_tournaments_removes_selected_tournaments(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(
+        email='bulk-delete-admin@example.com',
+        name='Bulk Delete Admin',
+        role=admin_role,
+        is_admin=True,
+    )
+    admin.set_password('secret')
+    first = Tournament(name='Bulk Delete Event One', format='Modern')
+    second = Tournament(name='Bulk Delete Event Two', format='Legacy')
+    session.add_all([admin, first, second])
+    session.commit()
+    first_id = first.id
+    second_id = second.id
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/tournaments/bulk',
+            data={
+                'bulk_action': 'delete',
+                'tournament_ids': [str(first_id), str(second_id)],
+            },
+        )
+
+    assert response.status_code == 302
+    assert response.location == '/'
+    session.expire_all()
+    assert session.get(Tournament, first_id) is None
+    assert session.get(Tournament, second_id) is None
+    assert session.query(TournamentLog).filter_by(tournament_id=first_id, action='bulk_delete').one()
+    assert session.query(SiteLog).filter_by(action='bulk_delete_tournament').count() == 2
+
+
+def test_bulk_delete_keeps_deletion_when_audit_logging_fails(client, session, monkeypatch):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(
+        email='bulk-delete-log-failure-admin@example.com',
+        name='Bulk Delete Log Failure Admin',
+        role=admin_role,
+        is_admin=True,
+    )
+    admin.set_password('secret')
+    tournament = Tournament(name='Audit Failure Delete Event', format='Modern')
+    session.add_all([admin, tournament])
+    session.commit()
+    tournament_id = tournament.id
+
+    original_add = db.session.add
+
+    def fail_on_audit_log(instance):
+        if isinstance(instance, (SiteLog, TournamentLog)):
+            raise RuntimeError('simulated audit log failure')
+        return original_add(instance)
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        monkeypatch.setattr(db.session, 'add', fail_on_audit_log)
+        response = client.post(
+            '/admin/tournaments/bulk',
+            data={
+                'bulk_action': 'delete',
+                'tournament_ids': [str(tournament_id)],
+            },
+        )
+
+    assert response.status_code == 302
+    assert response.location == '/'
+    session.expire_all()
+    assert session.get(Tournament, tournament_id) is None
+
+
 def test_venue_bulk_add_rejects_empty_tournament_selection(client, session):
     admin_role = session.query(Role).filter_by(name='admin').one()
     admin = User(
