@@ -32,7 +32,7 @@ Copies the Walter Nginx config into the correct Linux Nginx location:
 
 Options:
   -c, --config PATH     Source Nginx config to install (default: $DEFAULT_CONFIG)
-      --tls-domain NAME  Render and install the TLS 1.3 Let's Encrypt config for NAME
+      --tls-domain NAME  Render and install the TLS 1.2/1.3 Let's Encrypt config for NAME
       --cert-dir PATH    Let's Encrypt live cert directory (default: /etc/letsencrypt/live/NAME)
       --acme-webroot PATH
                         Webroot for HTTP-01 challenges (default: $ACME_WEBROOT)
