@@ -139,3 +139,20 @@ def test_role_level_column_added(tmp_path, monkeypatch):
         cols = [c['name'] for c in inspector.get_columns('role')]
         assert 'level' in cols
         db.session.remove()
+
+
+def test_log_tables_created_on_startup(tmp_path, monkeypatch):
+    db_path = tmp_path / "pre.db"
+    log_path = tmp_path / "logs.db"
+    sqlite3.connect(db_path).close()
+
+    monkeypatch.setenv("MTG_DB_PATH", str(db_path))
+    monkeypatch.setenv("MTG_LOG_DB_PATH", str(log_path))
+
+    app = create_app()
+    with app.app_context():
+        logs_inspector = inspect(db.engines['logs'])
+        tables = logs_inspector.get_table_names()
+        assert 'site_log' in tables
+        assert 'tournament_log' in tables
+        db.session.remove()

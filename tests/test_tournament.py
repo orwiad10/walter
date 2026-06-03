@@ -281,6 +281,32 @@ def test_bulk_register_adds_existing_users(client, session):
     assert new_user.id in tournament_player_ids
 
 
+def test_bulk_edit_tournament_controls_stay_bound_to_bulk_form(client, session):
+    bulk_role = Role(
+        name='bulk form manager',
+        permissions=json.dumps({'tournaments.bulk_manage': True, 'tournaments.manage': True}),
+        level=100,
+    )
+    user = User(email='bulk-form-manager@example.com', name='Bulk Form Manager', role=bulk_role)
+    user.set_password('secret')
+    tournament = Tournament(name='Bulk Form Event', format='Modern')
+    venue = Venue(name='Bulk Form Venue')
+    session.add_all([bulk_role, user, tournament, venue])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
+        response = client.get('/')
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'id="bulk-tournament-form"' in html
+    assert 'name="bulk_action" form="bulk-tournament-form"' in html
+    assert 'name="bulk_venue_id" form="bulk-tournament-form"' in html
+    assert f'name="tournament_ids" value="{tournament.id}" form="bulk-tournament-form"' in html
+    assert html.index('</form>') < html.index('<ul class="cards">')
+
+
 def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session):
     bulk_role = Role(
         name='bulk venue manager',
