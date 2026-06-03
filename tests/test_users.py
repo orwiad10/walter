@@ -360,3 +360,68 @@ def test_admin_password_change_rekeys_user_and_preserves_lock_without_unlock_act
     assert target.decrypt_private_key('new-secret').startswith(b'-----BEGIN PRIVATE KEY-----')
     assert target.locked_at is not None
     assert target.lock_reason == 'manual review'
+
+
+def test_anonymous_home_hides_tournaments(client, session):
+    from app.models import Tournament
+
+    tournament = Tournament(name='Private Event', format='Constructed')
+    session.add(tournament)
+    session.commit()
+
+    response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'Private Event' not in response.data
+    assert b'Tournament information is private' in response.data
+
+
+def test_authenticated_home_shows_tournaments(client, session):
+    from app.models import Tournament
+
+    user_role = session.query(Role).filter_by(name='user').one()
+    user = User(email='home-user@example.com', name='Home User', role=user_role)
+    user.set_password('secret')
+    tournament = Tournament(name='Visible Event', format='Constructed')
+    session.add_all([user, tournament])
+    session.commit()
+
+    with client:
+        login_response = client.post('/login', data={'email': user.email, 'password': 'secret'})
+        assert login_response.status_code == 302
+        response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'Visible Event' in response.data
+
+
+def test_login_next_rejects_external_redirect(client, session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    user = User(email='next-user@example.com', name='Next User', role=user_role)
+    user.set_password('secret')
+    session.add(user)
+    session.commit()
+
+    response = client.post(
+        '/login?next=https://evil.example/phish',
+        data={'email': user.email, 'password': 'secret'},
+    )
+
+    assert response.status_code == 302
+    assert response.headers['Location'] == '/'
+
+
+def test_login_next_allows_local_redirect(client, session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    user = User(email='local-next-user@example.com', name='Local Next User', role=user_role)
+    user.set_password('secret')
+    session.add(user)
+    session.commit()
+
+    response = client.post(
+        '/login?next=/t/1/join-link',
+        data={'email': user.email, 'password': 'secret'},
+    )
+
+    assert response.status_code == 302
+    assert response.headers['Location'] == '/t/1/join-link'

@@ -35,7 +35,7 @@ import csv
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from sqlalchemy import inspect, text, or_
 from sqlalchemy.exc import SQLAlchemyError
 from cryptography.hazmat.primitives import serialization, hashes
@@ -533,16 +533,17 @@ def create_app():
     # ---------- Routes ----------
     @app.route('/')
     def index():
+        if not current_user.is_authenticated:
+            return render_template(
+                'index.html',
+                tournaments=[],
+                player_counts={},
+                server_now=datetime.utcnow(),
+            )
+
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         visible_tournaments = [t for t in tournaments if not tournament_is_complete(t)]
         player_counts = {t.id: len(t.players) for t in visible_tournaments}
-        can_bulk_edit_tournaments = (
-            current_user.is_authenticated
-            and (
-                current_user.has_permission('tournaments.bulk_manage')
-                or current_user.has_permission('tournaments.manage')
-            )
-        )
         return render_template('index.html', tournaments=visible_tournaments, player_counts=player_counts,
                                server_now=datetime.utcnow())
 
@@ -802,11 +803,7 @@ def create_app():
                 except Exception:
                     session['private_key'] = None
                 log_site('login', 'success', f'ip={_client_ip()}')
-                if next_url:
-                    parsed = urlparse(next_url)
-                    if not parsed.netloc and parsed.path.startswith('/'):
-                        return redirect(next_url)
-                return redirect(url_for('index'))
+                return redirect(resolve_redirect_target(url_for('index'), next_url))
             _record_bad_login(email, u, 'bad_password' if u else 'unknown_user')
             flash("Invalid credentials", "error")
             log_site('login', 'failure', f'invalid credentials; ip={_client_ip()}')
@@ -3525,8 +3522,9 @@ def create_app():
                 counts = apply_backup_payload(payload, overwrite=overwrite)
             except Exception as exc:
                 db.session.rollback()
+                app.logger.warning('Backup import failed: %s', exc)
                 log_site('backup_import', 'failure', str(exc))
-                flash(f'Backup import failed: {exc}', 'error')
+                flash('Backup import failed. Please verify the file and password, then try again.', 'error')
                 return redirect(url_for('admin_backup'))
             summary = ', '.join(f'{value} {key.replace("_", " ")}' for key, value in counts.items() if value)
             flash(f'Backup imported successfully. Updated {summary or "no records"}.', 'success')
@@ -3974,7 +3972,8 @@ def create_app():
         try:
             path = ensure_card_database_ready()
         except Exception as exc:
-            return jsonify(error=str(exc), results=[]), 503
+            app.logger.warning('Card database unavailable during deck search: %s', exc)
+            return jsonify(error='Card database unavailable.', results=[]), 503
         results = card_db.search_cards(path, query, limit=20)
         return jsonify(results=results)
 
@@ -4019,7 +4018,8 @@ def create_app():
         try:
             db_path = ensure_card_database_ready()
         except Exception as exc:
-            flash(f'Card database unavailable: {exc}', 'error')
+            app.logger.warning('Card database unavailable during manual deck upload: %s', exc)
+            flash('Card database unavailable. Please try again later.', 'error')
             log_tournament(tid, 'deck_manual', 'failure', str(exc))
             return redirect(url_for('view_tournament', tid=tid))
         canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
@@ -4096,7 +4096,8 @@ def create_app():
         try:
             db_path = ensure_card_database_ready()
         except Exception as exc:
-            flash(f'Card database unavailable: {exc}', 'error')
+            app.logger.warning('Card database unavailable during MTGO deck upload: %s', exc)
+            flash('Card database unavailable. Please try again later.', 'error')
             log_tournament(tid, 'deck_mtgo', 'failure', str(exc))
             return redirect(url_for('view_tournament', tid=tid))
         canonical_main, missing_main = canonicalize_card_group(main_entries, db_path=db_path)
@@ -4977,11 +4978,24 @@ def create_app():
             search_query=q,
         )
 
+    def is_safe_redirect_target(candidate):
+        if not candidate:
+            return False
+        candidate = candidate.strip()
+        if not candidate or '\\' in candidate:
+            return False
+        ref_url = urlparse(request.host_url)
+        test_url = urlparse(urljoin(request.host_url, candidate))
+        return (
+            test_url.scheme in ('http', 'https')
+            and ref_url.netloc == test_url.netloc
+            and candidate.startswith('/')
+            and not candidate.startswith('//')
+        )
+
     def resolve_redirect_target(default_url, candidate):
-        if candidate:
-            parsed = urlparse(candidate)
-            if not parsed.scheme and not parsed.netloc:
-                return candidate
+        if is_safe_redirect_target(candidate):
+            return candidate.strip()
         return default_url
 
     @app.route('/admin/users/<int:uid>')

@@ -1,19 +1,39 @@
 {% extends 'base.html' %}
 {% block content %}
+{% if not current_user.is_authenticated %}
+<section class="page-header">
+  <div class="page-header__title">
+    <h2>Welcome to WaLTER</h2>
+    <p class="page-description">Sign in to view and manage your tournament activity.</p>
+  </div>
+  <div class="page-header__actions">
+    <a class="btn" href="{{ url_for('login') }}">Login</a>
+    <a class="btn secondary" href="{{ url_for('register') }}">Create Account</a>
+  </div>
+</section>
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Tournament information is private</h3>
+      <p>Active tournaments are only shown after you log in.</p>
+    </div>
+  </div>
+</section>
+{% else %}
 <section class="page-header">
   <div class="page-header__title">
     <h2>Active Tournaments</h2>
     <p class="page-description">Track live timers, manage players, and jump into any event with a single tap.</p>
   </div>
-  {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
+  {% if current_user.has_permission('tournaments.manage') %}
   <div class="page-header__actions">
     <a class="btn" href="{{ url_for('new_tournament') }}">Create Tournament</a>
   </div>
   {% endif %}
 </section>
 
-{% set can_manage_tournaments = current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
-{% set can_bulk_edit = current_user.is_authenticated and (current_user.has_permission('tournaments.bulk_manage') or can_manage_tournaments) %}
+{% set can_manage_tournaments = current_user.has_permission('tournaments.manage') %}
+{% set can_bulk_edit = current_user.has_permission('tournaments.bulk_manage') or can_manage_tournaments %}
 {% if can_manage_tournaments %}
   {% for t in tournaments %}
   <form id="delete-tournament-form-{{ t.id }}" method="post" action="{{ url_for('delete_tournament', tid=t.id) }}" onsubmit="return confirm('Delete this tournament?');"></form>
@@ -75,5 +95,6 @@
 </ul>
 {% if can_bulk_edit %}
 </form>
+{% endif %}
 {% endif %}
 {% endblock %}
