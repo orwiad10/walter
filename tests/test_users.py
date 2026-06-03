@@ -425,3 +425,27 @@ def test_login_next_allows_local_redirect(client, session):
 
     assert response.status_code == 302
     assert response.headers['Location'] == '/t/1/join-link'
+
+
+def test_admin_user_actions_ignore_tampered_next(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='admin-next@example.com', name='Next Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    user = User(email='managed-next@example.com', name='Managed Next', role=user_role)
+    session.add_all([admin, user])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            f'/admin/users/{user.id}/update',
+            data={
+                'email': user.email,
+                'role_id': str(user_role.id),
+                'next': 'https://evil.example/admin',
+            },
+        )
+
+    assert response.status_code == 302
+    assert response.headers['Location'] == f'/admin/users/{user.id}'
