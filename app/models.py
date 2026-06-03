@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from sqlalchemy import UniqueConstraint
 import uuid
 import os
-import random
 import json
 import secrets
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -316,7 +315,7 @@ class Tournament(db.Model):
     round_timer_remaining = db.Column(db.Integer, nullable=True)
     draft_timer_remaining = db.Column(db.Integer, nullable=True)
     deck_timer_remaining = db.Column(db.Integer, nullable=True)
-    passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{random.randint(0,9999):04d}")
+    passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{secrets.randbelow(10000):04d}")
     join_requires_approval = db.Column(db.Boolean, default=False)
     league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=True)
     venue_id = db.Column(db.Integer, db.ForeignKey('venue.id'), nullable=True)

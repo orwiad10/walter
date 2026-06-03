@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import os
 import random
+import re
 import click
 import psutil
 import json
@@ -67,6 +68,17 @@ MAJOR_60_CARD_FORMATS = [
 ]
 BASE_TOURNAMENT_FORMATS = ['Commander', 'Draft']
 TOURNAMENT_FORMATS = BASE_TOURNAMENT_FORMATS + MAJOR_60_CARD_FORMATS
+MAILGUN_DOMAIN_PATTERN = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$')
+
+
+def _mailgun_messages_url(domain):
+    if not domain or not MAILGUN_DOMAIN_PATTERN.fullmatch(domain) or '..' in domain:
+        raise RuntimeError('Mailgun domain must be a valid domain name.')
+    url = f'https://api.mailgun.net/v3/{domain}/messages'
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != 'https' or parsed.netloc != 'api.mailgun.net':
+        raise RuntimeError('Mailgun API URL must use https://api.mailgun.net/.')
+    return url
 
 
 def format_tournament_name(fmt, start_time, provided_name):
@@ -562,7 +574,7 @@ def create_app():
             'text': text,
         }).encode()
         request_obj = urllib.request.Request(
-            f'https://api.mailgun.net/v3/{domain}/messages',
+            _mailgun_messages_url(domain),
             data=data,
             headers={
                 'Authorization': 'Basic ' + base64.b64encode(f'api:{api_key}'.encode()).decode(),
@@ -570,7 +582,8 @@ def create_app():
             },
             method='POST',
         )
-        with urllib.request.urlopen(request_obj, timeout=10) as response:
+        # _mailgun_messages_url pins the destination to https://api.mailgun.net/.
+        with urllib.request.urlopen(request_obj, timeout=10) as response:  # nosec B310
             if response.status >= 400:
                 raise RuntimeError(f'Mailgun returned HTTP {response.status}')
 
