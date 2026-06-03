@@ -244,6 +244,8 @@ def create_app():
             Venue,
             Vendor,
             ArtistProfile,
+            SiteLog,
+            TournamentLog,
         )  # lazy import to avoid circular reference
 
         if 'user' in inspector.get_table_names():
@@ -265,6 +267,10 @@ def create_app():
         Venue.__table__.create(bind=db.engine, checkfirst=True)
         Vendor.__table__.create(bind=db.engine, checkfirst=True)
         ArtistProfile.__table__.create(bind=db.engine, checkfirst=True)
+
+        logs_engine = db.engines['logs']
+        SiteLog.__table__.create(bind=logs_engine, checkfirst=True)
+        TournamentLog.__table__.create(bind=logs_engine, checkfirst=True)
 
         if 'report' not in inspector.get_table_names():
             Report.__table__.create(bind=db.engine)
