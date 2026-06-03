@@ -493,7 +493,14 @@ def create_app():
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         visible_tournaments = [t for t in tournaments if not tournament_is_complete(t)]
         player_counts = {t.id: len(t.players) for t in visible_tournaments}
-        venues = db.session.query(Venue).order_by(Venue.name).all() if current_user.is_authenticated and current_user.has_permission('tournaments.bulk_manage') else []
+        can_bulk_edit_tournaments = (
+            current_user.is_authenticated
+            and (
+                current_user.has_permission('tournaments.bulk_manage')
+                or current_user.has_permission('tournaments.manage')
+            )
+        )
+        venues = db.session.query(Venue).order_by(Venue.name).all() if can_bulk_edit_tournaments else []
         return render_template('index.html', tournaments=visible_tournaments, player_counts=player_counts,
                                venues=venues, server_now=datetime.utcnow())
 
@@ -3344,7 +3351,12 @@ def create_app():
     @app.route('/admin/tournaments/bulk', methods=['POST'])
     @login_required
     def bulk_edit_tournaments():
-        require_permission('tournaments.bulk_manage')
+        if not (
+            current_user.has_permission('tournaments.bulk_manage')
+            or current_user.has_permission('tournaments.manage')
+        ):
+            log_site('unauthorized_access', 'failure', 'tournaments.bulk_manage')
+            abort(403)
         raw_ids = request.form.getlist('tournament_ids')
         tournament_ids = []
         seen_tournament_ids = set()

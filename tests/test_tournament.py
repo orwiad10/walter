@@ -301,11 +301,42 @@ def test_bulk_edit_tournament_controls_stay_bound_to_bulk_form(client, session):
     html = response.get_data(as_text=True)
     assert response.status_code == 200
     assert 'id="bulk-tournament-form"' in html
-    assert 'name="bulk_action" form="bulk-tournament-form"' in html
-    assert 'name="bulk_venue_id" form="bulk-tournament-form"' in html
-    assert f'name="tournament_ids" value="{tournament.id}" form="bulk-tournament-form"' in html
-    assert html.index('</form>') < html.index('<ul class="cards">')
+    assert 'name="bulk_action" required' in html
+    assert 'name="bulk_venue_id"' in html
+    assert f'name="tournament_ids" value="{tournament.id}"' in html
+    assert html.index('<form id="bulk-tournament-form"') < html.index('<ul class="cards">')
+    assert html.index('<ul class="cards">') < html.index('</form>', html.index('<ul class="cards">'))
 
+
+
+def test_tournament_manager_can_bulk_add_tournament_to_venue(client, session):
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    user = User(email='manager-bulk-venue@example.com', name='Manager Bulk Venue', role=manager_role)
+    user.set_password('secret')
+    tournament = Tournament(name='Manager Bulk Venue Event', format='Modern')
+    venue = Venue(name='Manager Bulk Venue')
+    session.add_all([user, tournament, venue])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
+        page = client.get('/')
+        response = client.post(
+            '/admin/tournaments/bulk',
+            data={
+                'bulk_action': 'venue',
+                'bulk_venue_id': str(venue.id),
+                'tournament_ids': [str(tournament.id)],
+            },
+        )
+
+    html = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'id="bulk-tournament-form"' in html
+    assert response.status_code == 302
+    assert response.location == '/'
+    session.expire_all()
+    assert session.get(Tournament, tournament.id).venue_id == venue.id
 
 def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session):
     bulk_role = Role(
