@@ -25,7 +25,6 @@ import math
 import os
 import random
 import click
-import hashlib
 import psutil
 import json
 import base64
@@ -43,6 +42,8 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hmac as crypto_hmac
 from werkzeug.utils import safe_join, secure_filename
 from PIL import Image, ImageOps
 
@@ -143,7 +144,12 @@ def create_app():
         seed_bytes = seed_env.encode()
         seed_display = seed_env
     global PASSWORD_KEY, PASSWORD_SEED
-    PASSWORD_KEY = hashlib.sha256(seed_bytes).digest()
+    PASSWORD_KEY = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b'walter password seed key',
+    ).derive(seed_bytes)
     PASSWORD_SEED = seed_display
 
     db.init_app(app)
@@ -500,9 +506,8 @@ def create_app():
                 or current_user.has_permission('tournaments.manage')
             )
         )
-        venues = db.session.query(Venue).order_by(Venue.name).all() if can_bulk_edit_tournaments else []
         return render_template('index.html', tournaments=visible_tournaments, player_counts=player_counts,
-                               venues=venues, server_now=datetime.utcnow())
+                               server_now=datetime.utcnow())
 
     def _send_mailgun_email(to_email, subject, text):
         api_key = app.config.get('MAILGUN_API_KEY')
@@ -543,7 +548,10 @@ def create_app():
         return request.remote_addr or 'unknown'
 
     def _hash_reset_token(token):
-        return hashlib.sha256(token.encode()).hexdigest()
+        key_material = app.config['SECRET_KEY'].encode()
+        hmac_ctx = crypto_hmac.HMAC(key_material, hashes.SHA256())
+        hmac_ctx.update(token.encode())
+        return hmac_ctx.finalize().hex()
 
     def _send_password_reset_email(user, token):
         reset_url = url_for('password_reset_token', token=token, _external=True)
@@ -2689,6 +2697,113 @@ def create_app():
             flash('Venue updated.', 'success')
         return redirect(url_for('venue_management'))
 
+    def _get_visible_venue_or_404(venue_id):
+        venue = db.session.get(Venue, venue_id)
+        if not venue:
+            abort(404)
+        if current_user.has_permission('venues.manage'):
+            return venue
+        if venue.id not in venue_ids_for_user(current_user):
+            abort(403)
+        return venue
+
+    @app.route('/admin/venues/<int:venue_id>')
+    @login_required
+    def venue_detail(venue_id):
+        venue = _get_visible_venue_or_404(venue_id)
+        current_tournaments = (
+            db.session.query(Tournament)
+            .filter(Tournament.venue_id == venue.id)
+            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .all()
+        )
+        available_tournaments = (
+            db.session.query(Tournament)
+            .filter(or_(Tournament.venue_id.is_(None), Tournament.venue_id != venue.id))
+            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .all()
+        )
+        unassigned_tournaments = (
+            db.session.query(Tournament)
+            .filter(Tournament.venue_id.is_(None))
+            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .all()
+        )
+        return render_template(
+            'admin/venue_detail.html',
+            venue=venue,
+            current_tournaments=current_tournaments,
+            available_tournaments=available_tournaments,
+            unassigned_tournaments=unassigned_tournaments,
+            can_bulk_add_tournaments=(
+                current_user.has_permission('venues.manage')
+                and (
+                    current_user.has_permission('tournaments.bulk_manage')
+                    or current_user.has_permission('tournaments.manage')
+                )
+            ),
+        )
+
+    @app.route('/admin/venues/<int:venue_id>/tournaments/bulk-add', methods=['POST'])
+    @login_required
+    def bulk_add_tournaments_to_venue(venue_id):
+        require_permission('venues.manage')
+        if not (
+            current_user.has_permission('tournaments.bulk_manage')
+            or current_user.has_permission('tournaments.manage')
+        ):
+            log_site('unauthorized_access', 'failure', 'venues.manage+tournaments.bulk_manage')
+            abort(403)
+        venue = db.session.get(Venue, venue_id)
+        if not venue:
+            abort(404)
+        raw_ids = request.form.getlist('tournament_ids')
+        tournament_ids = []
+        seen_tournament_ids = set()
+        for raw_id in raw_ids:
+            try:
+                tournament_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if tournament_id in seen_tournament_ids:
+                continue
+            seen_tournament_ids.add(tournament_id)
+            tournament_ids.append(tournament_id)
+        if not tournament_ids:
+            flash('Select at least one tournament to add to this venue.', 'error')
+            return redirect(url_for('venue_detail', venue_id=venue.id))
+        tournaments = db.session.query(Tournament).filter(Tournament.id.in_(tournament_ids)).all()
+        tournament_by_id = {t.id: t for t in tournaments}
+        ordered_tournaments = [tournament_by_id[tid] for tid in tournament_ids if tid in tournament_by_id]
+        count = 0
+        for tournament in ordered_tournaments:
+            if tournament.venue_id == venue.id:
+                continue
+            tournament.venue_id = venue.id
+            db.session.add(TournamentLog(
+                tournament_id=tournament.id,
+                action='bulk_add_to_venue',
+                result='success',
+                error=f'venue_id={venue.id}',
+                user_id=current_user.id,
+            ))
+            db.session.add(SiteLog(
+                action='venue_bulk_add_tournaments',
+                result='success',
+                error=f'venue_id={venue.id}; tournament_id={tournament.id}',
+                user_id=current_user.id,
+            ))
+            count += 1
+        try:
+            db.session.commit()
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            app.logger.exception('Venue tournament bulk add failed: %s', exc)
+            flash('Bulk add failed. Please try again or review the selected tournaments.', 'error')
+            return redirect(url_for('venue_detail', venue_id=venue.id))
+        flash(f'Added {count} tournament' + ('s' if count != 1 else '') + f' to {venue.name}.', 'success')
+        return redirect(url_for('venue_detail', venue_id=venue.id))
+
     @app.route('/admin/venues/vendors', methods=['GET', 'POST'])
     @login_required
     def vendor_management():
@@ -3206,7 +3321,7 @@ def create_app():
 
         return render_template(
             'admin/panel.html',
-            encryption_type='SHA256+salt',
+            encryption_type='Werkzeug password hashing',
             db_size=fmt_bytes(db_size),
             ram_usage=fmt_bytes(mem_usage),
             cpu_usage=cpu_usage,
@@ -3378,33 +3493,7 @@ def create_app():
         ordered_tournaments = [tournament_by_id[tid] for tid in tournament_ids if tid in tournament_by_id]
         count = 0
         now = datetime.utcnow()
-        if action == 'venue':
-            venue_raw = (request.form.get('bulk_venue_id') or '').strip()
-            try:
-                venue_id = int(venue_raw) if venue_raw else None
-            except ValueError:
-                flash('Selected venue was not found.', 'error')
-                return redirect(url_for('index'))
-            if venue_id is not None and not db.session.get(Venue, venue_id):
-                flash('Selected venue was not found.', 'error')
-                return redirect(url_for('index'))
-            for tournament in ordered_tournaments:
-                tournament.venue_id = venue_id
-                db.session.add(TournamentLog(
-                    tournament_id=tournament.id,
-                    action='bulk_set_venue',
-                    result='success',
-                    error=f'venue_id={venue_id}',
-                    user_id=current_user.id,
-                ))
-                db.session.add(SiteLog(
-                    action='bulk_set_tournament_venue',
-                    result='success',
-                    error=f'tournament_id={tournament.id}; venue_id={venue_id}',
-                    user_id=current_user.id,
-                ))
-                count += 1
-        elif action == 'start':
+        if action == 'start':
             for tournament in ordered_tournaments:
                 tournament.started_at = now
                 if not tournament.start_time:

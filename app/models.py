@@ -5,13 +5,13 @@ from sqlalchemy import UniqueConstraint
 import uuid
 import os
 import random
-import hashlib
 import json
 import secrets
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # Permission groups and default role permissions
 PERMISSION_GROUPS = {
@@ -124,16 +124,16 @@ class User(db.Model, UserMixin):
     lock_reason = db.Column(db.Text, nullable=True)
 
     def set_password(self, pw):
-        self.salt = os.urandom(16).hex()
-        self.password_hash = hashlib.sha256((self.salt + pw).encode()).hexdigest()
+        self.salt = 'werkzeug'
+        self.password_hash = generate_password_hash(pw)
         self.failed_login_count = 0
         self.locked_at = None
         self.lock_reason = None
 
     def check_password(self, pw):
-        if not self.password_hash or not self.salt:
+        if not self.password_hash:
             return False
-        return self.password_hash == hashlib.sha256((self.salt + pw).encode()).hexdigest()
+        return check_password_hash(self.password_hash, pw)
 
     def generate_keys(self, password):
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -238,11 +238,11 @@ class PendingRegistration(db.Model):
     tournament = db.relationship('Tournament')
 
     def set_password(self, pw):
-        self.salt = os.urandom(16).hex()
-        self.password_hash = hashlib.sha256((self.salt + pw).encode()).hexdigest()
+        self.salt = 'werkzeug'
+        self.password_hash = generate_password_hash(pw)
 
     def check_password(self, pw):
-        return self.password_hash == hashlib.sha256((self.salt + pw).encode()).hexdigest()
+        return check_password_hash(self.password_hash, pw)
 
     @staticmethod
     def generate_pin():
