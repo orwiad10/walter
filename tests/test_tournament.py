@@ -302,7 +302,8 @@ def test_bulk_edit_tournament_controls_stay_bound_to_bulk_form(client, session):
     assert response.status_code == 200
     assert 'id="bulk-tournament-form"' in html
     assert 'name="bulk_action" required' in html
-    assert 'name="bulk_venue_id"' in html
+    assert 'name="bulk_venue_id"' not in html
+    assert 'Venue assignment is managed from each venue page.' in html
     assert f'name="tournament_ids" value="{tournament.id}"' in html
     assert html.index('<form id="bulk-tournament-form"') < html.index('<ul class="cards">')
     assert html.index('<ul class="cards">') < html.index('</form>', html.index('<ul class="cards">'))
@@ -320,28 +321,27 @@ def test_tournament_manager_can_bulk_add_tournament_to_venue(client, session):
 
     with client:
         assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
-        page = client.get('/')
+        page = client.get(f'/admin/venues/{venue.id}')
         response = client.post(
-            '/admin/tournaments/bulk',
+            f'/admin/venues/{venue.id}/tournaments/bulk-add',
             data={
-                'bulk_action': 'venue',
-                'bulk_venue_id': str(venue.id),
                 'tournament_ids': [str(tournament.id)],
             },
         )
 
     html = page.get_data(as_text=True)
     assert page.status_code == 200
-    assert 'id="bulk-tournament-form"' in html
+    assert 'Bulk Add Tournaments' in html
+    assert f'name="tournament_ids" value="{tournament.id}"' in html
     assert response.status_code == 302
-    assert response.location == '/'
+    assert response.location == f'/admin/venues/{venue.id}'
     session.expire_all()
     assert session.get(Tournament, tournament.id).venue_id == venue.id
 
 def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session):
     bulk_role = Role(
         name='bulk venue manager',
-        permissions=json.dumps({'tournaments.bulk_manage': True}),
+        permissions=json.dumps({'tournaments.bulk_manage': True, 'venues.manage': True}),
         level=100,
     )
     user = User(email='bulk-venue-manager@example.com', name='Bulk Venue Manager', role=bulk_role)
@@ -354,16 +354,14 @@ def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session
     with client:
         assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
         response = client.post(
-            '/admin/tournaments/bulk',
+            f'/admin/venues/{venue.id}/tournaments/bulk-add',
             data={
-                'bulk_action': 'venue',
-                'bulk_venue_id': str(venue.id),
                 'tournament_ids': [str(tournament.id)],
             },
         )
 
     assert response.status_code == 302
-    assert response.location == '/'
+    assert response.location == f'/admin/venues/{venue.id}'
     session.expire_all()
     assert session.get(Tournament, tournament.id).venue_id == venue.id
 
@@ -371,7 +369,7 @@ def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session
 def test_bulk_edit_tournaments_adds_multiple_unique_tournaments_to_venue(client, session):
     bulk_role = Role(
         name='bulk multi venue manager',
-        permissions=json.dumps({'tournaments.bulk_manage': True}),
+        permissions=json.dumps({'tournaments.bulk_manage': True, 'venues.manage': True}),
         level=100,
     )
     user = User(email='bulk-multi-venue-manager@example.com', name='Bulk Multi Venue Manager', role=bulk_role)
@@ -385,16 +383,14 @@ def test_bulk_edit_tournaments_adds_multiple_unique_tournaments_to_venue(client,
     with client:
         assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
         response = client.post(
-            '/admin/tournaments/bulk',
+            f'/admin/venues/{venue.id}/tournaments/bulk-add',
             data={
-                'bulk_action': 'venue',
-                'bulk_venue_id': str(venue.id),
                 'tournament_ids': [str(first.id), str(second.id)],
             },
         )
 
     assert response.status_code == 302
-    assert response.location == '/'
+    assert response.location == f'/admin/venues/{venue.id}'
     session.expire_all()
     assert session.get(Tournament, first.id).venue_id == venue.id
     assert session.get(Tournament, second.id).venue_id == venue.id
@@ -403,7 +399,7 @@ def test_bulk_edit_tournaments_adds_multiple_unique_tournaments_to_venue(client,
 def test_bulk_edit_tournaments_ignores_duplicate_tournament_ids(client, session):
     bulk_role = Role(
         name='bulk duplicate venue manager',
-        permissions=json.dumps({'tournaments.bulk_manage': True}),
+        permissions=json.dumps({'tournaments.bulk_manage': True, 'venues.manage': True}),
         level=100,
     )
     user = User(email='bulk-duplicate-venue-manager@example.com', name='Bulk Duplicate Venue Manager', role=bulk_role)
@@ -416,21 +412,19 @@ def test_bulk_edit_tournaments_ignores_duplicate_tournament_ids(client, session)
     with client:
         assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
         response = client.post(
-            '/admin/tournaments/bulk',
+            f'/admin/venues/{venue.id}/tournaments/bulk-add',
             data={
-                'bulk_action': 'venue',
-                'bulk_venue_id': str(venue.id),
                 'tournament_ids': [str(tournament.id), str(tournament.id), str(tournament.id)],
             },
         )
 
     assert response.status_code == 302
-    assert response.location == '/'
+    assert response.location == f'/admin/venues/{venue.id}'
     session.expire_all()
     assert session.get(Tournament, tournament.id).venue_id == venue.id
 
 
-def test_bulk_edit_tournaments_rejects_invalid_venue_id(client, session):
+def test_venue_bulk_add_rejects_empty_tournament_selection(client, session):
     admin_role = session.query(Role).filter_by(name='admin').one()
     admin = User(
         email='bulk-invalid-venue-admin@example.com',
@@ -447,16 +441,14 @@ def test_bulk_edit_tournaments_rejects_invalid_venue_id(client, session):
     with client:
         assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
         response = client.post(
-            '/admin/tournaments/bulk',
+            f'/admin/venues/{venue.id}/tournaments/bulk-add',
             data={
-                'bulk_action': 'venue',
-                'bulk_venue_id': 'not-a-venue-id',
-                'tournament_ids': [str(tournament.id)],
+                'tournament_ids': [],
             },
         )
 
     assert response.status_code == 302
-    assert response.location == '/'
+    assert response.location == f'/admin/venues/{venue.id}'
     session.expire_all()
     assert session.get(Tournament, tournament.id).venue_id is None
 

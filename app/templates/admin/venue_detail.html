@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Venue Management</span>
+    <h2>{{ venue.name }}</h2>
+    <p class="page-description">Manage this venue's tournaments, artists, and vendors from one place.</p>
+  </div>
+  <div class="page-header__actions">
+    <a class="btn secondary" href="{{ url_for('venue_management') }}">All Venues</a>
+    <a class="btn secondary" href="{{ url_for('vendor_management') }}">Vendors</a>
+    <a class="btn secondary" href="{{ url_for('artist_management') }}">Artists</a>
+  </div>
+</section>
+
+<section class="panel-card">
+  <h3>Venue Details</h3>
+  <div class="card-meta">
+    <span><strong>Website</strong>{% if venue.website %}<a href="{{ venue.website }}" target="_blank" rel="noopener">{{ venue.website }}</a>{% else %}-{% endif %}</span>
+    <span><strong>Address</strong>{{ venue.address or '-' }}</span>
+    <span><strong>Notes</strong>{{ venue.notes or '-' }}</span>
+  </div>
+</section>
+
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Tournaments at {{ venue.name }}</h3>
+      <p>These tournaments are already assigned to this venue.</p>
+    </div>
+  </div>
+  {% if current_tournaments %}
+  <table class="table compact-table">
+    <thead><tr><th>Name</th><th>Format</th><th>Start Time</th><th>Players</th></tr></thead>
+    <tbody>
+      {% for tournament in current_tournaments %}
+      <tr>
+        <td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td>
+        <td>{{ tournament.format }}</td>
+        <td>{{ tournament.start_time or '-' }}</td>
+        <td>{{ tournament.players|length }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state compact-empty">No tournaments are assigned to this venue yet.</p>
+  {% endif %}
+</section>
+
+{% if can_bulk_add_tournaments %}
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Bulk Add Tournaments</h3>
+      <p>Populate this venue by selecting tournaments below, then add them in one action.</p>
+    </div>
+  </div>
+  {% if available_tournaments %}
+  <form method="post" action="{{ url_for('bulk_add_tournaments_to_venue', venue_id=venue.id) }}" onsubmit="return confirm('Add selected tournaments to this venue?');">
+    <table class="table compact-table">
+      <thead><tr><th>Select</th><th>Name</th><th>Current Venue</th><th>Format</th><th>Start Time</th></tr></thead>
+      <tbody>
+        {% for tournament in available_tournaments %}
+        <tr>
+          <td><input type="checkbox" name="tournament_ids" value="{{ tournament.id }}"{% if tournament in unassigned_tournaments %} checked{% endif %}></td>
+          <td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td>
+          <td>{{ tournament.venue.name if tournament.venue else 'No venue' }}</td>
+          <td>{{ tournament.format }}</td>
+          <td>{{ tournament.start_time or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="form-actions"><button class="btn" type="submit">Add Selected to {{ venue.name }}</button></div>
+  </form>
+  {% else %}
+  <p class="empty-state compact-empty">No other tournaments are available to add.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="panel-card">
+  <h3>Venue Assets</h3>
+  <div class="venue-assets-grid">
+    <div>
+      <h4>Artists</h4>
+      {% if venue.artists %}
+      <table class="table compact-table"><tbody>{% for artist in venue.artists %}<tr><td><a href="{{ url_for('artist_management') }}#artist-{{ artist.id }}">{{ artist.name }}</a></td><td>{{ artist.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+      {% else %}<p class="empty-state compact-empty">No artists.</p>{% endif %}
+    </div>
+    <div>
+      <h4>Vendors</h4>
+      {% if venue.vendors %}
+      <table class="table compact-table"><tbody>{% for vendor in venue.vendors %}<tr><td><a href="{{ url_for('vendor_management') }}#vendor-{{ vendor.id }}">{{ vendor.name }}</a></td><td>{{ vendor.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+      {% else %}<p class="empty-state compact-empty">No vendors.</p>{% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
