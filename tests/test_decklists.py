@@ -126,6 +126,31 @@ def test_deck_image_upload_for_draft(client, session, user):
     assert other_tp.deck is None
 
 
+def test_deck_image_upload_sanitizes_generated_storage_path(client, session, user, app, tmp_path):
+    media_dir = tmp_path / 'media-root'
+    app.config['MEDIA_STORAGE_DIR'] = str(media_dir)
+    tournament = create_tournament(session, fmt='Draft')
+    tp = register_player(session, tournament, user)
+    login(client, user)
+
+    png_bytes = base64.b64decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5lH2gAAAAASUVORK5CYII='
+    )
+    response = client.post(
+        f'/t/{tournament.id}/deck/image',
+        data={'deck_image': (io.BytesIO(png_bytes), '../../deck.png')},
+        content_type='multipart/form-data',
+    )
+
+    assert response.status_code == 302
+    session.refresh(tp)
+    assert tp.deck is not None and tp.deck.image_path
+    stored_path = os.path.realpath(os.path.join(app.config['MEDIA_STORAGE_DIR'], tp.deck.image_path))
+    expected_root = os.path.realpath(app.config['MEDIA_STORAGE_DIR'])
+    assert os.path.commonpath([expected_root, stored_path]) == expected_root
+    assert os.path.exists(stored_path)
+
+
 def test_deck_image_delete_removes_file(client, session, user, app):
     tournament = create_tournament(session, fmt='Draft')
     tp = register_player(session, tournament, user)
