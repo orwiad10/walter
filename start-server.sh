@@ -13,14 +13,16 @@ NGINX_INSTALL_SCRIPT="$SCRIPT_DIR/scripts/install_nginx_config.sh"
 PYTHON_BIN=""
 
 detect_python() {
-  local candidate
-  for candidate in python3 python; do
-    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info.major >= 3 else 1)' >/dev/null 2>&1; then
-      PYTHON_BIN="$candidate"
-      return 0
-    fi
-  done
-  return 1
+	local candidate
+
+	for candidate in python3.12 python3.11 python3.10 python3; do
+		if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] <= (3, 12) else 1)' >/dev/null 2>&1; then
+			PYTHON_BIN="$candidate"
+			return 0
+		fi
+	done
+
+	return 1
 }
 
 run_as_root() {
