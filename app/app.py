@@ -130,6 +130,7 @@ def create_app():
     app.config['MAILGUN_DOMAIN'] = os.environ.get('MAILGUN_DOMAIN', '')
     app.config['MAILGUN_FROM_EMAIL'] = os.environ.get('MAILGUN_FROM_EMAIL', '')
     app.config['ACCOUNT_CREATION_INVITE_ONLY'] = os.environ.get('ACCOUNT_CREATION_INVITE_ONLY', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    app.config['REGISTRATION_INVITE_TTL_DAYS'] = int(os.environ.get('REGISTRATION_INVITE_TTL_DAYS', '14') or '14')
     app.config['REGISTRATION_PIN_TTL_MINUTES'] = int(os.environ.get('REGISTRATION_PIN_TTL_MINUTES', '15'))
     app.config['ACCOUNT_LOCKOUT_ATTEMPTS'] = int(os.environ.get('ACCOUNT_LOCKOUT_ATTEMPTS', '3') or '3')
     app.config['IP_BLACKLIST_ATTEMPTS'] = int(os.environ.get('IP_BLACKLIST_ATTEMPTS', '10') or '10')
@@ -194,6 +195,9 @@ def create_app():
             if 'join_requires_approval' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN join_requires_approval BOOLEAN DEFAULT 0'))
                 db.session.execute(text('UPDATE tournament SET join_requires_approval=0 WHERE join_requires_approval IS NULL'))
+                db.session.commit()
+            if 'player_cap' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN player_cap INTEGER'))
                 db.session.commit()
             if 'start_table_number' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN start_table_number INTEGER DEFAULT 1'))
@@ -261,6 +265,8 @@ def create_app():
             BadLoginAttempt,
             BlacklistedIP,
             PasswordResetToken,
+            SiteSetting,
+            RegistrationInvite,
             Venue,
             Vendor,
             ArtistProfile,
@@ -284,6 +290,8 @@ def create_app():
         BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
         BlacklistedIP.__table__.create(bind=db.engine, checkfirst=True)
         PasswordResetToken.__table__.create(bind=db.engine, checkfirst=True)
+        SiteSetting.__table__.create(bind=db.engine, checkfirst=True)
+        RegistrationInvite.__table__.create(bind=db.engine, checkfirst=True)
         Venue.__table__.create(bind=db.engine, checkfirst=True)
         Vendor.__table__.create(bind=db.engine, checkfirst=True)
         ArtistProfile.__table__.create(bind=db.engine, checkfirst=True)
@@ -328,6 +336,20 @@ def create_app():
 
         media_engine = db.engines['media']
         LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
+        media_inspector = inspect(media_engine)
+        if 'lost_found_item' in media_inspector.get_table_names():
+            columns = [c['name'] for c in media_inspector.get_columns('lost_found_item')]
+            if 'venue_id' not in columns:
+                with media_engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE lost_found_item ADD COLUMN venue_id INTEGER'))
+        if 'pending_registration' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('pending_registration')]
+            if 'verification_token_hash' not in columns:
+                db.session.execute(text('ALTER TABLE pending_registration ADD COLUMN verification_token_hash VARCHAR(64)'))
+                db.session.commit()
+            if 'invite_id' not in columns:
+                db.session.execute(text('ALTER TABLE pending_registration ADD COLUMN invite_id INTEGER'))
+                db.session.commit()
         if 'tournament_player_deck' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('tournament_player_deck')]
             if 'is_submitted' not in columns:
@@ -363,6 +385,8 @@ def create_app():
         BadLoginAttempt,
         BlacklistedIP,
         PasswordResetToken,
+        SiteSetting,
+        RegistrationInvite,
         Venue,
         Vendor,
         ArtistProfile,
@@ -392,7 +416,8 @@ def create_app():
 
     def compute_table_allocation(tournament, start_number=None):
         start = start_number if start_number is not None else (tournament.start_table_number or 1)
-        player_count = _active_player_count(tournament)
+        actual_player_count = _active_player_count(tournament)
+        player_count = getattr(tournament, 'player_cap', None) or actual_player_count
         group_size = _tournament_group_size(tournament)
         tables_needed = math.ceil(player_count / group_size) if player_count else 0
         end = start + tables_needed - 1 if tables_needed else start - 1
@@ -429,6 +454,12 @@ def create_app():
             if not errors:
                 return candidate
         return max_start
+
+    def tournament_has_capacity(tournament, slots=1):
+        cap = getattr(tournament, 'player_cap', None)
+        if not cap:
+            return True
+        return len(getattr(tournament, 'players', []) or []) + slots <= cap
 
     def validate_table_assignment(tournament, start_number=None):
         errors = []
@@ -606,6 +637,72 @@ def create_app():
         hmac_ctx.update(token.encode())
         return hmac_ctx.finalize().hex()
 
+    def _hash_registration_token(token):
+        key_material = app.config['SECRET_KEY'].encode()
+        hmac_ctx = crypto_hmac.HMAC(key_material, hashes.SHA256())
+        hmac_ctx.update(('registration:' + token).encode())
+        return hmac_ctx.finalize().hex()
+
+    def get_site_setting(key, default=None):
+        setting = db.session.get(SiteSetting, key)
+        return setting.value if setting else default
+
+    def set_site_setting(key, value):
+        setting = db.session.get(SiteSetting, key)
+        if not setting:
+            setting = SiteSetting(key=key)
+            db.session.add(setting)
+        setting.value = value
+        setting.updated_by_id = current_user.id if current_user.is_authenticated else None
+        return setting
+
+    def registration_mode():
+        mode = get_site_setting('registration_mode')
+        if mode in {'open', 'invite_only', 'closed'}:
+            return mode
+        return 'invite_only' if app.config.get('ACCOUNT_CREATION_INVITE_ONLY', False) else 'open'
+
+    def _send_registration_verification(email, token, pin=None):
+        verify_url = url_for('verify_registration_token', token=token, _external=True)
+        pin_text = f'\n\nIf prompted, your fallback PIN is: {pin}' if pin else ''
+        _send_mailgun_email(
+            email,
+            'Verify your Walter account',
+            (
+                'Click this link to verify your Walter account:\n\n'
+                f'{verify_url}\n\n'
+                f'This link expires in {app.config.get("REGISTRATION_PIN_TTL_MINUTES", 15)} minutes.'
+                f'{pin_text}'
+            ),
+        )
+
+    def _send_registration_invite(invite, token):
+        invite_url = url_for('register', invite=token, _external=True)
+        _send_mailgun_email(
+            invite.email,
+            'Your Walter registration invite',
+            (
+                'An administrator invited you to create a Walter account. Use this link to register:\n\n'
+                f'{invite_url}\n\n'
+                f'This invite expires on {invite.expires_at}.'
+            ),
+        )
+
+    def _valid_registration_invite(token, email=None):
+        if not token:
+            return None
+        invite = db.session.query(RegistrationInvite).filter_by(token_hash=_hash_registration_token(token)).first()
+        now = datetime.utcnow()
+        if not invite or invite.used_at or invite.status != 'sent':
+            return None
+        if invite.expires_at and invite.expires_at < now:
+            invite.status = 'expired'
+            db.session.commit()
+            return None
+        if email and invite.email.lower() != email.lower():
+            return None
+        return invite
+
     def _send_password_reset_email(user, token):
         reset_url = url_for('password_reset_token', token=token, _external=True)
         _send_mailgun_email(
@@ -664,11 +761,15 @@ def create_app():
 
     @app.route('/register', methods=['GET','POST'])
     def register():
-        from .models import User, Tournament, TournamentPlayer, Role, PendingRegistration
+        from .models import User, Tournament, PendingRegistration
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         prefill_tournament_id = request.args.get('tournament_id', '').strip()
         prefill_passcode = request.args.get('passcode', '').strip()
-        invite_only = app.config.get('ACCOUNT_CREATION_INVITE_ONLY', False)
+        invite_token = request.values.get('invite', '').strip()
+        invite = _valid_registration_invite(invite_token)
+        mode = registration_mode()
+        if request.method == 'GET' and mode == 'closed' and not invite:
+            flash('Registration is currently closed. Contact an administrator for access.', 'error')
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
             name = request.form['name'].strip()
@@ -676,15 +777,21 @@ def create_app():
             confirm = request.form.get('password_confirm', '')
             tournament_id = request.form.get('tournament_id')
             tournament_passcode = request.form.get('passcode', '').strip()
+            invite_token = request.form.get('invite', '').strip()
+            invite = _valid_registration_invite(invite_token, email=email)
             if password != confirm:
                 flash("Passwords do not match", "error")
                 log_site('register', 'failure', 'password mismatch')
-                return redirect(url_for('register'))
+                return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
             if db.session.query(User).filter_by(email=email).first():
                 flash("Email already registered", "error")
                 log_site('register', 'failure', 'email exists')
+                return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
+            mode = registration_mode()
+            if mode == 'closed' and not invite:
+                flash('Registration is currently closed.', 'error')
+                log_site('register', 'failure', 'registration closed')
                 return redirect(url_for('register'))
-
             selected_tournament = None
             if tournament_id:
                 try:
@@ -694,104 +801,127 @@ def create_app():
                 if not selected_tournament or tournament_passcode != selected_tournament.passcode:
                     flash("Invalid tournament passcode", "error")
                     log_site('register', 'failure', 'invalid tournament passcode')
-                    return redirect(url_for('register'))
-            elif invite_only:
-                flash("Account creation is invite only. Use a tournament invite link or passcode to register.", "error")
+                    return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
+            if mode == 'invite_only' and not invite and not selected_tournament:
+                flash('Account creation is invite only. Use the invite link sent by an administrator.', 'error')
                 log_site('register', 'failure', 'invite required')
                 return redirect(url_for('register'))
 
-            db.session.query(PendingRegistration).filter(PendingRegistration.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)).delete()
+            db.session.query(PendingRegistration).filter(PendingRegistration.expires_at < datetime.utcnow()).delete()
             existing_pending = db.session.query(PendingRegistration).filter_by(email=email).first()
             if existing_pending:
                 db.session.delete(existing_pending)
                 db.session.flush()
             pin = PendingRegistration.generate_pin()
+            verification_token = secrets.token_urlsafe(32)
             pending = PendingRegistration(
                 email=email,
                 name=name,
                 verification_pin=pin,
+                verification_token_hash=_hash_registration_token(verification_token),
+                invite_id=invite.id if invite else None,
                 tournament_id=selected_tournament.id if selected_tournament else None,
                 tournament_passcode=tournament_passcode if selected_tournament else None,
-                expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=app.config.get('REGISTRATION_PIN_TTL_MINUTES', 15)),
+                expires_at=datetime.utcnow() + timedelta(minutes=app.config.get('REGISTRATION_PIN_TTL_MINUTES', 15)),
             )
             pending.set_password(password)
             db.session.add(pending)
             try:
-                _send_registration_pin(email, pin)
+                _send_registration_verification(email, verification_token, pin)
             except Exception as exc:
                 db.session.rollback()
-                app.logger.warning('Unable to send registration PIN via Mailgun: %s', exc)
+                app.logger.warning('Unable to send registration verification via Mailgun: %s', exc)
                 flash("We could not send your verification email. Please contact an administrator.", "error")
                 log_site('register', 'failure', 'mailgun send failed')
-                return redirect(url_for('register'))
+                return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
             db.session.commit()
-            log_site('register', 'pin_sent')
-            flash("Check your email for a 6-digit verification PIN to finish creating your account.", "success")
+            log_site('register', 'verification_sent', f'invite_id={invite.id if invite else ""}')
+            flash("Check your email and click the verification link to finish creating your account.", "success")
             return redirect(url_for('verify_registration', email=email, next=request.args.get('next')))
         return render_template(
             'register.html',
             tournaments=tournaments,
             prefill_tournament_id=prefill_tournament_id,
             prefill_passcode=prefill_passcode,
-            invite_only=invite_only,
+            invite_only=(mode == 'invite_only'),
+            registration_mode=mode,
+            invite=invite,
+            invite_token=invite_token,
         )
+
+    def _complete_pending_registration(pending, password=None):
+        from .models import User, Tournament, TournamentPlayer, Role
+        if db.session.query(User).filter_by(email=pending.email).first():
+            db.session.delete(pending)
+            db.session.commit()
+            flash("Email already registered. Please login.", "error")
+            log_site('register_verify', 'failure', 'email exists')
+            return redirect(url_for('login'))
+        selected_tournament = None
+        if pending.tournament_id:
+            selected_tournament = db.session.get(Tournament, pending.tournament_id)
+            if not selected_tournament or pending.tournament_passcode != selected_tournament.passcode:
+                db.session.delete(pending)
+                db.session.commit()
+                flash("Tournament invite expired or is no longer valid. Please register again.", "error")
+                log_site('register_verify', 'failure', 'invalid pending tournament')
+                return redirect(url_for('register'))
+        role_user = db.session.query(Role).filter_by(name='user').first()
+        u = User(email=pending.email, name=pending.name, role=role_user)
+        stored_password = password or ''
+        u.password_hash = pending.password_hash
+        u.salt = pending.salt
+        if stored_password:
+            u.generate_keys(stored_password)
+        db.session.add(u)
+        db.session.flush()
+        if selected_tournament:
+            db.session.add(TournamentPlayer(tournament_id=selected_tournament.id, user_id=u.id))
+        if pending.invite:
+            pending.invite.used_at = datetime.utcnow()
+            pending.invite.used_by_id = u.id
+            pending.invite.status = 'used'
+        db.session.delete(pending)
+        db.session.commit()
+        log_site('register_verify', 'success', f'user_id={u.id}')
+        flash("Email verified and account created. Please login.", "success")
+        return redirect(url_for('login'))
 
     @app.route('/register/verify', methods=['GET', 'POST'])
     def verify_registration():
-        from .models import User, Tournament, TournamentPlayer, Role, PendingRegistration
+        from .models import PendingRegistration
         email = (request.values.get('email') or '').strip().lower()
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
             pin = request.form.get('pin', '').strip()
             password = request.form.get('password', '')
             pending = db.session.query(PendingRegistration).filter_by(email=email).first()
-            if not pending or pending.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+            if not pending or pending.expires_at < datetime.utcnow():
                 if pending:
                     db.session.delete(pending)
                     db.session.commit()
-                flash("Verification PIN expired or was not found. Please register again.", "error")
-                log_site('register_verify', 'failure', 'missing or expired pin')
+                flash("Verification link expired or was not found. Please register again.", "error")
+                log_site('register_verify', 'failure', 'missing or expired')
                 return redirect(url_for('register'))
             if pending.verification_pin != pin or not pending.check_password(password):
                 flash("Invalid PIN or password.", "error")
                 log_site('register_verify', 'failure', 'invalid pin or password')
                 return redirect(url_for('verify_registration', email=email))
-            if db.session.query(User).filter_by(email=email).first():
+            return _complete_pending_registration(pending, password=password)
+        return render_template('verify_registration.html', email=email)
+
+    @app.route('/register/verify/<token>')
+    def verify_registration_token(token):
+        from .models import PendingRegistration
+        pending = db.session.query(PendingRegistration).filter_by(verification_token_hash=_hash_registration_token(token)).first()
+        if not pending or pending.expires_at < datetime.utcnow():
+            if pending:
                 db.session.delete(pending)
                 db.session.commit()
-                flash("Email already registered. Please login.", "error")
-                log_site('register_verify', 'failure', 'email exists')
-                return redirect(url_for('login'))
-
-            selected_tournament = None
-            if pending.tournament_id:
-                selected_tournament = db.session.get(Tournament, pending.tournament_id)
-                if not selected_tournament or pending.tournament_passcode != selected_tournament.passcode:
-                    db.session.delete(pending)
-                    db.session.commit()
-                    flash("Tournament invite expired or is no longer valid. Please register again.", "error")
-                    log_site('register_verify', 'failure', 'invalid pending tournament')
-                    return redirect(url_for('register'))
-
-            role_user = db.session.query(Role).filter_by(name='user').first()
-            u = User(email=email, name=pending.name, role=role_user)
-            u.set_password(password)
-            u.generate_keys(password)
-            db.session.add(u)
-            db.session.flush()
-            if selected_tournament:
-                already_joined = db.session.query(TournamentPlayer).filter_by(
-                    tournament_id=selected_tournament.id,
-                    user_id=u.id,
-                ).first()
-                if not already_joined:
-                    db.session.add(TournamentPlayer(tournament_id=selected_tournament.id, user_id=u.id))
-            db.session.delete(pending)
-            db.session.commit()
-            log_site('register_verify', 'success')
-            flash("Email verified and account created. Please login.", "success")
-            return redirect(url_for('login', next=request.args.get('next')))
-        return render_template('verify_registration.html', email=email)
+            flash('Verification link expired or was not found. Please register again.', 'error')
+            log_site('register_verify', 'failure', 'invalid token')
+            return redirect(url_for('register'))
+        return _complete_pending_registration(pending)
 
     @app.route('/login', methods=['GET','POST'])
     def login():
@@ -821,7 +951,11 @@ def create_app():
                 post_login_url = allowed_post_login_redirect(next_url)
                 if post_login_url:
                     return redirect(post_login_url)
-                return redirect(url_for('index'))
+                if next_url:
+                    return redirect(url_for('index'))
+                if u.role and u.role.level < DEFAULT_ROLE_LEVELS.get('user', 500):
+                    return redirect(url_for('venue_management'))
+                return redirect(url_for('my_tournaments'))
             _record_bad_login(email, u, 'bad_password' if u else 'unknown_user')
             flash("Invalid credentials", "error")
             log_site('login', 'failure', f'invalid credentials; ip={_client_ip()}')
@@ -1336,8 +1470,12 @@ def create_app():
         return current_user.has_permission('tournaments.manage') or current_user.has_permission('admin.panel')
 
     @app.route('/lost-and-found', methods=['GET', 'POST'])
+    @app.route('/admin/venues/<int:venue_id>/lost-and-found', methods=['GET', 'POST'])
     @login_required
-    def lost_and_found():
+    def lost_and_found(venue_id=None):
+        if venue_id is None:
+            return redirect(url_for('venue_management'))
+        venue = _get_visible_venue_or_404(venue_id)
         manage_access = can_manage_lost_found()
         status_options = [
             ('unclaimed', 'Unclaimed'),
@@ -1357,14 +1495,14 @@ def create_app():
                 status = 'unclaimed'
             if not title:
                 flash('Item name is required.', 'error')
-                return redirect(url_for('lost_and_found'))
+                return redirect(url_for('lost_and_found', venue_id=venue.id))
             image_filename = None
             upload = request.files.get('photo')
             if upload and upload.filename:
                 image_filename = sanitize_image_upload(upload)
                 if not image_filename:
                     flash('Image could not be processed. Please upload a different picture.', 'error')
-                    return redirect(url_for('lost_and_found'))
+                    return redirect(url_for('lost_and_found', venue_id=venue.id))
             item = LostFoundItem(
                 title=title,
                 description=description,
@@ -1372,6 +1510,7 @@ def create_app():
                 reporter_name=reporter_name,
                 reporter_contact=reporter_contact,
                 status=status,
+                venue_id=venue.id,
             )
             if image_filename:
                 item.image_path = image_filename
@@ -1379,26 +1518,29 @@ def create_app():
             db.session.commit()
             log_site('lost_found_create', 'success', title)
             flash('Lost & Found entry created.', 'success')
-            return redirect(url_for('lost_and_found'))
+            return redirect(url_for('lost_and_found', venue_id=venue.id))
         items = (
             db.session.query(LostFoundItem)
+            .filter(LostFoundItem.venue_id == venue.id)
             .order_by(LostFoundItem.created_at.desc())
             .all()
         )
         return render_template(
             'lost_found/index.html',
             items=items,
+            venue=venue,
             manage_access=manage_access,
             status_options=status_options,
         )
 
-    @app.route('/lost-and-found/<int:item_id>/update', methods=['POST'])
+    @app.route('/admin/venues/<int:venue_id>/lost-and-found/<int:item_id>/update', methods=['POST'])
     @login_required
-    def update_lost_and_found(item_id):
+    def update_lost_and_found(venue_id, item_id):
         if not can_manage_lost_found():
             abort(403)
+        venue = _get_visible_venue_or_404(venue_id)
         item = db.session.get(LostFoundItem, item_id)
-        if not item:
+        if not item or item.venue_id != venue.id:
             abort(404)
         status_options = {'unclaimed', 'claimed', 'returned'}
         status = request.form.get('status', item.status or 'unclaimed')
@@ -1415,7 +1557,7 @@ def create_app():
         db.session.commit()
         log_site('lost_found_update', 'success', f'id={item_id}')
         flash('Lost & Found entry updated.', 'success')
-        return redirect(url_for('lost_and_found'))
+        return redirect(url_for('lost_and_found', venue_id=venue.id))
 
     @app.route('/media/<path:filename>')
     @login_required
@@ -2041,6 +2183,7 @@ def create_app():
                     'deck_timer_remaining': t.deck_timer_remaining,
                     'passcode': t.passcode,
                     'join_requires_approval': bool(t.join_requires_approval),
+                    'player_cap': t.player_cap,
                     'league_id': t.league_id,
                     'venue_id': t.venue_id,
                 }
@@ -2373,6 +2516,7 @@ def create_app():
                 tournament.deck_timer_remaining = item.get('deck_timer_remaining')
                 tournament.passcode = item.get('passcode') or tournament.passcode
                 tournament.join_requires_approval = bool(item.get('join_requires_approval'))
+                tournament.player_cap = int(item.get('player_cap') or 8)
                 tournament.league = league_map.get(item.get('league_id'))
                 tournament.venue = venue_map.get(item.get('venue_id'))
                 counts['tournaments'] += 1
@@ -2575,6 +2719,17 @@ def create_app():
             if fmt != 'Draft':
                 is_cube = False
             join_requires_approval = request.form.get('join_requires_approval') == '1'
+            player_cap_raw = (request.form.get('player_cap') or '').strip()
+            if not player_cap_raw:
+                player_cap_raw = '8'
+            try:
+                player_cap = int(player_cap_raw)
+            except ValueError:
+                flash('Player cap is required and must be a whole number.', 'error')
+                return render_template('admin/new_tournament.html', **template_context)
+            if player_cap < 1:
+                flash('Player cap must be at least 1.', 'error')
+                return render_template('admin/new_tournament.html', **template_context)
             start_table_raw = (request.form.get('start_table_number') or '').strip()
             if start_table_raw:
                 try:
@@ -2595,6 +2750,7 @@ def create_app():
                             rules_enforcement_level=rel,
                            is_cube=is_cube,
                            join_requires_approval=join_requires_approval,
+                           player_cap=player_cap,
                            start_table_number=start_table_number)
             league_id = request.form.get('league_id')
             if league_id:
@@ -2669,6 +2825,17 @@ def create_app():
             rel = request.form.get('rules_enforcement_level', 'None') or 'None'
             is_cube = request.form.get('is_cube') == '1'
             join_requires_approval = request.form.get('join_requires_approval') == '1'
+            player_cap_raw = (request.form.get('player_cap') or '').strip()
+            if not player_cap_raw:
+                player_cap_raw = str(len(t.players) or 8)
+            try:
+                player_cap = int(player_cap_raw)
+            except ValueError:
+                flash('Player cap is required and must be a whole number.', 'error')
+                return render_template('admin/edit_tournament.html', **template_context)
+            if player_cap < len(t.players):
+                flash('Player cap cannot be below the current player count.', 'error')
+                return render_template('admin/edit_tournament.html', **template_context)
             start_table_raw = (request.form.get('start_table_number') or '').strip()
             if start_table_raw:
                 try:
@@ -2687,6 +2854,7 @@ def create_app():
             preview.format = new_format
             preview.start_table_number = start_table_number or t.start_table_number or 1
             preview.players = t.players
+            preview.player_cap = player_cap
             preview.name = provided_name or t.name
             if start_table_number is None:
                 start_table_number = find_available_table_start(preview)
@@ -2712,6 +2880,7 @@ def create_app():
             t.rules_enforcement_level = rel
             t.is_cube = is_cube if t.format == 'Draft' else False
             t.join_requires_approval = join_requires_approval
+            t.player_cap = player_cap
             t.start_table_number = start_table_number
             venue_id = request.form.get('venue_id')
             t.venue_id = int(venue_id) if venue_id else None
@@ -3488,6 +3657,53 @@ def create_app():
             return redirect(url_for('admin_bulk_register'))
         return render_template('admin/bulk_register_players.html', tournaments=tournaments, existing_users=existing_users)
 
+    @app.route('/admin/site-settings', methods=['GET', 'POST'])
+    @login_required
+    def site_settings():
+        require_permission('admin.site_settings')
+        if request.method == 'POST':
+            action = request.form.get('action')
+            if action == 'settings':
+                mode = request.form.get('registration_mode', 'open')
+                if mode not in {'open', 'invite_only', 'closed'}:
+                    mode = 'open'
+                set_site_setting('registration_mode', mode)
+                db.session.commit()
+                log_site('site_settings_update', 'success', f'registration_mode={mode}')
+                flash('Site settings saved.', 'success')
+            elif action == 'invite':
+                email = request.form.get('email', '').strip().lower()
+                if not email:
+                    flash('Invite email is required.', 'error')
+                elif db.session.query(User).filter_by(email=email).first():
+                    flash('That email already belongs to a user.', 'error')
+                else:
+                    token = secrets.token_urlsafe(32)
+                    invite = RegistrationInvite(
+                        email=email,
+                        token_hash=_hash_registration_token(token),
+                        created_by_id=current_user.id,
+                        expires_at=datetime.utcnow() + timedelta(days=app.config.get('REGISTRATION_INVITE_TTL_DAYS', 14)),
+                    )
+                    db.session.add(invite)
+                    try:
+                        _send_registration_invite(invite, token)
+                    except Exception as exc:
+                        db.session.rollback()
+                        log_site('registration_invite', 'failure', str(exc))
+                        flash('Invite email could not be sent. Check mail settings.', 'error')
+                        return redirect(url_for('site_settings'))
+                    db.session.commit()
+                    log_site('registration_invite', 'sent', f'invite_id={invite.id}; email={email}')
+                    flash('Registration invite sent.', 'success')
+            return redirect(url_for('site_settings'))
+        invites = db.session.query(RegistrationInvite).order_by(RegistrationInvite.created_at.desc()).all()
+        return render_template(
+            'admin/site_settings.html',
+            registration_mode=registration_mode(),
+            invites=invites,
+        )
+
     @app.route('/admin/panel', methods=['GET', 'POST'])
     def admin_panel():
         require_admin()
@@ -4215,6 +4431,10 @@ def create_app():
                 log_tournament(tid, 'join', 'failure', 'invalid passcode')
                 log_site('join_tournament', 'failure', 'invalid passcode')
                 return redirect(url_for('view_tournament', tid=tid))
+            if not tournament_has_capacity(t):
+                flash('Tournament is at its player cap.', 'error')
+                log_tournament(tid, 'join', 'failure', 'player cap reached')
+                return redirect(url_for('view_tournament', tid=tid))
             if t.join_requires_approval:
                 existing_request = (
                     db.session.query(TournamentJoinRequest)
@@ -4269,6 +4489,9 @@ def create_app():
             .first()
         )
         if not existing:
+            if not tournament_has_capacity(t):
+                flash('Tournament is at its player cap.', 'error')
+                return redirect(url_for('view_tournament', tid=tid))
             tp = TournamentPlayer(tournament_id=tid, user_id=join_request.user_id)
             db.session.add(tp)
         note = (request.form.get('note') or '').strip()
@@ -4335,6 +4558,9 @@ def create_app():
                 if not player:
                     skipped_existing += 1
                     continue
+                if not tournament_has_capacity(t, slots=added_existing + 1):
+                    skipped_existing += 1
+                    continue
                 db.session.add(TournamentPlayer(tournament_id=tid, user_id=player.id))
                 existing_user_ids.add(player.id)
                 added_existing += 1
@@ -4370,6 +4596,11 @@ def create_app():
             if created_user:
                 db.session.rollback()
             flash('Player is already registered for this tournament.', 'warning')
+            return redirect(url_for('view_tournament', tid=tid))
+        if not tournament_has_capacity(t):
+            if created_user:
+                db.session.rollback()
+            flash('Tournament is at its player cap.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
         tp = TournamentPlayer(tournament_id=tid, user_id=player.id)
         db.session.add(tp)

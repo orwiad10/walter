@@ -27,7 +27,6 @@
           {% if current_user.is_authenticated %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('my_tournaments') }}">My Tournaments</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('messages_home') }}">Messages <span id="nav-messages-count" class="nav-badge{% if not nav_unread_messages %} hidden{% endif %}">{{ nav_unread_messages }}</span></a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('lost_and_found') }}">Lost &amp; Found</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('submit_report') }}">Report Issue</a></li>
           {% if current_user.has_permission('tournaments.manage') %}
           <li class="nav-item has-dropdown">
@@ -39,13 +38,10 @@
               <a class="dropdown-item" href="{{ url_for('leagues') }}">Leagues</a>
               <a class="dropdown-item" href="{{ url_for('staff_management') }}">Staff</a>
               <a class="dropdown-item" href="{{ url_for('schedule') }}">Schedule</a>
-              {% if current_user.has_permission('venues.manage') or current_user.is_authenticated %}
-              <a class="dropdown-item" href="{{ url_for('venue_management') }}">Venues</a>
-              {% endif %}
             </div>
           </li>
           {% endif %}
-          {% if current_user.has_permission('users.manage') or current_user.has_permission('admin.panel') or current_user.has_permission('admin.permissions') or current_user.has_permission('admin.login_audit') or current_user.has_permission('admin.ip_blacklist') or current_user.has_permission('venues.manage') %}
+          {% if current_user.has_permission('users.manage') or current_user.has_permission('admin.panel') or current_user.has_permission('admin.permissions') or current_user.has_permission('admin.login_audit') or current_user.has_permission('admin.ip_blacklist') or current_user.has_permission('admin.site_settings') or current_user.has_permission('venues.manage') %}
           <li class="nav-item has-dropdown">
             <button class="nav-link" type="button" data-dropdown-toggle aria-expanded="false">Admin</button>
             <div class="dropdown-menu" role="menu">
@@ -54,6 +50,9 @@
               {% endif %}
               {% if current_user.has_permission('users.manage') %}
               <a class="dropdown-item" href="{{ url_for('admin_users') }}">Manage Users</a>
+              {% endif %}
+              {% if current_user.has_permission('admin.site_settings') %}
+              <a class="dropdown-item" href="{{ url_for('site_settings') }}">Site Settings</a>
               {% endif %}
               {% if current_user.has_permission('admin.panel') %}
               <a class="dropdown-item" href="{{ url_for('admin_panel') }}">Admin Panel</a>

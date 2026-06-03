@@ -64,7 +64,7 @@
             <div>
               <h4>Tournaments</h4>
               {% if venue.tournaments %}
-              <table class="table compact-table"><tbody>{% for tournament in venue.tournaments %}<tr><td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td><td>{{ tournament.start_time or '-' }}</td></tr>{% endfor %}</tbody></table><div class="form-actions"><a class="btn secondary" href="{{ url_for('venue_detail', venue_id=venue.id) }}">Manage tournament list</a></div>
+              <table class="table compact-table"><tbody>{% for tournament in venue.tournaments %}<tr><td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td><td>{{ tournament.start_time or '-' }}</td></tr>{% endfor %}</tbody></table><div class="form-actions"><a class="btn secondary" href="{{ url_for('venue_detail', venue_id=venue.id) }}">Manage tournament list</a> <a class="btn secondary" href="{{ url_for('lost_and_found', venue_id=venue.id) }}">Lost &amp; Found</a></div>
               {% else %}<p class="empty-state compact-empty">No tournaments.</p>{% endif %}
             </div>
           </div>

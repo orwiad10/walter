@@ -57,8 +57,13 @@
   <form method="post" class="panel-card modern-form">
     <input type="hidden" name="action" value="add_players">
     <h3>Assign Players</h3>
+    <div class="league-player-search">
+      <label>Search players
+        <input type="search" id="league-player-search" placeholder="Type a player name or email...">
+      </label>
+    </div>
     <label>Players
-      <select name="player_ids" multiple size="9">
+      <select name="player_ids" multiple size="9" id="league-player-select">
         {% for user in users %}
         <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
         {% endfor %}
@@ -118,3 +123,16 @@
   {% endif %}
 </section>
 {% endblock %}
+
+<script>
+const leaguePlayerSearch = document.getElementById('league-player-search');
+const leaguePlayerSelect = document.getElementById('league-player-select');
+if (leaguePlayerSearch && leaguePlayerSelect) {
+  leaguePlayerSearch.addEventListener('input', function(){
+    const query = leaguePlayerSearch.value.trim().toLowerCase();
+    Array.prototype.forEach.call(leaguePlayerSelect.options, function(option){
+      option.hidden = query && !option.text.toLowerCase().includes(query);
+    });
+  });
+}
+</script>
