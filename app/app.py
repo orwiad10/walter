@@ -38,11 +38,12 @@ import urllib.request
 from collections import OrderedDict
 from urllib.parse import urlparse
 from sqlalchemy import inspect, text, or_
+from sqlalchemy.exc import SQLAlchemyError
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from werkzeug.utils import secure_filename
+from werkzeug.utils import safe_join, secure_filename
 from PIL import Image, ImageOps
 
 from . import card_db
@@ -1535,6 +1536,7 @@ def create_app():
         storage_dir = app.config.get('MEDIA_STORAGE_DIR')
         if not storage_dir:
             return None
+        storage_dir = os.path.realpath(storage_dir)
         try:
             file_storage.stream.seek(0)
             image = Image.open(file_storage.stream)
@@ -1549,10 +1551,19 @@ def create_app():
         except Exception:
             return None
         buffer.seek(0)
-        safe_prefix = ''.join(ch for ch in prefix if ch.isalnum()) or 'deck'
-        filename = f"{safe_prefix}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}.png"
+        safe_prefix = ''.join(ch for ch in str(prefix) if ch.isalnum()) or 'deck'
+        filename = secure_filename(
+            f"{safe_prefix}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(4)}.png"
+        )
+        if not filename:
+            return None
         os.makedirs(storage_dir, exist_ok=True)
-        path = os.path.join(storage_dir, filename)
+        path = safe_join(storage_dir, filename)
+        if not path:
+            return None
+        path = os.path.realpath(path)
+        if os.path.commonpath([storage_dir, path]) != storage_dir:
+            return None
         with open(path, 'wb') as handle:
             handle.write(buffer.read())
         return filename
@@ -3330,11 +3341,16 @@ def create_app():
         require_permission('tournaments.bulk_manage')
         raw_ids = request.form.getlist('tournament_ids')
         tournament_ids = []
+        seen_tournament_ids = set()
         for raw_id in raw_ids:
             try:
-                tournament_ids.append(int(raw_id))
+                tournament_id = int(raw_id)
             except (TypeError, ValueError):
                 continue
+            if tournament_id in seen_tournament_ids:
+                continue
+            seen_tournament_ids.add(tournament_id)
+            tournament_ids.append(tournament_id)
         action = (request.form.get('bulk_action') or '').strip()
         if not tournament_ids:
             flash('Select at least one tournament.', 'error')
@@ -3356,20 +3372,43 @@ def create_app():
                 return redirect(url_for('index'))
             for tournament in ordered_tournaments:
                 tournament.venue_id = venue_id
-                db.session.flush()
-                db.session.add(TournamentLog(tournament_id=tournament.id, action='bulk_set_venue', result='success', error=f'venue_id={venue_id}', user_id=current_user.id))
-                db.session.add(SiteLog(action='bulk_set_tournament_venue', result='success', error=f'tournament_id={tournament.id}; venue_id={venue_id}', user_id=current_user.id))
+                db.session.add(TournamentLog(
+                    tournament_id=tournament.id,
+                    action='bulk_set_venue',
+                    result='success',
+                    error=f'venue_id={venue_id}',
+                    user_id=current_user.id,
+                ))
+                db.session.add(SiteLog(
+                    action='bulk_set_tournament_venue',
+                    result='success',
+                    error=f'tournament_id={tournament.id}; venue_id={venue_id}',
+                    user_id=current_user.id,
+                ))
                 count += 1
         elif action == 'start':
             for tournament in ordered_tournaments:
                 tournament.started_at = now
                 if not tournament.start_time:
                     tournament.start_time = now
-                    tournament.name = format_tournament_name(tournament.format, tournament.start_time, extract_provided_tournament_name(tournament.name))
+                    tournament.name = format_tournament_name(
+                        tournament.format,
+                        tournament.start_time,
+                        extract_provided_tournament_name(tournament.name),
+                    )
                 tournament.ended_at = None
-                db.session.flush()
-                db.session.add(TournamentLog(tournament_id=tournament.id, action='bulk_start', result='success', user_id=current_user.id))
-                db.session.add(SiteLog(action='bulk_start_tournament', result='success', error=f'tournament_id={tournament.id}', user_id=current_user.id))
+                db.session.add(TournamentLog(
+                    tournament_id=tournament.id,
+                    action='bulk_start',
+                    result='success',
+                    user_id=current_user.id,
+                ))
+                db.session.add(SiteLog(
+                    action='bulk_start_tournament',
+                    result='success',
+                    error=f'tournament_id={tournament.id}',
+                    user_id=current_user.id,
+                ))
                 count += 1
         elif action == 'end':
             for tournament in ordered_tournaments:
@@ -3377,22 +3416,47 @@ def create_app():
                 tournament.round_timer_end = None
                 tournament.draft_timer_end = None
                 tournament.deck_timer_end = None
-                db.session.flush()
-                db.session.add(TournamentLog(tournament_id=tournament.id, action='bulk_end', result='success', user_id=current_user.id))
-                db.session.add(SiteLog(action='bulk_end_tournament', result='success', error=f'tournament_id={tournament.id}', user_id=current_user.id))
+                db.session.add(TournamentLog(
+                    tournament_id=tournament.id,
+                    action='bulk_end',
+                    result='success',
+                    user_id=current_user.id,
+                ))
+                db.session.add(SiteLog(
+                    action='bulk_end_tournament',
+                    result='success',
+                    error=f'tournament_id={tournament.id}',
+                    user_id=current_user.id,
+                ))
                 count += 1
         elif action == 'delete':
             for tournament in ordered_tournaments:
                 tid = tournament.id
                 name = tournament.name
-                db.session.add(TournamentLog(tournament_id=tid, action='bulk_delete', result='success', user_id=current_user.id))
-                db.session.add(SiteLog(action='bulk_delete_tournament', result='success', error=f'tournament_id={tid}; name={name}', user_id=current_user.id))
+                db.session.add(TournamentLog(
+                    tournament_id=tid,
+                    action='bulk_delete',
+                    result='success',
+                    user_id=current_user.id,
+                ))
+                db.session.add(SiteLog(
+                    action='bulk_delete_tournament',
+                    result='success',
+                    error=f'tournament_id={tid}; name={name}',
+                    user_id=current_user.id,
+                ))
                 db.session.delete(tournament)
                 count += 1
         else:
             flash('Choose a bulk action.', 'error')
             return redirect(url_for('index'))
-        db.session.commit()
+        try:
+            db.session.commit()
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            app.logger.exception('Bulk tournament action failed: %s', exc)
+            flash('Bulk action failed. Please try again or review the selected tournaments.', 'error')
+            return redirect(url_for('index'))
         flash(f'Bulk action applied to {count} tournament' + ('s' if count != 1 else '') + '.', 'success')
         return redirect(url_for('index'))
 
