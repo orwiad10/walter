@@ -3,7 +3,7 @@ import random
 from itertools import product
 
 from app.app import db
-from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult, Venue
+from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult, Venue, SiteLog, TournamentLog
 from app.pairing import pair_round, compute_standings
 from datetime import datetime
 
@@ -423,6 +423,43 @@ def test_bulk_edit_tournaments_ignores_duplicate_tournament_ids(client, session)
     session.expire_all()
     assert session.get(Tournament, tournament.id).venue_id == venue.id
 
+
+
+def test_venue_bulk_add_keeps_assignment_when_audit_logging_fails(client, session, monkeypatch):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(
+        email='bulk-log-failure-admin@example.com',
+        name='Bulk Log Failure Admin',
+        role=admin_role,
+        is_admin=True,
+    )
+    admin.set_password('secret')
+    tournament = Tournament(name='Audit Failure Venue Event', format='Modern')
+    venue = Venue(name='Audit Failure Venue')
+    session.add_all([admin, tournament, venue])
+    session.commit()
+
+    original_add = db.session.add
+
+    def fail_on_audit_log(instance):
+        if isinstance(instance, (SiteLog, TournamentLog)):
+            raise RuntimeError('simulated audit log failure')
+        return original_add(instance)
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        monkeypatch.setattr(db.session, 'add', fail_on_audit_log)
+        response = client.post(
+            f'/admin/venues/{venue.id}/tournaments/bulk-add',
+            data={
+                'tournament_ids': [str(tournament.id)],
+            },
+        )
+
+    assert response.status_code == 302
+    assert response.location == f'/admin/venues/{venue.id}'
+    session.expire_all()
+    assert session.get(Tournament, tournament.id).venue_id == venue.id
 
 def test_venue_bulk_add_rejects_empty_tournament_selection(client, session):
     admin_role = session.query(Role).filter_by(name='admin').one()

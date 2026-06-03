@@ -2809,59 +2809,130 @@ def create_app():
     @login_required
     def bulk_add_tournaments_to_venue(venue_id):
         require_permission('venues.manage')
+        user_id = current_user.id if current_user.is_authenticated else None
         if not (
             current_user.has_permission('tournaments.bulk_manage')
             or current_user.has_permission('tournaments.manage')
         ):
+            app.logger.warning(
+                'Venue bulk add denied: user_id=%s venue_id=%s required=%s',
+                user_id,
+                venue_id,
+                'venues.manage+(tournaments.bulk_manage|tournaments.manage)',
+            )
             log_site('unauthorized_access', 'failure', 'venues.manage+tournaments.bulk_manage')
             abort(403)
         venue = db.session.get(Venue, venue_id)
         if not venue:
+            app.logger.warning('Venue bulk add aborted: venue_id=%s was not found; user_id=%s', venue_id, user_id)
             abort(404)
         raw_ids = request.form.getlist('tournament_ids')
         tournament_ids = []
         seen_tournament_ids = set()
+        invalid_tournament_ids = []
+        duplicate_tournament_ids = []
         for raw_id in raw_ids:
             try:
                 tournament_id = int(raw_id)
             except (TypeError, ValueError):
+                invalid_tournament_ids.append(raw_id)
                 continue
             if tournament_id in seen_tournament_ids:
+                duplicate_tournament_ids.append(tournament_id)
                 continue
             seen_tournament_ids.add(tournament_id)
             tournament_ids.append(tournament_id)
+        app.logger.info(
+            'Venue bulk add requested: user_id=%s venue_id=%s raw_ids=%r parsed_ids=%s duplicates=%s invalid=%r',
+            user_id,
+            venue.id,
+            raw_ids,
+            tournament_ids,
+            duplicate_tournament_ids,
+            invalid_tournament_ids,
+        )
         if not tournament_ids:
+            app.logger.info('Venue bulk add rejected: no valid tournament ids for venue_id=%s user_id=%s', venue.id, user_id)
             flash('Select at least one tournament to add to this venue.', 'error')
             return redirect(url_for('venue_detail', venue_id=venue.id))
         tournaments = db.session.query(Tournament).filter(Tournament.id.in_(tournament_ids)).all()
         tournament_by_id = {t.id: t for t in tournaments}
         ordered_tournaments = [tournament_by_id[tid] for tid in tournament_ids if tid in tournament_by_id]
-        count = 0
+        missing_tournament_ids = [tid for tid in tournament_ids if tid not in tournament_by_id]
+        skipped_tournament_ids = []
+        moved_tournament_ids = []
         for tournament in ordered_tournaments:
             if tournament.venue_id == venue.id:
+                skipped_tournament_ids.append(tournament.id)
                 continue
+            previous_venue_id = tournament.venue_id
             tournament.venue_id = venue.id
-            db.session.add(TournamentLog(
-                tournament_id=tournament.id,
-                action='bulk_add_to_venue',
-                result='success',
-                error=f'venue_id={venue.id}',
-                user_id=current_user.id,
-            ))
-            db.session.add(SiteLog(
-                action='venue_bulk_add_tournaments',
-                result='success',
-                error=f'venue_id={venue.id}; tournament_id={tournament.id}',
-                user_id=current_user.id,
-            ))
-            count += 1
+            moved_tournament_ids.append(tournament.id)
+            app.logger.info(
+                'Venue bulk add staged: user_id=%s tournament_id=%s previous_venue_id=%s new_venue_id=%s',
+                user_id,
+                tournament.id,
+                previous_venue_id,
+                venue.id,
+            )
         try:
             db.session.commit()
-        except SQLAlchemyError as exc:
+        except Exception as exc:
             db.session.rollback()
-            app.logger.exception('Venue tournament bulk add failed: %s', exc)
+            app.logger.exception(
+                'Venue bulk add commit failed: user_id=%s venue_id=%s parsed_ids=%s moved_ids=%s missing_ids=%s skipped_ids=%s error=%s',
+                user_id,
+                venue.id,
+                tournament_ids,
+                moved_tournament_ids,
+                missing_tournament_ids,
+                skipped_tournament_ids,
+                exc,
+            )
             flash('Bulk add failed. Please try again or review the selected tournaments.', 'error')
             return redirect(url_for('venue_detail', venue_id=venue.id))
+
+        app.logger.info(
+            'Venue bulk add committed: user_id=%s venue_id=%s moved_ids=%s missing_ids=%s skipped_ids=%s duplicates=%s invalid=%r',
+            user_id,
+            venue.id,
+            moved_tournament_ids,
+            missing_tournament_ids,
+            skipped_tournament_ids,
+            duplicate_tournament_ids,
+            invalid_tournament_ids,
+        )
+
+        if moved_tournament_ids:
+            try:
+                for tournament_id in moved_tournament_ids:
+                    db.session.add(TournamentLog(
+                        tournament_id=tournament_id,
+                        action='bulk_add_to_venue',
+                        result='success',
+                        error=f'venue_id={venue.id}',
+                        user_id=user_id,
+                    ))
+                    db.session.add(SiteLog(
+                        action='venue_bulk_add_tournaments',
+                        result='success',
+                        error=f'venue_id={venue.id}; tournament_id={tournament_id}',
+                        user_id=user_id,
+                    ))
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                app.logger.exception(
+                    'Venue bulk add audit logging failed after assignment commit: user_id=%s venue_id=%s moved_ids=%s error=%s',
+                    user_id,
+                    venue.id,
+                    moved_tournament_ids,
+                    exc,
+                )
+
+        if missing_tournament_ids:
+            flash(f'Some selected tournaments no longer exist: {missing_tournament_ids}.', 'warning')
+        count = len(moved_tournament_ids)
         flash(f'Added {count} tournament' + ('s' if count != 1 else '') + f' to {venue.name}.', 'success')
         return redirect(url_for('venue_detail', venue_id=venue.id))
 
