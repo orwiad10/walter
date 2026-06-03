@@ -132,13 +132,39 @@ ensure_nginx_running() {
   fi
 }
 
+cert_file_exists() {
+  local cert_file="$1"
+
+  if [[ -f "$cert_file" ]]; then
+    return 0
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    return 1
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    sudo test -f "$cert_file"
+    return $?
+  fi
+
+  return 1
+}
+
 cert_expires_within() {
   local cert_file="$1"
   local days="$2"
   local seconds=$((days * 24 * 60 * 60))
 
-  [[ ! -f "$cert_file" ]] && return 0
-  ! openssl x509 -checkend "$seconds" -noout -in "$cert_file" >/dev/null 2>&1
+  if ! cert_file_exists "$cert_file"; then
+    return 0
+  fi
+
+  if openssl x509 -checkend "$seconds" -noout -in "$cert_file" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  ! run_as_root openssl x509 -checkend "$seconds" -noout -in "$cert_file" >/dev/null 2>&1
 }
 
 is_truthy() {
@@ -235,7 +261,7 @@ ensure_letsencrypt_certificate() {
   if [[ "$dry_run" -eq 1 ]] || cert_expires_within "$fullchain" "$renewal_days"; then
     if [[ "$dry_run" -eq 1 ]]; then
       echo "Running Let's Encrypt dry run for $TLS_DOMAIN; no certificate files will be created or replaced."
-    elif [[ -f "$fullchain" ]]; then
+    elif cert_file_exists "$fullchain"; then
       echo "Let's Encrypt certificate for $TLS_DOMAIN expires within $renewal_days days; requesting a replacement."
       certbot_args+=(--force-renewal)
     else
