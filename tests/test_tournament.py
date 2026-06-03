@@ -484,3 +484,69 @@ def test_tournament_name_uses_format_timestamp_and_venue(client, session):
     tournament = session.query(Tournament).filter_by(format='Modern').one()
     assert tournament.name == 'Modern - 20260602 - 1930 - Store Championship'
     assert tournament.venue_id == venue.id
+
+
+def test_tournament_edit_auto_fills_lowest_contiguous_table_range(client, session, app):
+    app.config['LAST_TABLE_NUMBER'] = 20
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='admin-table-fill@example.com', name='Table Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    blocker_one = Tournament(name='Blocker One', format='Modern', start_table_number=1)
+    blocker_two = Tournament(name='Blocker Two', format='Modern', start_table_number=4)
+    target = Tournament(name='Target Tables', format='Modern', start_table_number=10)
+    session.add_all([admin, blocker_one, blocker_two, target])
+    session.commit()
+    for tournament in (blocker_one, blocker_two, target):
+        for i in range(4):
+            user = User(email=f'table-{tournament.id}-{i}@example.com', name=f'Table {tournament.id} {i}', role=user_role)
+            session.add(user)
+            session.flush()
+            session.add(TournamentPlayer(tournament_id=tournament.id, user_id=user.id))
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            f'/admin/tournaments/{target.id}/edit',
+            data={
+                'name': 'Target Tables',
+                'format': 'Modern',
+                'structure': 'swiss',
+                'cut': 'none',
+                'round_length': '50',
+                'start_table_number': '',
+            },
+        )
+
+    assert response.status_code == 302
+    session.refresh(target)
+    assert target.start_table_number == 6
+
+
+def test_duplicate_booth_numbers_are_blocked_across_artists_and_vendors(client, session):
+    from app.models import ArtistProfile, Vendor
+
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='admin-booth@example.com', name='Booth Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    venue = Venue(name='Booth Venue')
+    vendor = Vendor(name='Existing Vendor', venue=venue, booth_number='12')
+    session.add_all([admin, venue, vendor])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/venues/artists',
+            data={
+                'name': 'Duplicate Artist',
+                'venue_id': str(venue.id),
+                'booth_number': '12',
+            },
+            follow_redirects=True,
+        )
+
+    assert response.status_code == 200
+    assert b'already assigned to vendor Existing Vendor' in response.data
+    assert session.query(ArtistProfile).filter_by(name='Duplicate Artist').first() is None

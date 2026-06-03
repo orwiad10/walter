@@ -1848,3 +1848,32 @@ ul.flashes {
 .decklist-xy-table td {
   vertical-align: top;
 }
+
+.responsive-table {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.venue-management-table {
+  table-layout: fixed;
+  min-width: 900px;
+}
+
+.venue-management-table th:nth-child(5),
+.venue-management-table td:nth-child(5),
+.venue-management-table th:nth-child(6),
+.venue-management-table td:nth-child(6) {
+  width: 120px;
+}
+
+.venue-management-table input,
+.venue-management-table textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.venue-management-table .btn {
+  width: 100%;
+  justify-content: center;
+  white-space: normal;
+}

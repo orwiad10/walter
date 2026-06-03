@@ -294,3 +294,36 @@ def test_admin_can_manually_lock_and_unlock_user(client, session):
     session.refresh(target)
     assert target.locked_at is None
     assert target.lock_reason is None
+
+
+def test_admin_password_change_rekeys_user_and_preserves_lock_without_unlock_action(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='admin-rekey@example.com', name='Rekey Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    target = User(email='rekey-target@example.com', name='Rekey Target', role=user_role)
+    target.set_password('old-secret')
+    target.generate_keys('old-secret')
+    target.locked_at = __import__('datetime').datetime.utcnow()
+    target.lock_reason = 'manual review'
+    session.add_all([admin, target])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            f'/admin/users/{target.id}/update',
+            data={
+                'email': target.email,
+                'password': 'new-secret',
+                'password_confirm': 'new-secret',
+                'account_lock_action': '',
+            },
+        )
+
+    assert response.status_code == 302
+    session.refresh(target)
+    assert target.check_password('new-secret')
+    assert target.decrypt_private_key('new-secret').startswith(b'-----BEGIN PRIVATE KEY-----')
+    assert target.locked_at is not None
+    assert target.lock_reason == 'manual review'

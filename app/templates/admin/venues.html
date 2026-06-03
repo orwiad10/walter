@@ -26,7 +26,7 @@
 <section class="panel-card">
   <h3>Venues</h3>
   {% if venues %}
-  <table class="table">
+  <div class="responsive-table"><table class="table venue-management-table">
     <thead><tr><th>Name</th><th>Website</th><th>Address</th><th>Notes</th><th>Workspace</th>{% if can_manage_venues %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for venue in venues %}
@@ -72,7 +72,7 @@
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+  </table></div>
   {% else %}
   <p>No venues available.</p>
   {% endif %}

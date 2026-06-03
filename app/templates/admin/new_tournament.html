@@ -77,7 +77,7 @@
       </tr>
       <tr>
         <td>Starting Table Number</td>
-        <td><input type="number" name="start_table_number" min="1" value="{{ request.form.get('start_table_number', 1) }}"></td>
+        <td><input type="number" name="start_table_number" min="1" value="{{ request.form.get('start_table_number', suggested_start_table_number) }}"></td>
       </tr>
       <tr>
         <td>Start Time</td>
