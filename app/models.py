@@ -123,12 +123,13 @@ class User(db.Model, UserMixin):
     locked_at = db.Column(db.DateTime, nullable=True)
     lock_reason = db.Column(db.Text, nullable=True)
 
-    def set_password(self, pw):
+    def set_password(self, pw, *, unlock=True):
         self.salt = 'werkzeug'
         self.password_hash = generate_password_hash(pw)
         self.failed_login_count = 0
-        self.locked_at = None
-        self.lock_reason = None
+        if unlock:
+            self.locked_at = None
+            self.lock_reason = None
 
     def check_password(self, pw):
         if not self.password_hash:

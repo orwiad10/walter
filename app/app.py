@@ -277,6 +277,18 @@ def create_app():
         logs_engine = db.engines['logs']
         SiteLog.__table__.create(bind=logs_engine, checkfirst=True)
         TournamentLog.__table__.create(bind=logs_engine, checkfirst=True)
+        logs_inspector = inspect(logs_engine)
+        log_tables = logs_inspector.get_table_names()
+        if 'site_log' in log_tables:
+            columns = [c['name'] for c in logs_inspector.get_columns('site_log')]
+            if 'user_id' not in columns:
+                with logs_engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE site_log ADD COLUMN user_id INTEGER'))
+        if 'tournament_log' in log_tables:
+            columns = [c['name'] for c in logs_inspector.get_columns('tournament_log')]
+            if 'user_id' not in columns:
+                with logs_engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE tournament_log ADD COLUMN user_id INTEGER'))
 
         if 'report' not in inspector.get_table_names():
             Report.__table__.create(bind=db.engine)
@@ -378,6 +390,31 @@ def create_app():
         if start == end:
             return str(start)
         return f"{start}-{end}"
+
+    def find_available_table_start(tournament):
+        _, _, tables_needed, _ = compute_table_allocation(tournament)
+        last_table = app.config.get('LAST_TABLE_NUMBER') or None
+        if tables_needed <= 1:
+            max_start = last_table or 1
+        elif last_table is not None:
+            max_start = last_table - tables_needed + 1
+            if max_start < 1:
+                return 1
+        else:
+            max_existing_end = 0
+            query = db.session.query(Tournament)
+            if getattr(tournament, 'id', None):
+                query = query.filter(Tournament.id != tournament.id)
+            for other in query.all():
+                _, other_end, other_tables, _ = compute_table_allocation(other)
+                if other_tables:
+                    max_existing_end = max(max_existing_end, other_end)
+            max_start = max(max_existing_end + 1, 1)
+        for candidate in range(1, max_start + 1):
+            errors, _, _, _, _ = validate_table_assignment(tournament, start_number=candidate)
+            if not errors:
+                return candidate
+        return max_start
 
     def validate_table_assignment(tournament, start_number=None):
         errors = []
@@ -2492,7 +2529,12 @@ def create_app():
         require_permission('tournaments.manage')
         leagues = db.session.query(League).order_by(League.name).all()
         venues = db.session.query(Venue).order_by(Venue.name).all()
-        template_context = {'leagues': leagues, 'venues': venues, 'formats': TOURNAMENT_FORMATS}
+        template_context = {
+            'leagues': leagues,
+            'venues': venues,
+            'formats': TOURNAMENT_FORMATS,
+            'suggested_start_table_number': 1,
+        }
         if request.method == 'POST':
             provided_name = request.form['name'].strip()
             fmt = request.form['format']
@@ -2518,12 +2560,15 @@ def create_app():
             if fmt != 'Draft':
                 is_cube = False
             join_requires_approval = request.form.get('join_requires_approval') == '1'
-            start_table_raw = (request.form.get('start_table_number') or '1').strip()
-            try:
-                start_table_number = int(start_table_raw)
-            except ValueError:
-                flash('Starting table number must be a whole number.', 'error')
-                return render_template('admin/new_tournament.html', **template_context)
+            start_table_raw = (request.form.get('start_table_number') or '').strip()
+            if start_table_raw:
+                try:
+                    start_table_number = int(start_table_raw)
+                except ValueError:
+                    flash('Starting table number must be a whole number.', 'error')
+                    return render_template('admin/new_tournament.html', **template_context)
+            else:
+                start_table_number = None
             name = format_tournament_name(fmt, start_time, provided_name)
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            pairing_type=pairing_type,
@@ -2542,6 +2587,9 @@ def create_app():
             venue_id = request.form.get('venue_id')
             if venue_id:
                 t.venue_id = int(venue_id)
+            if start_table_number is None:
+                start_table_number = find_available_table_start(t)
+                t.start_table_number = start_table_number
             errors, _, _, _, _ = validate_table_assignment(t, start_number=start_table_number)
             if errors:
                 for message in errors:
@@ -2578,7 +2626,14 @@ def create_app():
         if not t:
             abort(404)
         venues = db.session.query(Venue).order_by(Venue.name).all()
-        template_context = {'t': t, 'venues': venues, 'formats': TOURNAMENT_FORMATS, 'provided_name': extract_provided_tournament_name(t.name)}
+        suggested_start_table_number = find_available_table_start(t)
+        template_context = {
+            't': t,
+            'venues': venues,
+            'formats': TOURNAMENT_FORMATS,
+            'provided_name': extract_provided_tournament_name(t.name),
+            'suggested_start_table_number': suggested_start_table_number,
+        }
         if request.method == 'POST':
             provided_name = request.form['name'].strip()
             new_format = request.form['format']
@@ -2599,12 +2654,15 @@ def create_app():
             rel = request.form.get('rules_enforcement_level', 'None') or 'None'
             is_cube = request.form.get('is_cube') == '1'
             join_requires_approval = request.form.get('join_requires_approval') == '1'
-            start_table_raw = (request.form.get('start_table_number') or str(t.start_table_number or 1)).strip()
-            try:
-                start_table_number = int(start_table_raw)
-            except ValueError:
-                flash('Starting table number must be a whole number.', 'error')
-                return render_template('admin/edit_tournament.html', **template_context)
+            start_table_raw = (request.form.get('start_table_number') or '').strip()
+            if start_table_raw:
+                try:
+                    start_table_number = int(start_table_raw)
+                except ValueError:
+                    flash('Starting table number must be a whole number.', 'error')
+                    return render_template('admin/edit_tournament.html', **template_context)
+            else:
+                start_table_number = None
 
             class _Preview:
                 pass
@@ -2612,9 +2670,12 @@ def create_app():
             preview = _Preview()
             preview.id = t.id
             preview.format = new_format
-            preview.start_table_number = start_table_number
+            preview.start_table_number = start_table_number or t.start_table_number or 1
             preview.players = t.players
             preview.name = provided_name or t.name
+            if start_table_number is None:
+                start_table_number = find_available_table_start(preview)
+                preview.start_table_number = start_table_number
             errors, _, _, _, _ = validate_table_assignment(preview, start_number=start_table_number)
             if errors:
                 for message in errors:
@@ -2804,6 +2865,30 @@ def create_app():
         flash(f'Added {count} tournament' + ('s' if count != 1 else '') + f' to {venue.name}.', 'success')
         return redirect(url_for('venue_detail', venue_id=venue.id))
 
+    def booth_number_conflict(venue_id, booth_number, *, vendor_id=None, artist_id=None):
+        booth = (booth_number or '').strip()
+        if not venue_id or not booth:
+            return None
+        vendor_query = db.session.query(Vendor).filter(
+            Vendor.venue_id == venue_id,
+            db.func.lower(Vendor.booth_number) == booth.lower(),
+        )
+        if vendor_id is not None:
+            vendor_query = vendor_query.filter(Vendor.id != vendor_id)
+        vendor = vendor_query.first()
+        if vendor:
+            return f'Booth {booth} is already assigned to vendor {vendor.name}.'
+        artist_query = db.session.query(ArtistProfile).filter(
+            ArtistProfile.venue_id == venue_id,
+            db.func.lower(ArtistProfile.booth_number) == booth.lower(),
+        )
+        if artist_id is not None:
+            artist_query = artist_query.filter(ArtistProfile.id != artist_id)
+        artist = artist_query.first()
+        if artist:
+            return f'Booth {booth} is already assigned to artist {artist.name}.'
+        return None
+
     @app.route('/admin/venues/vendors', methods=['GET', 'POST'])
     @login_required
     def vendor_management():
@@ -2818,18 +2903,24 @@ def create_app():
             if not name:
                 flash('Vendor name is required.', 'error')
             else:
-                vendor = Vendor(
-                    name=name,
-                    venue_id=int(request.form['venue_id']) if request.form.get('venue_id') else None,
-                    website=request.form.get('website', '').strip() or None,
-                    booth_number=request.form.get('booth_number', '').strip() or None,
-                    services_provided=request.form.get('services_provided', '').strip() or None,
-                )
-                db.session.add(vendor)
-                db.session.commit()
-                log_site('vendor_create', 'success', f'vendor_id={vendor.id}')
-                flash('Vendor created.', 'success')
-                return redirect(url_for('vendor_management'))
+                venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+                booth_number = request.form.get('booth_number', '').strip() or None
+                conflict = booth_number_conflict(venue_id, booth_number)
+                if conflict:
+                    flash(conflict, 'error')
+                else:
+                    vendor = Vendor(
+                        name=name,
+                        venue_id=venue_id,
+                        website=request.form.get('website', '').strip() or None,
+                        booth_number=booth_number,
+                        services_provided=request.form.get('services_provided', '').strip() or None,
+                    )
+                    db.session.add(vendor)
+                    db.session.commit()
+                    log_site('vendor_create', 'success', f'vendor_id={vendor.id}')
+                    flash('Vendor created.', 'success')
+                    return redirect(url_for('vendor_management'))
         vendors = restrict_to_visible_venues(db.session.query(Vendor), Vendor).order_by(Vendor.name).all()
         return render_template('admin/vendors.html', vendors=vendors, venues=venues, can_manage_venues=current_user.has_permission('venues.manage'))
 
@@ -2844,14 +2935,20 @@ def create_app():
         if not name:
             flash('Vendor name is required.', 'error')
         else:
-            vendor.name = name
-            vendor.venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
-            vendor.website = request.form.get('website', '').strip() or None
-            vendor.booth_number = request.form.get('booth_number', '').strip() or None
-            vendor.services_provided = request.form.get('services_provided', '').strip() or None
-            db.session.commit()
-            log_site('vendor_update', 'success', f'vendor_id={vendor.id}')
-            flash('Vendor updated.', 'success')
+            venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+            booth_number = request.form.get('booth_number', '').strip() or None
+            conflict = booth_number_conflict(venue_id, booth_number, vendor_id=vendor.id)
+            if conflict:
+                flash(conflict, 'error')
+            else:
+                vendor.name = name
+                vendor.venue_id = venue_id
+                vendor.website = request.form.get('website', '').strip() or None
+                vendor.booth_number = booth_number
+                vendor.services_provided = request.form.get('services_provided', '').strip() or None
+                db.session.commit()
+                log_site('vendor_update', 'success', f'vendor_id={vendor.id}')
+                flash('Vendor updated.', 'success')
         return redirect(url_for('vendor_management'))
 
     @app.route('/admin/venues/artists', methods=['GET', 'POST'])
@@ -2868,18 +2965,24 @@ def create_app():
             if not name:
                 flash('Artist name is required.', 'error')
             else:
-                artist = ArtistProfile(
-                    name=name,
-                    venue_id=int(request.form['venue_id']) if request.form.get('venue_id') else None,
-                    website=request.form.get('website', '').strip() or None,
-                    booth_number=request.form.get('booth_number', '').strip() or None,
-                    services_provided=request.form.get('services_provided', '').strip() or None,
-                )
-                db.session.add(artist)
-                db.session.commit()
-                log_site('artist_create', 'success', f'artist_id={artist.id}')
-                flash('Artist profile created.', 'success')
-                return redirect(url_for('artist_management'))
+                venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+                booth_number = request.form.get('booth_number', '').strip() or None
+                conflict = booth_number_conflict(venue_id, booth_number)
+                if conflict:
+                    flash(conflict, 'error')
+                else:
+                    artist = ArtistProfile(
+                        name=name,
+                        venue_id=venue_id,
+                        website=request.form.get('website', '').strip() or None,
+                        booth_number=booth_number,
+                        services_provided=request.form.get('services_provided', '').strip() or None,
+                    )
+                    db.session.add(artist)
+                    db.session.commit()
+                    log_site('artist_create', 'success', f'artist_id={artist.id}')
+                    flash('Artist profile created.', 'success')
+                    return redirect(url_for('artist_management'))
         artists = restrict_to_visible_venues(db.session.query(ArtistProfile), ArtistProfile).order_by(ArtistProfile.name).all()
         return render_template('admin/artists.html', artists=artists, venues=venues, can_manage_venues=current_user.has_permission('venues.manage'))
 
@@ -2894,14 +2997,20 @@ def create_app():
         if not name:
             flash('Artist name is required.', 'error')
         else:
-            artist.name = name
-            artist.venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
-            artist.website = request.form.get('website', '').strip() or None
-            artist.booth_number = request.form.get('booth_number', '').strip() or None
-            artist.services_provided = request.form.get('services_provided', '').strip() or None
-            db.session.commit()
-            log_site('artist_update', 'success', f'artist_id={artist.id}')
-            flash('Artist profile updated.', 'success')
+            venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+            booth_number = request.form.get('booth_number', '').strip() or None
+            conflict = booth_number_conflict(venue_id, booth_number, artist_id=artist.id)
+            if conflict:
+                flash(conflict, 'error')
+            else:
+                artist.name = name
+                artist.venue_id = venue_id
+                artist.website = request.form.get('website', '').strip() or None
+                artist.booth_number = booth_number
+                artist.services_provided = request.form.get('services_provided', '').strip() or None
+                db.session.commit()
+                log_site('artist_update', 'success', f'artist_id={artist.id}')
+                flash('Artist profile updated.', 'success')
         return redirect(url_for('artist_management'))
 
     @app.route('/admin/tournaments/<int:tid>/judges', methods=['GET','POST'])
@@ -4895,7 +5004,7 @@ def create_app():
                     flash('Passwords do not match.', 'error')
                     log_site('user_update', 'failure', 'password mismatch')
                     return redirect(redirect_target)
-                u.set_password(password)
+                u.set_password(password, unlock=False)
                 u.generate_keys(password)
                 log_site('admin_password_reset', 'success', f'user_id={u.id}')
             lock_action = request.form.get('account_lock_action')
