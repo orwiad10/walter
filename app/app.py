@@ -627,7 +627,7 @@ def create_app():
             user.failed_login_count = (user.failed_login_count or 0) + 1
             lockout_attempts = max(app.config.get('ACCOUNT_LOCKOUT_ATTEMPTS', 3), 1)
             if user.failed_login_count >= lockout_attempts and not user.locked_at:
-                user.locked_at = datetime.utcnow()
+                user.locked_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 user.lock_reason = f'{user.failed_login_count} incorrect password attempts'
                 app.logger.warning('Account locked for %s after %s bad login attempts', user.email, user.failed_login_count)
                 log_site('account_lock', 'success', f'user_id={user.id}; ip={ip_address}; attempts={user.failed_login_count}')
@@ -5006,20 +5006,24 @@ def create_app():
                     return redirect(redirect_target)
                 u.set_password(password, unlock=False)
                 u.generate_keys(password)
-                log_site('admin_password_reset', 'success', f'user_id={u.id}')
+
+            log_events = []
+            if password or password_confirm:
+                log_events.append(('admin_password_reset', 'success', f'user_id={u.id}'))
+
             lock_action = request.form.get('account_lock_action')
             if u.id == current_user.id and lock_action == 'lock':
                 flash('Cannot lock your own account.', 'error')
-                log_site('admin_account_lock', 'failure', f'user_id={u.id}; self_lock')
+                log_events.append(('admin_account_lock', 'failure', f'user_id={u.id}; self_lock'))
             elif lock_action == 'lock':
-                u.locked_at = datetime.utcnow()
+                u.locked_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 u.lock_reason = request.form.get('lock_reason', '').strip() or 'Manually locked by administrator'
-                log_site('admin_account_lock', 'success', f'user_id={u.id}; reason={u.lock_reason}')
+                log_events.append(('admin_account_lock', 'success', f'user_id={u.id}; reason={u.lock_reason}'))
             elif lock_action == 'unlock' or request.form.get('unlock_account') == 'yes':
                 u.failed_login_count = 0
                 u.locked_at = None
                 u.lock_reason = None
-                log_site('admin_account_unlock', 'success', f'user_id={u.id}')
+                log_events.append(('admin_account_unlock', 'success', f'user_id={u.id}'))
             u.email = email
             u.notes = request.form.get('notes', '').strip() or None
             role_id = request.form.get('role_id')
@@ -5039,7 +5043,17 @@ def create_app():
                         overrides[key] = val
                 u.permission_overrides = json.dumps(overrides) if overrides else None
             db.session.commit()
-            log_site('user_update', 'success')
+            for action, result, error in log_events:
+                try:
+                    log_site(action, result, error)
+                except SQLAlchemyError as exc:
+                    db.session.rollback()
+                    app.logger.warning('Unable to write site log entry %s: %s', action, exc)
+            try:
+                log_site('user_update', 'success')
+            except SQLAlchemyError as exc:
+                db.session.rollback()
+                app.logger.warning('Unable to write site log entry user_update: %s', exc)
             flash('User updated.', 'success')
         return redirect(redirect_target)
 

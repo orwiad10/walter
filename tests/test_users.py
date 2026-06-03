@@ -1,5 +1,7 @@
 import json
 
+from sqlalchemy import text
+
 from app.app import db
 
 from app.models import User, Role
@@ -294,6 +296,37 @@ def test_admin_can_manually_lock_and_unlock_user(client, session):
     session.refresh(target)
     assert target.locked_at is None
     assert target.lock_reason is None
+
+
+def test_admin_lock_succeeds_when_site_log_unavailable(client, session, app):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='admin-log-fail@example.com', name='Log Fail Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    target = User(email='log-fail-lock@example.com', name='Log Fail Lock', role=user_role)
+    target.set_password('secret')
+    session.add_all([admin, target])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        with app.app_context():
+            with db.engines['logs'].begin() as conn:
+                conn.execute(text('DROP TABLE site_log'))
+
+        response = client.post(
+            f'/admin/users/{target.id}/update',
+            data={
+                'email': target.email,
+                'account_lock_action': 'lock',
+                'lock_reason': 'log database unavailable',
+            },
+        )
+        assert response.status_code == 302
+
+    session.refresh(target)
+    assert target.locked_at is not None
+    assert target.lock_reason == 'log database unavailable'
 
 
 def test_admin_password_change_rekeys_user_and_preserves_lock_without_unlock_action(client, session):
