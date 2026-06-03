@@ -1877,3 +1877,26 @@ ul.flashes {
   justify-content: center;
   white-space: normal;
 }
+
+/* Bulk player registration alignment */
+.bulk-register-grid {
+  align-items: start;
+}
+.bulk-register-grid label,
+.league-player-picker label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.bulk-register-grid .multi-select,
+.league-player-picker select {
+  width: 100%;
+  min-height: 18rem;
+}
+
+.league-player-search {
+  margin-bottom: 0.75rem;
+}
+.league-player-search input {
+  width: 100%;
+}

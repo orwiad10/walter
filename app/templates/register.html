@@ -2,18 +2,19 @@
 {% block content %}
 <section class="auth-card">
   <h2 class="auth-card__title">Create your account</h2>
-  <p class="auth-card__subtitle">Register once to manage decks, join tournaments, and stay connected with staff. We will email you a one-time 6-digit PIN to verify your account.</p>
+  <p class="auth-card__subtitle">Register once to manage decks, join tournaments, and stay connected with staff. We will email you a verification link that must be clicked before the account is created.</p>
   {% if invite_only %}
-  <p class="auth-card__subtitle">Account creation is currently invite only. Select your invited tournament and enter its passcode to continue.</p>
+  <p class="auth-card__subtitle">Account creation is currently invite only. Use the invite link sent by an administrator to continue.</p>
   {% endif %}
   <form method="post" class="form-stacked">
+    <input type="hidden" name="invite" value="{{ invite_token or '' }}">
     <div class="form-field">
       <label for="name">Name</label>
       <input id="name" name="name" required>
     </div>
     <div class="form-field">
       <label for="email">Email</label>
-      <input id="email" name="email" type="email" required>
+      <input id="email" name="email" type="email" value="{{ invite.email if invite else '' }}"{% if invite %} readonly{% endif %} required>
     </div>
     <div class="form-field">
       <label for="password">Password</label>

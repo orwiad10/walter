@@ -32,6 +32,7 @@ PERMISSION_GROUPS = {
         'permissions': 'Manage roles and permissions',
         'login_audit': 'Audit failed login attempts',
         'ip_blacklist': 'Manage blacklisted IP addresses',
+        'site_settings': 'Manage site settings and registration invites',
     },
 }
 
@@ -212,6 +213,30 @@ class BlacklistedIP(db.Model):
     created_by = db.relationship('User')
 
 
+class SiteSetting(db.Model):
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text, nullable=False, default='')
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    updated_by = db.relationship('User')
+
+
+class RegistrationInvite(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=False)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    used_at = db.Column(db.DateTime, nullable=True)
+    used_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='sent')
+
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+    used_by = db.relationship('User', foreign_keys=[used_by_id])
+
+
 class PasswordResetToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -230,12 +255,15 @@ class PendingRegistration(db.Model):
     password_hash = db.Column(db.Text, nullable=False)
     salt = db.Column(db.String(32), nullable=False)
     verification_pin = db.Column(db.String(6), nullable=False)
+    verification_token_hash = db.Column(db.String(64), unique=True, nullable=True)
+    invite_id = db.Column(db.Integer, db.ForeignKey('registration_invite.id'), nullable=True)
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=True)
     tournament_passcode = db.Column(db.String(4), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
     expires_at = db.Column(db.DateTime, nullable=False)
 
     tournament = db.relationship('Tournament')
+    invite = db.relationship('RegistrationInvite')
 
     def set_password(self, pw):
         self.salt = 'werkzeug'
@@ -317,6 +345,7 @@ class Tournament(db.Model):
     deck_timer_remaining = db.Column(db.Integer, nullable=True)
     passcode = db.Column(db.String(4), nullable=False, default=lambda: f"{secrets.randbelow(10000):04d}")
     join_requires_approval = db.Column(db.Boolean, default=False)
+    player_cap = db.Column(db.Integer, nullable=True)
     league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=True)
     venue_id = db.Column(db.Integer, db.ForeignKey('venue.id'), nullable=True)
 
@@ -568,6 +597,7 @@ class LostFoundItem(db.Model):
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), default='unclaimed')
+    venue_id = db.Column(db.Integer, nullable=True)
     location = db.Column(db.String(200), nullable=True)
     image_path = db.Column(db.String(500), nullable=True)
     reporter_name = db.Column(db.String(120), nullable=True)

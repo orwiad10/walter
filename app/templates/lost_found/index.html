@@ -3,7 +3,7 @@
 <section class="page-header modern-hero">
   <div class="page-header__title">
     <span class="eyebrow">Venue Ops</span>
-    <h2>Lost &amp; Found</h2>
+    <h2>Lost &amp; Found — {{ venue.name }}</h2>
     <p class="page-description">Track found items, claimant status, storage location, and reporter details in one tidy board.</p>
   </div>
   <div class="page-header__actions">
@@ -91,7 +91,7 @@
         {% if manage_access %}
         <details class="lost-update">
           <summary>Update item</summary>
-          <form method="post" action="{{ url_for('update_lost_and_found', item_id=item.id) }}" enctype="multipart/form-data" class="modern-form compact-form">
+          <form method="post" action="{{ url_for('update_lost_and_found', venue_id=venue.id, item_id=item.id) }}" enctype="multipart/form-data" class="modern-form compact-form">
             <label>Status
               <select name="status">
                 {% for value, label in status_options %}

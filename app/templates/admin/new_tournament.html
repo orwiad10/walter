@@ -76,6 +76,10 @@
         <td><input type="number" name="deck_build_time"></td>
       </tr>
       <tr>
+        <td>Player Cap</td>
+        <td><input type="number" name="player_cap" min="1" value="{{ request.form.get('player_cap', '') }}" required><p class="form-help">Required. Used to reserve the maximum tables allotted for this tournament.</p></td>
+      </tr>
+      <tr>
         <td>Starting Table Number</td>
         <td><input type="number" name="start_table_number" min="1" value="{{ request.form.get('start_table_number', suggested_start_table_number) }}"></td>
       </tr>
