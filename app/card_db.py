@@ -6,6 +6,7 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 ATOMIC_CARDS_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"
@@ -243,6 +244,9 @@ def _read_atomic_cards_from_zip(path: str) -> List[Dict[str, Any]]:
 
 
 def _card_database_request(url: str) -> Request:
+    parsed_url = urlparse(url)
+    if parsed_url.scheme != 'https' or not parsed_url.netloc:
+        raise ValueError('Card database URL must be an absolute https URL.')
     return Request(url, headers={'User-Agent': CARD_DB_USER_AGENT})
 
 
@@ -252,7 +256,8 @@ def build_card_database(path: str, source_url: Optional[str] = None) -> None:
     request = _card_database_request(url)
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         temp_name = tmp.name
-        with urlopen(request) as response:
+        # _card_database_request only permits absolute https URLs.
+        with urlopen(request) as response:  # nosec B310
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
@@ -359,19 +364,25 @@ def get_card_metadata(path: str, names: Sequence[str]) -> Dict[str, Dict[str, bo
     if not names:
         return {}
     unique_names = list(dict.fromkeys(names))
-    placeholders = ','.join('?' for _ in unique_names)
-    if not placeholders:
-        return {}
     with open_card_database(path) as connection:
         _ensure_schema(connection)
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS requested_card_names (name TEXT PRIMARY KEY)"
+        )
+        connection.execute("DELETE FROM requested_card_names")
+        connection.executemany(
+            "INSERT OR IGNORE INTO requested_card_names(name) VALUES (?)",
+            ((name,) for name in unique_names),
+        )
         rows = connection.execute(
-            f"""
-            SELECT name, is_land, is_basic_land, is_standard_banned, is_vintage_restricted,
-                   type_line, primary_type
+            """
+            SELECT cards.name, cards.is_land, cards.is_basic_land,
+                   cards.is_standard_banned, cards.is_vintage_restricted,
+                   cards.type_line, cards.primary_type
             FROM cards
-            WHERE name IN ({placeholders})
-            """,
-            tuple(unique_names),
+            INNER JOIN requested_card_names requested
+                ON requested.name = cards.name
+            """
         ).fetchall()
     metadata: Dict[str, Dict[str, bool]] = {}
     for row in rows:

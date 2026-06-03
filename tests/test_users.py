@@ -150,6 +150,20 @@ def test_registration_sends_mailgun_pin_and_requires_verification(client, sessio
     assert session.query(PendingRegistration).filter_by(email='new@example.com').first() is None
 
 
+def test_mailgun_domain_validation_rejects_url_syntax(app):
+    from app.app import _mailgun_messages_url
+
+    assert _mailgun_messages_url('mg.example.com') == 'https://api.mailgun.net/v3/mg.example.com/messages'
+
+    for domain in ['https://evil.example', 'mg.example.com/messages', 'mg..example.com', 'file:mg.example.com']:
+        try:
+            _mailgun_messages_url(domain)
+        except RuntimeError as exc:
+            assert 'Mailgun domain' in str(exc) or 'Mailgun API URL' in str(exc)
+        else:
+            raise AssertionError(f'{domain} should have been rejected')
+
+
 def test_invite_only_registration_requires_tournament_passcode(client, session, app, monkeypatch):
     from app.models import Tournament
 

@@ -51,3 +51,15 @@ def test_build_card_database_sends_user_agent(monkeypatch, tmp_path):
     assert seen['request'].full_url == 'https://mtgjson.example/cards.zip'
     assert seen['request'].get_header('User-agent') == card_db.CARD_DB_USER_AGENT
     assert card_db.lookup_card(str(db_path), 'Black Lotus') == 'Black Lotus'
+
+
+def test_build_card_database_rejects_non_https_urls(tmp_path):
+    db_path = tmp_path / 'cards.db'
+
+    for source_url in ['http://mtgjson.example/cards.zip', 'file:///tmp/cards.zip', 'mtgjson.example/cards.zip']:
+        try:
+            card_db.build_card_database(str(db_path), source_url=source_url)
+        except ValueError as exc:
+            assert 'https URL' in str(exc)
+        else:
+            raise AssertionError(f'{source_url} should have been rejected')

@@ -1,5 +1,6 @@
 import json
 import random
+import secrets
 from itertools import combinations
 from .models import Tournament, TournamentPlayer, Match, MatchResult, Round
 
@@ -288,7 +289,7 @@ def round_robin_pair_round(t: Tournament, r: Round, session):
             bye_player = pid1 or pid2
             m = Match(round_id=r.id, table_number=table, player1_id=bye_player, player2_id=None)
         else:
-            if random.random() < 0.5:
+            if secrets.randbelow(2) == 0:
                 pid1, pid2 = pid2, pid1
             m = Match(round_id=r.id, table_number=table, player1_id=pid1, player2_id=pid2)
         session.add(m)
