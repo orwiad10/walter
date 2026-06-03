@@ -11,7 +11,6 @@
   <h3>Account Details</h3>
   <form method="post" action="{{ url_for('admin_update_user', uid=user.id) }}" class="user-settings-form">
     <input type="hidden" name="search_query" value="{{ search_query }}">
-    <input type="hidden" name="next" value="{{ detail_url }}">
     <div class="form-row">
       <label for="user-email">Email</label>
       <input id="user-email" type="email" name="email" value="{{ user.email or '' }}">
@@ -93,7 +92,6 @@
     <li>{{ tp.tournament.name }}
       <form method="post" action="{{ url_for('admin_remove_user_from_tournament', uid=user.id, tid=tp.tournament_id) }}" class="inline-form">
         <input type="hidden" name="search_query" value="{{ search_query }}">
-        <input type="hidden" name="next" value="{{ detail_url }}">
         <button class="btn" type="submit">Remove</button>
       </form>
     </li>
@@ -104,7 +102,6 @@
   {% endif %}
   <form method="post" action="{{ url_for('admin_add_user_to_tournament', uid=user.id) }}" class="user-settings-form">
     <input type="hidden" name="search_query" value="{{ search_query }}">
-    <input type="hidden" name="next" value="{{ detail_url }}">
     <div class="form-row">
       <label for="assign-tournament">Add to tournament</label>
       <select id="assign-tournament" name="tournament_id">
@@ -120,7 +117,6 @@
   <h3>Danger Zone</h3>
   <form method="post" action="{{ url_for('admin_delete_user', uid=user.id) }}" onsubmit="return confirm('Delete user?');">
     <input type="hidden" name="search_query" value="{{ search_query }}">
-    <input type="hidden" name="next" value="{{ url_for('admin_users', q=search_query) if search_query else url_for('admin_users') }}">
     <button class="btn danger" type="submit">Delete User</button>
   </form>
 </section>

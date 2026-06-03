@@ -35,7 +35,7 @@ import csv
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from sqlalchemy import inspect, text, or_
 from sqlalchemy.exc import SQLAlchemyError
 from cryptography.hazmat.primitives import serialization, hashes
@@ -44,6 +44,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hmac as crypto_hmac
+from werkzeug.exceptions import MethodNotAllowed, NotFound
+from werkzeug.routing import RequestRedirect
 from werkzeug.utils import safe_join, secure_filename
 from PIL import Image, ImageOps
 
@@ -803,7 +805,10 @@ def create_app():
                 except Exception:
                     session['private_key'] = None
                 log_site('login', 'success', f'ip={_client_ip()}')
-                return redirect(resolve_redirect_target(url_for('index'), next_url))
+                post_login_url = allowed_post_login_redirect(next_url)
+                if post_login_url:
+                    return redirect(post_login_url)
+                return redirect(url_for('index'))
             _record_bad_login(email, u, 'bad_password' if u else 'unknown_user')
             flash("Invalid credentials", "error")
             log_site('login', 'failure', f'invalid credentials; ip={_client_ip()}')
@@ -4989,25 +4994,29 @@ def create_app():
             search_query=q,
         )
 
-    def is_safe_redirect_target(candidate):
+    POST_LOGIN_REDIRECT_ENDPOINTS = {'tournament_join_link'}
+
+    def allowed_post_login_redirect(candidate):
         if not candidate:
-            return False
+            return None
         candidate = candidate.strip()
         if not candidate or '\\' in candidate:
-            return False
-        ref_url = urlparse(request.host_url)
-        test_url = urlparse(urljoin(request.host_url, candidate))
-        return (
-            test_url.scheme in ('http', 'https')
-            and ref_url.netloc == test_url.netloc
-            and candidate.startswith('/')
-            and not candidate.startswith('//')
-        )
-
-    def resolve_redirect_target(default_url, candidate):
-        if is_safe_redirect_target(candidate):
-            return candidate.strip()
-        return default_url
+            return None
+        parsed = urlparse(candidate)
+        if (
+            parsed.scheme
+            or parsed.netloc
+            or not parsed.path.startswith('/')
+            or parsed.path.startswith('//')
+        ):
+            return None
+        try:
+            endpoint, values = app.url_map.bind('').match(parsed.path, method='GET')
+        except (MethodNotAllowed, NotFound, RequestRedirect, ValueError):
+            return None
+        if endpoint not in POST_LOGIN_REDIRECT_ENDPOINTS:
+            return None
+        return url_for(endpoint, **values)
 
     @app.route('/admin/users/<int:uid>')
     def admin_user_detail(uid):
@@ -5048,15 +5057,15 @@ def create_app():
         if target.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
-        next_candidate = request.form.get('next')
         tid = int(request.form['tournament_id'])
         if not db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first():
             tp = TournamentPlayer(user_id=uid, tournament_id=tid)
             db.session.add(tp)
             db.session.commit()
         flash('User added to tournament.', 'success')
-        fallback = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
-        return redirect(resolve_redirect_target(fallback, next_candidate))
+        if search_query:
+            return redirect(url_for('admin_user_detail', uid=uid, q=search_query))
+        return redirect(url_for('admin_user_detail', uid=uid))
 
     @app.route('/admin/users/<int:uid>/remove/<int:tid>', methods=['POST'])
     def admin_remove_user_from_tournament(uid, tid):
@@ -5066,14 +5075,14 @@ def create_app():
         if target.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
-        next_candidate = request.form.get('next')
         tp = db.session.query(TournamentPlayer).filter_by(user_id=uid, tournament_id=tid).first()
         if tp:
             db.session.delete(tp)
             db.session.commit()
         flash('User removed from tournament.', 'success')
-        fallback = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
-        return redirect(resolve_redirect_target(fallback, next_candidate))
+        if search_query:
+            return redirect(url_for('admin_user_detail', uid=uid, q=search_query))
+        return redirect(url_for('admin_user_detail', uid=uid))
 
     @app.route('/admin/users/<int:uid>/update', methods=['POST'])
     def admin_update_user(uid):
@@ -5085,9 +5094,10 @@ def create_app():
         if u.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
-        next_candidate = request.form.get('next')
-        fallback_redirect = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
-        redirect_target = resolve_redirect_target(fallback_redirect, next_candidate)
+        if search_query:
+            redirect_target = url_for('admin_user_detail', uid=uid, q=search_query)
+        else:
+            redirect_target = url_for('admin_user_detail', uid=uid)
         email = request.form.get('email', '').strip().lower() or None
         if email and db.session.query(User).filter(User.email == email, User.id != uid).first():
             flash('Email already registered.', 'error')
@@ -5163,14 +5173,14 @@ def create_app():
         if u.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
         search_query = request.form.get('search_query', '').strip()
-        next_candidate = request.form.get('next')
         for tp in list(u.tournament_entries):
             db.session.delete(tp)
         db.session.delete(u)
         db.session.commit()
         flash('User deleted.', 'success')
-        fallback = url_for('admin_users', q=search_query) if search_query else url_for('admin_users')
-        return redirect(resolve_redirect_target(fallback, next_candidate))
+        if search_query:
+            return redirect(url_for('admin_users', q=search_query))
+        return redirect(url_for('admin_users'))
 
 
     @app.route('/admin/users/bulk-delete', methods=['POST'])
@@ -5205,7 +5215,9 @@ def create_app():
         flash(message, 'success' if deleted else 'warning')
         log_site('users_bulk_delete', 'success', f'deleted={deleted}; skipped={skipped}')
         search_query = request.form.get('search_query', '').strip()
-        return redirect(url_for('admin_users', q=search_query) if search_query else url_for('admin_users'))
+        if search_query:
+            return redirect(url_for('admin_users', q=search_query))
+        return redirect(url_for('admin_users'))
 
     return app
 
