@@ -2203,9 +2203,13 @@ html[data-theme="dark"] .timer-display {
 }
 
 .tournament-control-box {
-  background: rgba(255, 255, 255, 0.76);
-  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
   min-height: 100%;
+}
+
+.tournament-control-box .section-heading {
+  margin-bottom: 18px;
 }
 
 .tournament-control-box .btn,
@@ -2253,7 +2257,6 @@ html[data-theme="dark"] .timer-display {
   box-shadow: none;
 }
 
-html[data-theme="dark"] .tournament-control-box,
 html[data-theme="dark"] .tournament-control-box .rounds-form {
   background: rgba(15, 23, 42, 0.72);
 }

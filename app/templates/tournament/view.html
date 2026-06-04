@@ -26,14 +26,11 @@
 {% set round_limit = t.rounds_override or rec_rounds %}
 {% set current_rounds = rounds|length %}
 <section class="tournament-control-grid" aria-label="Tournament controls">
-  <div class="control-row timer-row tournament-control-box" aria-label="Tournament timer controls">
-    <span class="control-label">Timer</span>
-    {% include 'tournament/_timer_bar.html' %}
-  </div>
-
   {% if not is_player %}
-  <div class="control-row join-row tournament-control-box" aria-label="Player passcode and QR controls">
-    <span class="control-label">Passcode / QR</span>
+  <section class="panel-card join-row tournament-control-box" aria-label="Player passcode and QR controls">
+    <div class="section-heading">
+      <div><h3>QR and Passcode</h3><p>Share the player join QR link or enter a tournament passcode.</p></div>
+    </div>
     <div class="join-controls">
       <a class="btn ghost" href="{{ url_for('tournament_join_link', tid=t.id) }}" target="_blank" rel="noopener">Player Join QR</a>
       {% if current_user.is_authenticated %}
@@ -58,11 +55,20 @@
         <a class="btn" href="{{ url_for('login') }}">Login to Join</a>
       {% endif %}
     </div>
-  </div>
+  </section>
   {% endif %}
 
-  <div class="control-row action-row tournament-control-box" aria-label="Tournament actions">
-    <span class="control-label">Tournament Controls</span>
+  <section class="panel-card timer-row tournament-control-box" aria-label="Tournament timer controls">
+    <div class="section-heading">
+      <div><h3>Time Controls</h3><p>Start, pause, stop, or restart round timers.</p></div>
+    </div>
+    {% include 'tournament/_timer_bar.html' %}
+  </section>
+
+  <section class="panel-card action-row tournament-control-box" aria-label="Tournament actions">
+    <div class="section-heading">
+      <div><h3>Tournament Controls</h3><p>Print materials, manage rounds, and open tournament tools.</p></div>
+    </div>
     <div class="control-actions">
       <button class="btn ghost" type="button" onclick="window.print()">Print</button>
       <a class="btn secondary" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
@@ -80,7 +86,7 @@
         <a class="btn ghost" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
       {% endif %}
     </div>
-  </div>
+  </section>
 </section>
 
 {% if is_player %}
