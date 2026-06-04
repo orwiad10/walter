@@ -23,10 +23,10 @@
   <div class="summary-card"><span>Floor Judges</span><strong>{% if floor_judges %}{% for u in floor_judges %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}None{% endif %}</strong></div>
 </section>
 
-{% include 'tournament/_timer_bar.html' %}
 {% set round_limit = t.rounds_override or rec_rounds %}
 {% set current_rounds = rounds|length %}
 <section class="toolbar tournament-toolbar panel-card tournament-control-card" aria-label="Tournament controls">
+  {% include 'tournament/_timer_bar.html' %}
   <button class="btn ghost" onclick="window.print()">Print</button>
   {% if not is_player %}
   <div class="join-controls">
@@ -465,6 +465,19 @@ Sideboard
 </section>
 {% endif %}
 
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Rounds</h3><p>Jump into pairings, tables, and result entry for each round.</p></div></div>
+  {% if rounds %}
+  <div class="round-link-grid">
+  {% for r in rounds %}
+    <a class="round-link-card" href="{{ url_for('view_round', tid=t.id, rid=r.id) }}">Round {{ r.number }}</a>
+  {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state compact-empty">No rounds paired yet.</p>
+  {% endif %}
+</section>
+
 {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
 <details class="inline-add-player panel-card">
   <summary class="section-heading"><div><h3>Add Players</h3><p>Add a single searched player, choose several existing people, or quick-create one new player.</p></div></summary>
@@ -548,16 +561,4 @@ Sideboard
 </table>
 </section>
 
-<section class="panel-card">
-  <div class="section-heading"><div><h3>Rounds</h3><p>Jump into pairings, tables, and result entry for each round.</p></div></div>
-  {% if rounds %}
-  <div class="round-link-grid">
-  {% for r in rounds %}
-    <a class="round-link-card" href="{{ url_for('view_round', tid=t.id, rid=r.id) }}">Round {{ r.number }}</a>
-  {% endfor %}
-  </div>
-  {% else %}
-  <p class="empty-state compact-empty">No rounds paired yet.</p>
-  {% endif %}
-</section>
 {% endblock %}
