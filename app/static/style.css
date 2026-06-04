@@ -2265,6 +2265,20 @@ html[data-theme="dark"] .timer-display {
   box-shadow: none;
 }
 
+.tournament-actions-row {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.tournament-actions-row > *,
+.tournament-actions-row form {
+  flex: 0 0 auto;
+}
+
 html[data-theme="dark"] .tournament-control-box .rounds-form {
   background: rgba(15, 23, 42, 0.72);
 }

@@ -69,7 +69,7 @@
     <div class="section-heading">
       <div><h3>Tournament Controls</h3><p>Print materials, manage rounds, and open tournament tools.</p></div>
     </div>
-    <div class="control-actions">
+    <div class="control-actions tournament-actions-row">
       <button class="btn ghost" type="button" onclick="window.print()">Print</button>
       <a class="btn secondary" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
       {% if t.cut.startswith('top') %}<a class="btn secondary" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>{% endif %}
