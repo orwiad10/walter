@@ -2236,7 +2236,15 @@ html[data-theme="dark"] .timer-display {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.tournament-control-box .timer-bar {
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .tournament-control-box .join-form input {
@@ -2272,13 +2280,13 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
   .tournament-control-box .join-form,
   .tournament-control-box .control-actions,
   .tournament-control-box .timer-actions {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
 
   .tournament-control-box .btn,
   .tournament-control-box .join-form input,
   .tournament-control-box .rounds-form {
-    width: 100%;
+    width: auto;
   }
 }
