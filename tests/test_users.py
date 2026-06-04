@@ -490,3 +490,48 @@ def test_admin_user_actions_ignore_tampered_next(client, session):
 
     assert response.status_code == 302
     assert response.headers['Location'] == f'/admin/users/{user.id}'
+
+
+def test_site_settings_save_site_theme(client, session):
+    from app.models import SiteSetting
+
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='admin-theme@example.com', name='Theme Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add(admin)
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/site-settings',
+            data={'action': 'settings', 'registration_mode': 'closed', 'site_theme': 'dark'},
+            follow_redirects=True,
+        )
+
+    assert response.status_code == 200
+    assert b'data-theme="dark"' in response.data
+    assert session.get(SiteSetting, 'registration_mode').value == 'closed'
+    assert session.get(SiteSetting, 'site_theme').value == 'dark'
+
+
+def test_invalid_site_theme_falls_back_to_light(client, session):
+    from app.models import SiteSetting
+
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='admin-theme-invalid@example.com', name='Theme Invalid Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add(admin)
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/site-settings',
+            data={'action': 'settings', 'registration_mode': 'open', 'site_theme': 'sepia'},
+            follow_redirects=True,
+        )
+
+    assert response.status_code == 200
+    assert b'data-theme="light"' in response.data
+    assert session.get(SiteSetting, 'site_theme').value == 'light'

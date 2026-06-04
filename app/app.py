@@ -740,6 +740,12 @@ def create_app():
             return mode
         return 'invite_only' if app.config.get('ACCOUNT_CREATION_INVITE_ONLY', False) else 'open'
 
+    def site_theme():
+        theme = get_site_setting('site_theme', 'light')
+        if theme in {'light', 'dark'}:
+            return theme
+        return 'light'
+
     def _send_registration_verification(email, token, pin=None):
         verify_url = url_for('verify_registration_token', token=token, _external=True)
         pin_text = f'\n\nIf prompted, your fallback PIN is: {pin}' if pin else ''
@@ -1603,6 +1609,7 @@ def create_app():
             'nav_unread_messages': unread,
             'nav_open_reports': open_reports,
             'nav_registration_mode': registration_mode(),
+            'site_theme': site_theme(),
         }
 
     @app.route('/reports', methods=['GET', 'POST'])
@@ -3892,14 +3899,19 @@ def create_app():
                 mode = request.form.get('registration_mode', 'open')
                 if mode not in {'open', 'invite_only', 'closed'}:
                     mode = 'open'
+                theme = request.form.get('site_theme', 'light')
+                if theme not in {'light', 'dark'}:
+                    theme = 'light'
                 set_site_setting('registration_mode', mode)
+                set_site_setting('site_theme', theme)
                 db.session.commit()
-                log_site('site_settings_update', 'success', f'registration_mode={mode}')
+                log_site('site_settings_update', 'success', f'registration_mode={mode}; site_theme={theme}')
                 flash('Site settings saved.', 'success')
             return redirect(url_for('site_settings'))
         return render_template(
             'admin/site_settings.html',
             registration_mode=registration_mode(),
+            selected_site_theme=site_theme(),
         )
 
     @app.route('/admin/registration-invites', methods=['GET', 'POST'])
