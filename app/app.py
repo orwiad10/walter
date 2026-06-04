@@ -806,36 +806,87 @@ def create_app():
 
     def _record_bad_login(email, user, result):
         ip_address = _client_ip()
+        user_agent = request.headers.get('User-Agent', '')
+        user_id = user.id if user else None
+        failed_count_before = user.failed_login_count if user else None
+        locked_before = bool(user and user.locked_at)
+        site_log_events = []
+        app.logger.info(
+            'Bad login audit start: email=%r user_id=%s result=%s ip=%s failed_count_before=%s locked_before=%s user_agent=%r',
+            email,
+            user_id,
+            result,
+            ip_address,
+            failed_count_before,
+            locked_before,
+            user_agent,
+        )
         attempt = BadLoginAttempt(
             email=email or None,
-            user_id=user.id if user else None,
+            user_id=user_id,
             ip_address=ip_address,
-            user_agent=request.headers.get('User-Agent', ''),
+            user_agent=user_agent,
             result=result,
         )
         db.session.add(attempt)
         if user and result == 'bad_password':
             user.failed_login_count = (user.failed_login_count or 0) + 1
             lockout_attempts = max(app.config.get('ACCOUNT_LOCKOUT_ATTEMPTS', 3), 1)
+            app.logger.info(
+                'Bad password count updated: user_id=%s email=%r failed_count=%s lockout_attempts=%s locked_at=%s',
+                user.id,
+                user.email,
+                user.failed_login_count,
+                lockout_attempts,
+                user.locked_at,
+            )
             if user.failed_login_count >= lockout_attempts and not user.locked_at:
                 user.locked_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 user.lock_reason = f'{user.failed_login_count} incorrect password attempts'
-                app.logger.warning('Account locked for %s after %s bad login attempts', user.email, user.failed_login_count)
-                log_site('account_lock', 'success', f'user_id={user.id}; ip={ip_address}; attempts={user.failed_login_count}')
+                app.logger.warning(
+                    'Account lock threshold reached: user_id=%s email=%r ip=%s failed_count=%s lock_reason=%r',
+                    user.id,
+                    user.email,
+                    ip_address,
+                    user.failed_login_count,
+                    user.lock_reason,
+                )
+                site_log_events.append(
+                    ('account_lock', 'success', f'user_id={user.id}; ip={ip_address}; attempts={user.failed_login_count}')
+                )
         db.session.commit()
+        app.logger.info(
+            'Bad login audit persisted: attempt_id=%s email=%r user_id=%s result=%s ip=%s',
+            attempt.id,
+            email,
+            user_id,
+            result,
+            ip_address,
+        )
         ip_attempts = db.session.query(BadLoginAttempt).filter_by(ip_address=ip_address).count()
         threshold = max(app.config.get('IP_BLACKLIST_ATTEMPTS', 10), 1)
+        app.logger.info(
+            'Bad login IP threshold check: ip=%s attempts=%s threshold=%s latest_result=%s',
+            ip_address,
+            ip_attempts,
+            threshold,
+            result,
+        )
         if ip_attempts >= threshold:
             existing = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address).first()
             if not existing:
                 existing = BlacklistedIP(ip_address=ip_address)
                 db.session.add(existing)
+                app.logger.info('Creating IP blacklist entry after bad logins: ip=%s attempts=%s', ip_address, ip_attempts)
             if not existing.is_active:
                 existing.is_active = True
+                app.logger.info('Reactivating IP blacklist entry after bad logins: ip=%s attempts=%s', ip_address, ip_attempts)
             existing.reason = f'{ip_attempts} bad login attempts'
             db.session.commit()
             app.logger.warning('IP address %s blacklisted after %s bad login attempts', ip_address, ip_attempts)
-            log_site('ip_blacklist', 'success', f'ip={ip_address}; attempts={ip_attempts}')
+            site_log_events.append(('ip_blacklist', 'success', f'ip={ip_address}; attempts={ip_attempts}'))
+        for action, event_result, error in site_log_events:
+            _safe_log_site(action, event_result, error)
 
     @app.route('/register', methods=['GET','POST'])
     def register():
@@ -1014,8 +1065,17 @@ def create_app():
             u = db.session.query(User).filter_by(email=email).first()
             if u and u.locked_at:
                 flash("Account locked. Use password reset or contact an administrator.", "error")
-                _record_bad_login(email, u, 'account_locked')
-                log_site('login', 'failure', 'account locked')
+                try:
+                    _record_bad_login(email, u, 'account_locked')
+                except Exception:
+                    db.session.rollback()
+                    app.logger.exception(
+                        'Bad login audit failed for already-locked account: email=%r user_id=%s ip=%s',
+                        email,
+                        u.id,
+                        _client_ip(),
+                    )
+                _safe_log_site('login', 'failure', 'account locked')
                 return render_template('login.html')
             if u and u.check_password(password):
                 u.failed_login_count = 0
@@ -1037,9 +1097,20 @@ def create_app():
                 if u.role and u.role.level < DEFAULT_ROLE_LEVELS.get('user', 500):
                     return redirect(url_for('venue_management'))
                 return redirect(url_for('my_tournaments'))
-            _record_bad_login(email, u, 'bad_password' if u else 'unknown_user')
+            bad_login_result = 'bad_password' if u else 'unknown_user'
+            try:
+                _record_bad_login(email, u, bad_login_result)
+            except Exception:
+                db.session.rollback()
+                app.logger.exception(
+                    'Bad login audit failed: email=%r user_id=%s result=%s ip=%s',
+                    email,
+                    u.id if u else None,
+                    bad_login_result,
+                    _client_ip(),
+                )
             flash("Invalid credentials", "error")
-            log_site('login', 'failure', f'invalid credentials; ip={_client_ip()}')
+            _safe_log_site('login', 'failure', f'invalid credentials; ip={_client_ip()}')
         return render_template('login.html')
 
     @app.route('/password-reset', methods=['GET', 'POST'])
@@ -1784,6 +1855,26 @@ def create_app():
                       ip_address=_client_ip())
         db.session.add(log)
         db.session.commit()
+
+    def _safe_log_site(action, result, error=None):
+        try:
+            log_site(action, result, error)
+        except SQLAlchemyError:
+            db.session.rollback()
+            app.logger.exception(
+                'Unable to write site log entry during login/security flow: action=%s result=%s error=%r',
+                action,
+                result,
+                error,
+            )
+        except Exception:
+            db.session.rollback()
+            app.logger.exception(
+                'Unexpected failure writing site log entry during login/security flow: action=%s result=%s error=%r',
+                action,
+                result,
+                error,
+            )
 
     def log_tournament(tid, action, result, error=None):
         log = TournamentLog(tournament_id=tid, action=action, result=result, error=error,
