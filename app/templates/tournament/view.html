@@ -26,16 +26,12 @@
 {% set round_limit = t.rounds_override or rec_rounds %}
 {% set current_rounds = rounds|length %}
 <section class="toolbar tournament-toolbar panel-card tournament-control-card" aria-label="Tournament controls">
-  <div class="control-cluster timer-cluster">
-    <span class="control-label">Timer</span>
-    {% include 'tournament/_timer_bar.html' %}
-  </div>
-
   {% if not is_player %}
-  <div class="control-cluster join-cluster">
+  <div class="control-row join-row" aria-label="Player join controls">
     <span class="control-label">Players</span>
     <div class="join-controls">
       <a class="btn ghost" href="{{ url_for('tournament_join_link', tid=t.id) }}" target="_blank" rel="noopener">Player Join QR</a>
+      {% if show_passcode %}<span class="metric-pill control-passcode">Passcode {{ t.passcode }}</span>{% endif %}
       {% if current_user.is_authenticated %}
         {% set join_pending = user_join_request and user_join_request.status == 'pending' %}
         {% set join_rejected = user_join_request and user_join_request.status == 'rejected' %}
@@ -61,7 +57,12 @@
   </div>
   {% endif %}
 
-  <div class="control-cluster action-cluster">
+  <div class="control-row timer-row" aria-label="Tournament timer controls">
+    <span class="control-label">Timer</span>
+    {% include 'tournament/_timer_bar.html' %}
+  </div>
+
+  <div class="control-row action-row" aria-label="Tournament actions">
     <span class="control-label">Tournament</span>
     <div class="control-actions">
       <button class="btn ghost" type="button" onclick="window.print()">Print</button>

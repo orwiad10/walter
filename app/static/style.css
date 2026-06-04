@@ -1968,6 +1968,7 @@ ul.flashes {
 
 /* Site-wide dark mode */
 html[data-theme="dark"] {
+  color-scheme: dark;
   --brand-surface: #111827;
   --brand-surface-soft: rgba(17, 24, 39, 0.88);
   --brand-muted: #94a3b8;
@@ -2008,13 +2009,36 @@ html[data-theme="dark"] textarea::placeholder {
   color: #94a3b8;
 }
 
+html[data-theme="dark"] .dropdown-menu,
 html[data-theme="dark"] .dropdown-item,
 html[data-theme="dark"] .role-card,
 html[data-theme="dark"] .permission-fieldset,
 html[data-theme="dark"] .judge-row,
 html[data-theme="dark"] .join-request-status,
-html[data-theme="dark"] .round-link-card {
+html[data-theme="dark"] .round-link-card,
+html[data-theme="dark"] .panel-card,
+html[data-theme="dark"] .summary-card,
+html[data-theme="dark"] .page-header,
+html[data-theme="dark"] .auth-card,
+html[data-theme="dark"] .message-card,
+html[data-theme="dark"] .deck-form,
+html[data-theme="dark"] .deck-builder,
+html[data-theme="dark"] .league-card,
+html[data-theme="dark"] .round-card,
+html[data-theme="dark"] .join-qr-card,
+html[data-theme="dark"] .inline-add-player.panel-card {
   background: rgba(15, 23, 42, 0.72);
+}
+
+html[data-theme="dark"] .modern-hero::after {
+  opacity: 0.28;
+}
+
+html[data-theme="dark"] .table,
+html[data-theme="dark"] table,
+html[data-theme="dark"] td,
+html[data-theme="dark"] th {
+  border-color: rgba(148, 163, 184, 0.24);
 }
 
 html[data-theme="dark"] .btn.ghost {
@@ -2057,13 +2081,14 @@ html[data-theme="dark"] .timer-display {
 
 /* Tournament control bar polish */
 .tournament-control-card {
-  display: grid;
-  grid-template-columns: minmax(230px, auto) minmax(280px, 1fr) minmax(340px, 1.5fr);
+  display: flex;
+  flex-direction: column;
   align-items: stretch;
-  gap: 14px;
+  gap: 12px;
   padding: 16px;
 }
 
+.control-row,
 .control-cluster {
   display: flex;
   flex-direction: column;
@@ -2073,6 +2098,16 @@ html[data-theme="dark"] .timer-display {
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.52);
   min-width: 0;
+}
+
+.join-row .join-controls,
+.timer-row .timer-bar,
+.action-row .control-actions {
+  width: 100%;
+}
+
+.control-passcode {
+  min-height: 42px;
 }
 
 .control-label {
@@ -2136,15 +2171,11 @@ html[data-theme="dark"] .timer-display {
   box-shadow: none;
 }
 
+html[data-theme="dark"] .control-row,
 html[data-theme="dark"] .control-cluster,
-html[data-theme="dark"] .tournament-toolbar .rounds-form {
+html[data-theme="dark"] .tournament-toolbar .rounds-form,
+html[data-theme="dark"] .timer-display {
   background: rgba(15, 23, 42, 0.58);
-}
-
-@media (max-width: 980px) {
-  .tournament-control-card {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 720px) {
