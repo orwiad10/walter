@@ -298,6 +298,35 @@ def create_app():
                 db.session.commit()
 
         BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
+        inspector = inspect(db.engine)
+        if 'bad_login_attempt' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('bad_login_attempt')]
+            if 'email' not in columns:
+                db.session.execute(text('ALTER TABLE bad_login_attempt ADD COLUMN email VARCHAR(255)'))
+                db.session.commit()
+            if 'user_id' not in columns:
+                db.session.execute(text('ALTER TABLE bad_login_attempt ADD COLUMN user_id INTEGER'))
+                db.session.commit()
+            if 'ip_address' not in columns:
+                db.session.execute(
+                    text("ALTER TABLE bad_login_attempt ADD COLUMN ip_address VARCHAR(64) NOT NULL DEFAULT ''")
+                )
+                db.session.commit()
+            if 'user_agent' not in columns:
+                db.session.execute(text('ALTER TABLE bad_login_attempt ADD COLUMN user_agent TEXT'))
+                db.session.commit()
+            if 'result' not in columns:
+                db.session.execute(
+                    text("ALTER TABLE bad_login_attempt ADD COLUMN result VARCHAR(50) NOT NULL DEFAULT 'bad_password'")
+                )
+                db.session.commit()
+            if 'created_at' not in columns:
+                db.session.execute(text('ALTER TABLE bad_login_attempt ADD COLUMN created_at DATETIME'))
+                db.session.execute(
+                    text('UPDATE bad_login_attempt SET created_at=CURRENT_TIMESTAMP WHERE created_at IS NULL')
+                )
+                db.session.commit()
+
         BlacklistedIP.__table__.create(bind=db.engine, checkfirst=True)
         PasswordResetToken.__table__.create(bind=db.engine, checkfirst=True)
         SiteSetting.__table__.create(bind=db.engine, checkfirst=True)
