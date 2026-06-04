@@ -9,8 +9,12 @@
   <form method="post" class="form-stacked">
     <input type="hidden" name="invite" value="{{ invite_token or '' }}">
     <div class="form-field">
-      <label for="name">Name</label>
-      <input id="name" name="name" required>
+      <label for="first_name">First Name</label>
+      <input id="first_name" name="first_name" required>
+    </div>
+    <div class="form-field">
+      <label for="last_name">Last Name</label>
+      <input id="last_name" name="last_name" required>
     </div>
     <div class="form-field">
       <label for="email">Email</label>

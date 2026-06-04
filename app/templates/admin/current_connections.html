@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Admin</span>
+    <h2>Current Connections</h2>
+    <p class="page-description">Recent client connections seen by this WaLTER process in the last 30 minutes.</p>
+  </div>
+</section>
+<section class="panel-card">
+  {% if connections %}
+  <table class="table compact-table">
+    <thead><tr><th>IP</th><th>Browser fingerprint</th><th>User</th><th>Last seen</th><th>User agent</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for connection in connections %}
+      <tr>
+        <td>{{ connection.ip_address }}</td>
+        <td><code>{{ connection.fingerprint }}</code></td>
+        <td>{{ connection.user_name or 'Anonymous' }}</td>
+        <td>{{ connection.last_seen }}</td>
+        <td class="muted-text">{{ connection.user_agent or '-' }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_blacklist_connection') }}" onsubmit="return confirm('Blacklist {{ connection.ip_address }}?');">
+            <input type="hidden" name="ip_address" value="{{ connection.ip_address }}">
+            <button class="btn danger" type="submit">Blacklist</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state compact-empty">No recent connections have been recorded.</p>
+  {% endif %}
+</section>
+{% endblock %}

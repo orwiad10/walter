@@ -123,6 +123,36 @@
   </table>
 </form>
 <script>
+
+const tableReservations = {{ table_reservations|tojson }};
+const capInput = document.querySelector('input[name="player_cap"]');
+const startTableInput = document.querySelector('input[name="start_table_number"]');
+let tableStartTouched = false;
+if(startTableInput){
+  startTableInput.addEventListener('input', function(){ tableStartTouched = true; });
+}
+function lowestAvailableTableStart(cap){
+  const tablesNeeded = Math.max(1, Math.ceil((parseInt(cap, 10) || 1) / 2));
+  for(let candidate = 1; candidate < 10000; candidate++){
+    const end = candidate + tablesNeeded - 1;
+    const overlaps = tableReservations.some(function(range){
+      return !(end < range.start || candidate > range.end);
+    });
+    if(!overlaps){ return candidate; }
+  }
+  return 1;
+}
+if(capInput && startTableInput){
+  capInput.addEventListener('input', function(){
+    if(!tableStartTouched){
+      startTableInput.value = lowestAvailableTableStart(capInput.value);
+    }
+  });
+  if(capInput.value && !startTableInput.value){
+    startTableInput.value = lowestAvailableTableStart(capInput.value);
+  }
+}
+
 const fmtSel = document.querySelector('#tournament-format');
 const structureSel = document.querySelector('#tournament-structure');
 const cutSel = document.querySelector('select[name="cut"]');

@@ -106,6 +106,8 @@ class User(db.Model, UserMixin):
     # requiring login credentials.
     email = db.Column(db.String(255), unique=True, nullable=True)
     name = db.Column(db.String(120), nullable=False)
+    first_name = db.Column(db.String(80), nullable=True)
+    last_name = db.Column(db.String(80), nullable=True)
     password_hash = db.Column(db.Text, nullable=True)
     salt = db.Column(db.String(32), nullable=True)
     is_admin = db.Column(db.Boolean, default=False)
@@ -401,6 +403,7 @@ class SiteLog(db.Model):
     error = db.Column(db.Text, nullable=True)
     timestamp = db.Column(db.DateTime, default=utc_now)
     user_id = db.Column(db.Integer, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
     # relationship loaded manually to avoid cross-db foreign key
 
 class TournamentLog(db.Model):

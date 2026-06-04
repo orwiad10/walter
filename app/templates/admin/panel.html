@@ -33,6 +33,7 @@
 <section class="panel-card">
   <div class="section-heading"><div><h3>Security Controls</h3><p>Audit bad logins and manage IP lockouts.</p></div></div>
   <div class="form-actions">
+    <a class="btn" href="{{ url_for('admin_current_connections') }}">Current Connections</a>
     <a class="btn" href="{{ url_for('admin_bad_logins') }}">Bad Login Audit</a>
     <a class="btn" href="{{ url_for('admin_ip_blacklist') }}">IP Blacklist</a>
   </div>
