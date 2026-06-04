@@ -2197,7 +2197,7 @@ html[data-theme="dark"] .timer-display {
 /* Tournament control boxes */
 .tournament-control-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
   margin-bottom: 20px;
 }
