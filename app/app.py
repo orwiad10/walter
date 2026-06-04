@@ -832,28 +832,42 @@ def create_app():
         if user and result == 'bad_password':
             user.failed_login_count = (user.failed_login_count or 0) + 1
             lockout_attempts = max(app.config.get('ACCOUNT_LOCKOUT_ATTEMPTS', 3), 1)
+            is_admin_account = bool(user.is_admin or (user.role and user.role.name == 'admin'))
             app.logger.info(
-                'Bad password count updated: user_id=%s email=%r failed_count=%s lockout_attempts=%s locked_at=%s',
+                'Bad password count updated: user_id=%s email=%r failed_count=%s lockout_attempts=%s locked_at=%s is_admin_account=%s',
                 user.id,
                 user.email,
                 user.failed_login_count,
                 lockout_attempts,
                 user.locked_at,
+                is_admin_account,
             )
             if user.failed_login_count >= lockout_attempts and not user.locked_at:
-                user.locked_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                user.lock_reason = f'{user.failed_login_count} incorrect password attempts'
-                app.logger.warning(
-                    'Account lock threshold reached: user_id=%s email=%r ip=%s failed_count=%s lock_reason=%r',
-                    user.id,
-                    user.email,
-                    ip_address,
-                    user.failed_login_count,
-                    user.lock_reason,
-                )
-                site_log_events.append(
-                    ('account_lock', 'success', f'user_id={user.id}; ip={ip_address}; attempts={user.failed_login_count}')
-                )
+                if is_admin_account:
+                    app.logger.warning(
+                        'Admin account lock threshold reached; blacklisting IP instead: user_id=%s email=%r ip=%s failed_count=%s',
+                        user.id,
+                        user.email,
+                        ip_address,
+                        user.failed_login_count,
+                    )
+                    site_log_events.append(
+                        ('admin_ip_blacklist', 'success', f'user_id={user.id}; ip={ip_address}; attempts={user.failed_login_count}')
+                    )
+                else:
+                    user.locked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    user.lock_reason = f'{user.failed_login_count} incorrect password attempts'
+                    app.logger.warning(
+                        'Account lock threshold reached: user_id=%s email=%r ip=%s failed_count=%s lock_reason=%r',
+                        user.id,
+                        user.email,
+                        ip_address,
+                        user.failed_login_count,
+                        user.lock_reason,
+                    )
+                    site_log_events.append(
+                        ('account_lock', 'success', f'user_id={user.id}; ip={ip_address}; attempts={user.failed_login_count}')
+                    )
         db.session.commit()
         app.logger.info(
             'Bad login audit persisted: attempt_id=%s email=%r user_id=%s result=%s ip=%s',
@@ -872,7 +886,13 @@ def create_app():
             threshold,
             result,
         )
-        if ip_attempts >= threshold:
+        admin_lockout_reached = bool(
+            user
+            and result == 'bad_password'
+            and (user.is_admin or (user.role and user.role.name == 'admin'))
+            and (user.failed_login_count or 0) >= max(app.config.get('ACCOUNT_LOCKOUT_ATTEMPTS', 3), 1)
+        )
+        if ip_attempts >= threshold or admin_lockout_reached:
             existing = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address).first()
             if not existing:
                 existing = BlacklistedIP(ip_address=ip_address)
@@ -881,7 +901,11 @@ def create_app():
             if not existing.is_active:
                 existing.is_active = True
                 app.logger.info('Reactivating IP blacklist entry after bad logins: ip=%s attempts=%s', ip_address, ip_attempts)
-            existing.reason = f'{ip_attempts} bad login attempts'
+            existing.reason = (
+                f'Admin account bad login threshold reached ({user.failed_login_count} attempts)'
+                if admin_lockout_reached
+                else f'{ip_attempts} bad login attempts'
+            )
             db.session.commit()
             app.logger.warning('IP address %s blacklisted after %s bad login attempts', ip_address, ip_attempts)
             site_log_events.append(('ip_blacklist', 'success', f'ip={ip_address}; attempts={ip_attempts}'))

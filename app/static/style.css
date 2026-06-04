@@ -1900,3 +1900,68 @@ ul.flashes {
 .league-player-search input {
   width: 100%;
 }
+
+.timer-bar.tournament-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.timer-display {
+  min-width: 54px;
+  text-align: center;
+  color: var(--brand-accent-dark);
+}
+
+.timer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timer-actions form,
+.timer-bar form {
+  margin: 0;
+}
+
+.tournament-toolbar .join-controls {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tournament-toolbar .join-controls .join-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tournament-toolbar .join-controls .join-form input {
+  width: 170px;
+}
+
+.tournament-toolbar .rounds-form input {
+  width: 76px;
+}
+
+@media (max-width: 720px) {
+  .timer-bar.tournament-control-group,
+  .timer-actions,
+  .tournament-toolbar .join-controls,
+  .tournament-toolbar .join-controls .join-form {
+    width: 100%;
+  }
+
+  .tournament-toolbar .join-controls .join-form input {
+    flex: 1 1 150px;
+    width: auto;
+  }
+}

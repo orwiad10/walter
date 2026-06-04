@@ -232,6 +232,33 @@ def test_account_locks_after_three_bad_passwords(client, session, app):
     assert b'Account locked' in response.data
 
 
+def test_admin_bad_passwords_blacklist_ip_without_locking_account(client, session, app):
+    app.config['ACCOUNT_LOCKOUT_ATTEMPTS'] = 3
+    app.config['IP_BLACKLIST_ATTEMPTS'] = 10
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='admin-threshold@example.com', name='Admin Threshold', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add(admin)
+    session.commit()
+
+    for _ in range(3):
+        response = client.post('/login', data={'email': admin.email, 'password': 'wrong'})
+        assert response.status_code == 200
+
+    session.refresh(admin)
+    assert admin.locked_at is None
+    assert admin.lock_reason is None
+    assert admin.failed_login_count == 3
+
+    from app.models import BlacklistedIP
+    entry = session.query(BlacklistedIP).filter_by(ip_address='127.0.0.1').one()
+    assert entry.is_active
+    assert 'Admin account bad login threshold reached' in entry.reason
+
+    response = client.get('/')
+    assert response.status_code == 403
+
+
 def test_ip_blacklisted_after_ten_bad_logins(client, session, app):
     app.config['IP_BLACKLIST_ATTEMPTS'] = 10
     for _ in range(10):
