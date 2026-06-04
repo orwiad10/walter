@@ -4,7 +4,7 @@
   <div class="page-header__title">
     <span class="eyebrow">Admin</span>
     <h2>Site Settings</h2>
-    <p class="page-description">Control public registration access for new accounts.</p>
+    <p class="page-description">Control public registration access and the site-wide appearance.</p>
   </div>
 </section>
 
@@ -17,6 +17,12 @@
         <option value="open"{% if registration_mode == 'open' %} selected{% endif %}>Open — anyone can register before login</option>
         <option value="invite_only"{% if registration_mode == 'invite_only' %} selected{% endif %}>Invite only — admin email links required</option>
         <option value="closed"{% if registration_mode == 'closed' %} selected{% endif %}>Closed — no public self registration</option>
+      </select>
+    </label>
+    <label>Color mode
+      <select name="site_theme" required>
+        <option value="light"{% if selected_site_theme == 'light' %} selected{% endif %}>Light — bright default interface</option>
+        <option value="dark"{% if selected_site_theme == 'dark' %} selected{% endif %}>Dark — low-light interface</option>
       </select>
     </label>
     <div class="form-actions"><button class="btn" type="submit">Save Settings</button></div>
