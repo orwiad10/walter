@@ -4,7 +4,7 @@
   <div class="page-header__title">
     <span class="eyebrow">Tournament Control</span>
     <h2>{{ t.name }}</h2>
-    <p class="page-description">{{ t.format }}{% if t.format == 'Draft' and t.is_cube %} · Cube{% endif %} · {{ t.cut|upper }} cut · {{ t.rules_enforcement_level }} REL</p>
+    <p class="page-description">{{ t.format }}{% if t.format == 'Draft' and t.is_cube %} · Cube{% endif %} · {{ t.cut|upper }} cut · {{ t.rules_enforcement_level }} REL · Tables {{ table_range }}</p>
   </div>
   <div class="page-header__actions">
     {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
@@ -17,6 +17,7 @@
 <section class="tournament-summary-grid">
   <div class="summary-card"><span>Players</span><strong>{{ players|length }}</strong></div>
   <div class="summary-card"><span>Rounds</span><strong>{{ rounds|length }} / {{ t.rounds_override or rec_rounds }}</strong></div>
+  <div class="summary-card"><span>Tables</span><strong>{{ table_range }}</strong></div>
   <div class="summary-card"><span>Venue</span><strong>{{ t.venue.name if t.venue else 'None' }}</strong></div>
   <div class="summary-card"><span>Head Judge</span><strong>{{ t.head_judge.name if t.head_judge else 'None' }}</strong></div>
   <div class="summary-card"><span>Floor Judges</span><strong>{% if floor_judges %}{% for u in floor_judges %}{{ u.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}None{% endif %}</strong></div>

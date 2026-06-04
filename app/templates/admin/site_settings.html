@@ -4,7 +4,7 @@
   <div class="page-header__title">
     <span class="eyebrow">Admin</span>
     <h2>Site Settings</h2>
-    <p class="page-description">Control public registration and send audited invite links.</p>
+    <p class="page-description">Control public registration access for new accounts.</p>
   </div>
 </section>
 
@@ -21,39 +21,5 @@
     </label>
     <div class="form-actions"><button class="btn" type="submit">Save Settings</button></div>
   </form>
-</section>
-
-<section class="panel-card">
-  <h3>Send Registration Invite</h3>
-  <form method="post" class="form-grid two-column">
-    <input type="hidden" name="action" value="invite">
-    <label>Email
-      <input type="email" name="email" required placeholder="player@example.com">
-    </label>
-    <div class="form-actions start-actions"><button class="btn" type="submit">Send Invite</button></div>
-  </form>
-</section>
-
-<section class="panel-card">
-  <h3>Invite Log</h3>
-  {% if invites %}
-  <table class="table compact-table">
-    <thead><tr><th>Email</th><th>Status</th><th>Sent</th><th>Expires</th><th>Used</th><th>Admin</th></tr></thead>
-    <tbody>
-      {% for invite in invites %}
-      <tr>
-        <td>{{ invite.email }}</td>
-        <td>{{ invite.status }}</td>
-        <td>{{ invite.created_at }}</td>
-        <td>{{ invite.expires_at or '-' }}</td>
-        <td>{{ invite.used_at or '-' }}</td>
-        <td>{{ invite.created_by.name if invite.created_by else '-' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty-state compact-empty">No registration invites have been sent yet.</p>
-  {% endif %}
 </section>
 {% endblock %}

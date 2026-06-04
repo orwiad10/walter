@@ -12,6 +12,14 @@
   <form method="post" action="{{ url_for('admin_update_user', uid=user.id) }}" class="user-settings-form">
     <input type="hidden" name="search_query" value="{{ search_query }}">
     <div class="form-row">
+      <label for="user-first-name">First Name</label>
+      <input id="user-first-name" name="first_name" value="{{ user.first_name or '' }}">
+    </div>
+    <div class="form-row">
+      <label for="user-last-name">Last Name</label>
+      <input id="user-last-name" name="last_name" value="{{ user.last_name or '' }}">
+    </div>
+    <div class="form-row">
       <label for="user-email">Email</label>
       <input id="user-email" type="email" name="email" value="{{ user.email or '' }}">
     </div>

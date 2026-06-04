@@ -33,6 +33,7 @@ import io
 import glob
 import secrets
 import csv
+import hashlib
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
@@ -57,6 +58,7 @@ db = SQLAlchemy()
 login_manager = LoginManager()
 PASSWORD_KEY = None
 PASSWORD_SEED = None
+CURRENT_CONNECTIONS = OrderedDict()
 
 MAJOR_60_CARD_FORMATS = [
     'Standard',
@@ -237,6 +239,14 @@ def create_app():
             if 'permission_overrides' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN permission_overrides TEXT'))
                 db.session.commit()
+            if 'first_name' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN first_name VARCHAR(80)'))
+                db.session.execute(text("UPDATE user SET first_name=trim(substr(name, 1, CASE WHEN instr(name, ' ') = 0 THEN length(name) ELSE instr(name, ' ') - 1 END)) WHERE first_name IS NULL"))
+                db.session.commit()
+            if 'last_name' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN last_name VARCHAR(80)'))
+                db.session.execute(text("UPDATE user SET last_name=trim(CASE WHEN instr(name, ' ') = 0 THEN '' ELSE substr(name, instr(name, ' ') + 1) END) WHERE last_name IS NULL"))
+                db.session.commit()
         if 'message' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('message')]
             if 'sender_key_encrypted' not in columns:
@@ -298,6 +308,12 @@ def create_app():
 
         logs_engine = db.engines['logs']
         SiteLog.__table__.create(bind=logs_engine, checkfirst=True)
+        logs_inspector = inspect(logs_engine)
+        if 'site_log' in logs_inspector.get_table_names():
+            log_columns = [c['name'] for c in logs_inspector.get_columns('site_log')]
+            if 'ip_address' not in log_columns:
+                with logs_engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE site_log ADD COLUMN ip_address VARCHAR(64)'))
         TournamentLog.__table__.create(bind=logs_engine, checkfirst=True)
         logs_inspector = inspect(logs_engine)
         log_tables = logs_inspector.get_table_names()
@@ -408,8 +424,8 @@ def create_app():
     TYPE_SORT_INDEX = {name: idx for idx, name in enumerate(TYPE_SORT_ORDER)}
 
     def _tournament_group_size(tournament):
-        fmt = (tournament.format or '').lower()
-        return 4 if fmt == 'commander' else 2
+        # Table reservations are based on physical two-seat tables.
+        return 2
 
     def _active_player_count(tournament):
         return sum(1 for p in getattr(tournament, 'players', []) if not getattr(p, 'dropped', False))
@@ -454,6 +470,17 @@ def create_app():
             if not errors:
                 return candidate
         return max_start
+
+    def table_reservations(exclude_tournament_id=None):
+        reservations = []
+        query = db.session.query(Tournament)
+        if exclude_tournament_id:
+            query = query.filter(Tournament.id != exclude_tournament_id)
+        for other in query.all():
+            start, end, tables, _ = compute_table_allocation(other)
+            if tables:
+                reservations.append({'start': start, 'end': end, 'name': other.name})
+        return reservations
 
     def tournament_has_capacity(tournament, slots=1):
         cap = getattr(tournament, 'player_cap', None)
@@ -629,7 +656,29 @@ def create_app():
         forwarded = request.headers.get('X-Forwarded-For', '')
         if forwarded:
             return forwarded.split(',')[0].strip()
+        real_ip = request.headers.get('X-Real-IP') or request.headers.get('CF-Connecting-IP')
+        if real_ip:
+            return real_ip.split(',')[0].strip()
         return request.remote_addr or 'unknown'
+
+    def _browser_fingerprint():
+        user_agent = request.headers.get('User-Agent', '')
+        accept_language = request.headers.get('Accept-Language', '')
+        raw = f'{user_agent}|{accept_language}'
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    def _split_name(name):
+        parts = (name or '').strip().split(None, 1)
+        return (parts[0] if parts else '', parts[1] if len(parts) > 1 else '')
+
+    def _set_user_name_parts(user, first_name=None, last_name=None, fallback_name=None):
+        first = (first_name or '').strip()
+        last = (last_name or '').strip()
+        if not first and not last and fallback_name:
+            first, last = _split_name(fallback_name)
+        user.first_name = first or None
+        user.last_name = last or None
+        user.name = ' '.join(part for part in [first, last] if part).strip() or (fallback_name or '').strip()
 
     def _hash_reset_token(token):
         key_material = app.config['SECRET_KEY'].encode()
@@ -772,7 +821,9 @@ def create_app():
             flash('Registration is currently closed. Contact an administrator for access.', 'error')
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
-            name = request.form['name'].strip()
+            first_name = request.form.get('first_name', '').strip()
+            last_name = request.form.get('last_name', '').strip()
+            name = request.form.get('name', '').strip() or ' '.join(part for part in [first_name, last_name] if part).strip()
             password = request.form['password']
             confirm = request.form.get('password_confirm', '')
             tournament_id = request.form.get('tournament_id')
@@ -868,6 +919,7 @@ def create_app():
                 return redirect(url_for('register'))
         role_user = db.session.query(Role).filter_by(name='user').first()
         u = User(email=pending.email, name=pending.name, role=role_user)
+        _set_user_name_parts(u, fallback_name=pending.name)
         stored_password = password or ''
         u.password_hash = pending.password_hash
         u.salt = pending.salt
@@ -1426,6 +1478,7 @@ def create_app():
         return {
             'nav_unread_messages': unread,
             'nav_open_reports': open_reports,
+            'nav_registration_mode': registration_mode(),
         }
 
     @app.route('/reports', methods=['GET', 'POST'])
@@ -1698,7 +1751,8 @@ def create_app():
 
     def log_site(action, result, error=None):
         log = SiteLog(action=action, result=result, error=error,
-                      user_id=current_user.id if current_user.is_authenticated else None)
+                      user_id=current_user.id if current_user.is_authenticated else None,
+                      ip_address=_client_ip())
         db.session.add(log)
         db.session.commit()
 
@@ -1707,6 +1761,24 @@ def create_app():
                              user_id=current_user.id if current_user.is_authenticated else None)
         db.session.add(log)
         db.session.commit()
+
+    @app.before_request
+    def track_current_connection():
+        if request.endpoint == 'static':
+            return
+        ip_address = _client_ip()
+        fingerprint = _browser_fingerprint()
+        key = f'{ip_address}:{fingerprint}'
+        CURRENT_CONNECTIONS[key] = {
+            'ip_address': ip_address,
+            'fingerprint': fingerprint,
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'user_name': current_user.name if current_user.is_authenticated else None,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'last_seen': datetime.utcnow(),
+        }
+        while len(CURRENT_CONNECTIONS) > 250:
+            CURRENT_CONNECTIONS.popitem(last=False)
 
     @app.before_request
     def block_blacklisted_ip():
@@ -2083,6 +2155,8 @@ def create_app():
                     'id': u.id,
                     'email': u.email,
                     'name': u.name,
+                    'first_name': u.first_name,
+                    'last_name': u.last_name,
                     'password_hash': u.password_hash,
                     'salt': u.salt,
                     'is_admin': bool(u.is_admin),
@@ -2376,13 +2450,14 @@ def create_app():
             is_new = user is None
             if is_new:
                 user = User(name=name)
+                _set_user_name_parts(user, fallback_name=name)
                 db.session.add(user)
             if overwrite or is_new:
                 role = role_map.get(item.get('role_id'))
                 if not role and item.get('role_name'):
                     role = db.session.query(Role).filter_by(name=item.get('role_name')).first()
                 user.email = email
-                user.name = name
+                _set_user_name_parts(user, item.get('first_name'), item.get('last_name'), name)
                 user.password_hash = item.get('password_hash')
                 user.salt = item.get('salt')
                 user.is_admin = bool(item.get('is_admin'))
@@ -2693,6 +2768,7 @@ def create_app():
             'venues': venues,
             'formats': TOURNAMENT_FORMATS,
             'suggested_start_table_number': 1,
+            'table_reservations': table_reservations(),
         }
         if request.method == 'POST':
             provided_name = request.form['name'].strip()
@@ -2804,6 +2880,7 @@ def create_app():
             'formats': TOURNAMENT_FORMATS,
             'provided_name': extract_provided_tournament_name(t.name),
             'suggested_start_table_number': suggested_start_table_number,
+            'table_reservations': table_reservations(t.id),
         }
         if request.method == 'POST':
             provided_name = request.form['name'].strip()
@@ -3579,7 +3656,9 @@ def create_app():
         tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
-            name = request.form['name'].strip()
+            first_name = request.form.get('first_name', '').strip()
+            last_name = request.form.get('last_name', '').strip()
+            name = request.form.get('name', '').strip() or ' '.join(part for part in [first_name, last_name] if part).strip()
             password = request.form['password']
             password_confirm = request.form.get('password_confirm', '')
             if password != password_confirm:
@@ -3591,6 +3670,7 @@ def create_app():
             else:
                 role_user = db.session.query(Role).filter_by(name='user').first()
                 u = User(email=email, name=name, role=role_user)
+                _set_user_name_parts(u, request.form.get('first_name'), request.form.get('last_name'), name)
                 u.set_password(password)
                 db.session.add(u)
                 db.session.commit()
@@ -3643,6 +3723,7 @@ def create_app():
                     continue
                 role_user = db.session.query(Role).filter_by(name='user').first()
                 u = User(name=name, role=role_user)
+                _set_user_name_parts(u, fallback_name=name)
                 db.session.add(u)
                 db.session.flush()
                 if tournament_id:
@@ -3671,38 +3752,44 @@ def create_app():
                 db.session.commit()
                 log_site('site_settings_update', 'success', f'registration_mode={mode}')
                 flash('Site settings saved.', 'success')
-            elif action == 'invite':
-                email = request.form.get('email', '').strip().lower()
-                if not email:
-                    flash('Invite email is required.', 'error')
-                elif db.session.query(User).filter_by(email=email).first():
-                    flash('That email already belongs to a user.', 'error')
-                else:
-                    token = secrets.token_urlsafe(32)
-                    invite = RegistrationInvite(
-                        email=email,
-                        token_hash=_hash_registration_token(token),
-                        created_by_id=current_user.id,
-                        expires_at=datetime.utcnow() + timedelta(days=app.config.get('REGISTRATION_INVITE_TTL_DAYS', 14)),
-                    )
-                    db.session.add(invite)
-                    try:
-                        _send_registration_invite(invite, token)
-                    except Exception as exc:
-                        db.session.rollback()
-                        log_site('registration_invite', 'failure', str(exc))
-                        flash('Invite email could not be sent. Check mail settings.', 'error')
-                        return redirect(url_for('site_settings'))
-                    db.session.commit()
-                    log_site('registration_invite', 'sent', f'invite_id={invite.id}; email={email}')
-                    flash('Registration invite sent.', 'success')
             return redirect(url_for('site_settings'))
-        invites = db.session.query(RegistrationInvite).order_by(RegistrationInvite.created_at.desc()).all()
         return render_template(
             'admin/site_settings.html',
             registration_mode=registration_mode(),
-            invites=invites,
         )
+
+    @app.route('/admin/registration-invites', methods=['GET', 'POST'])
+    @login_required
+    def admin_registration_invites():
+        require_permission('admin.site_settings')
+        if request.method == 'POST':
+            email = request.form.get('email', '').strip().lower()
+            if not email:
+                flash('Invite email is required.', 'error')
+            elif db.session.query(User).filter_by(email=email).first():
+                flash('That email already belongs to a user.', 'error')
+            else:
+                token = secrets.token_urlsafe(32)
+                invite = RegistrationInvite(
+                    email=email,
+                    token_hash=_hash_registration_token(token),
+                    created_by_id=current_user.id,
+                    expires_at=datetime.utcnow() + timedelta(days=app.config.get('REGISTRATION_INVITE_TTL_DAYS', 14)),
+                )
+                db.session.add(invite)
+                try:
+                    _send_registration_invite(invite, token)
+                except Exception as exc:
+                    db.session.rollback()
+                    log_site('registration_invite', 'failure', str(exc))
+                    flash('Invite email could not be sent. Check mail settings.', 'error')
+                    return redirect(url_for('admin_registration_invites'))
+                db.session.commit()
+                log_site('registration_invite', 'sent', f'invite_id={invite.id}; email={email}')
+                flash('Registration invite sent.', 'success')
+            return redirect(url_for('admin_registration_invites'))
+        invites = db.session.query(RegistrationInvite).order_by(RegistrationInvite.created_at.desc()).all()
+        return render_template('admin/registration_invites.html', invites=invites)
 
     @app.route('/admin/panel', methods=['GET', 'POST'])
     def admin_panel():
@@ -3874,6 +3961,38 @@ def create_app():
             mimetype='text/plain',
             headers={'Content-Disposition': 'attachment; filename=walter_bad_ips_iptables.sh'},
         )
+
+    @app.route('/admin/current-connections')
+    def admin_current_connections():
+        require_admin()
+        cutoff = datetime.utcnow() - timedelta(minutes=30)
+        connections = [
+            item for item in CURRENT_CONNECTIONS.values()
+            if item.get('last_seen') and item['last_seen'] >= cutoff
+        ]
+        connections.sort(key=lambda item: item['last_seen'], reverse=True)
+        log_site('view_current_connections', 'success')
+        return render_template('admin/current_connections.html', connections=connections)
+
+    @app.route('/admin/current-connections/blacklist', methods=['POST'])
+    def admin_blacklist_connection():
+        require_permission('admin.ip_blacklist')
+        ip_address = (request.form.get('ip_address') or '').strip()
+        if not ip_address:
+            flash('Missing IP address.', 'error')
+            return redirect(url_for('admin_current_connections'))
+        item = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address).first()
+        if not item:
+            item = BlacklistedIP(ip_address=ip_address, created_by_id=current_user.id)
+            db.session.add(item)
+        item.is_active = True
+        item.reason = request.form.get('reason') or 'Blacklisted from current connections'
+        if not item.created_by_id:
+            item.created_by_id = current_user.id
+        db.session.commit()
+        log_site('ip_blacklist_connection', 'success', f'ip={ip_address}')
+        flash(f'{ip_address} has been blacklisted.', 'success')
+        return redirect(url_for('admin_current_connections'))
 
     @app.route('/admin/tournaments/bulk', methods=['POST'])
     @login_required
@@ -4106,8 +4225,10 @@ def create_app():
             if player_user_ids:
                 user_query = user_query.filter(~User.id.in_(player_user_ids))
             available_users = user_query.order_by(User.name).all()
+        table_start, table_end, table_count, _ = compute_table_allocation(t)
         return render_template('tournament/view.html', t=t, players=players, rounds=rounds,
                                standings=standings, rec_rounds=rec_rounds,
+                               table_range=_format_table_range(table_start, table_end, table_count),
                                timer_end=timer_end, timer_type=timer_type,
                                timer_remaining=timer_remaining,
                                is_player=is_player, show_passcode=show_passcode,
@@ -4581,6 +4702,7 @@ def create_app():
                 return redirect(url_for('view_tournament', tid=tid))
             role_user = db.session.query(Role).filter_by(name='user').first()
             player = User(name=new_name, email=email_value, role=role_user)
+            _set_user_name_parts(player, fallback_name=new_name)
             db.session.add(player)
             db.session.flush()
             created_user = True
@@ -5374,7 +5496,16 @@ def create_app():
                 u.locked_at = None
                 u.lock_reason = None
                 log_events.append(('admin_account_unlock', 'success', f'user_id={u.id}'))
+            first_name = request.form.get('first_name', '').strip()
+            last_name = request.form.get('last_name', '').strip()
+            if 'first_name' not in request.form and 'last_name' not in request.form:
+                first_name = u.first_name or _split_name(u.name)[0]
+                last_name = u.last_name or _split_name(u.name)[1]
+            if not first_name and not last_name:
+                flash('First or last name is required.', 'error')
+                return redirect(redirect_target)
             u.email = email
+            _set_user_name_parts(u, first_name, last_name, request.form.get('name'))
             u.notes = request.form.get('notes', '').strip() or None
             role_id = request.form.get('role_id')
             if role_id:

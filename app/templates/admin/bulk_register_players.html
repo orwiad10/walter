@@ -4,34 +4,60 @@
   <div class="page-header__title">
     <span class="eyebrow">Tournament Tools</span>
     <h2>Bulk Register Players</h2>
-    <p class="page-description">Create placeholder player records from a list, add existing people with a multi-select, or do both at once.</p>
+    <p class="page-description">Choose one tournament, find existing users quickly, and paste new player names in a clean two-step layout.</p>
   </div>
 </section>
-<form method="post" class="panel-card stacked-form">
-  <div class="form-grid two-column bulk-register-grid">
+<form method="post" class="panel-card stacked-form bulk-register-form">
+  <section class="form-section">
+    <h3>1. Tournament</h3>
     <label>Tournament
       <select name="tournament_id">
-        <option value="">-- None --</option>
+        <option value="">-- Create players only --</option>
         {% for t in tournaments %}
           <option value="{{ t.id }}">{{ t.name }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>Existing people in system
-      <select name="existing_user_ids" multiple size="12" class="multi-select">
-        {% for user in existing_users %}
-          <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
-        {% endfor %}
-      </select>
-      <span class="field-help">Hold Ctrl/Command or Shift to select multiple people. Existing people are added to the selected tournament.</span>
-    </label>
+  </section>
+
+  <div class="form-grid two-column bulk-register-grid">
+    <section class="form-section">
+      <h3>2. Add Existing People</h3>
+      <label>Search existing people
+        <input type="search" id="bulk-player-search" placeholder="Type a name or email...">
+      </label>
+      <label>People
+        <select name="existing_user_ids" multiple size="12" class="multi-select" id="bulk-player-select">
+          {% for user in existing_users %}
+            <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <span class="field-help">Hold Ctrl/Command or Shift to select multiple people. Existing people are added only when a tournament is selected.</span>
+    </section>
+
+    <section class="form-section">
+      <h3>3. Create New Players</h3>
+      <label>New player names (one per line)
+        <textarea name="names" rows="12" placeholder="Ada Lovelace&#10;Grace Hopper&#10;Katherine Johnson"></textarea>
+      </label>
+      <span class="field-help">New names create player records. If a tournament is selected, they are also added to it.</span>
+    </section>
   </div>
-  <label>New player names (one per line)
-    <textarea name="names" rows="10" placeholder="Ada Lovelace&#10;Grace Hopper&#10;Katherine Johnson"></textarea>
-    <span class="field-help">New names create player records. If a tournament is selected, they are also added to it.</span>
-  </label>
   <div class="form-actions">
     <button class="btn" type="submit">Register / Add Players</button>
   </div>
 </form>
+<script>
+const bulkPlayerSearch = document.getElementById('bulk-player-search');
+const bulkPlayerSelect = document.getElementById('bulk-player-select');
+if (bulkPlayerSearch && bulkPlayerSelect) {
+  bulkPlayerSearch.addEventListener('input', function(){
+    const query = bulkPlayerSearch.value.trim().toLowerCase();
+    Array.prototype.forEach.call(bulkPlayerSelect.options, function(option){
+      option.hidden = query && !option.text.toLowerCase().includes(query);
+    });
+  });
+}
+</script>
 {% endblock %}
