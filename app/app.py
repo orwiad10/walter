@@ -437,7 +437,7 @@ def create_app():
         ArtistProfile,
         all_permission_keys,
     )
-    from .pairing import pair_round, recommended_rounds, compute_standings, player_points
+    from .pairing import pair_round, recommended_rounds, compute_standings, player_points, draft_seating_tables, seeded_cut_pairs
 
     TYPE_SORT_ORDER = [
         'Creature',
@@ -5004,9 +5004,8 @@ def create_app():
         t = db.session.get(Tournament, tid)
         if not t or t.format != 'Draft':
             abort(404)
-        players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).all()
-        random.shuffle(players)
-        tables = [players[i:i+8] for i in range(0, len(players), 8)]
+        tables = draft_seating_tables(t, db.session)
+        db.session.commit()
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -5188,9 +5187,7 @@ def create_app():
                         table += 1
                         i += group_size
                 else:
-                    for i in range(top_n // 2):
-                        p1 = seeds[i]
-                        p2 = seeds[top_n - 1 - i]
+                    for p1, p2 in seeded_cut_pairs(seeds):
                         m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
                         db.session.add(m)
                         table += 1
