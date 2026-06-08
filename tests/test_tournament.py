@@ -661,3 +661,30 @@ def test_duplicate_booth_numbers_are_blocked_across_artists_and_vendors(client, 
     assert response.status_code == 200
     assert b'already assigned to vendor Existing Vendor' in response.data
     assert session.query(ArtistProfile).filter_by(name='Duplicate Artist').first() is None
+
+
+def test_player_join_qr_only_visible_to_tournament_managers(client, session):
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    manager = User(email='qr-manager@example.com', name='QR Manager', role=manager_role)
+    manager.set_password('secret')
+    player = User(email='qr-player@example.com', name='QR Player', role=user_role)
+    player.set_password('secret')
+    tournament = Tournament(name='QR Visibility Event', format='Constructed')
+    session.add_all([manager, player, tournament])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': player.email, 'password': 'secret'}).status_code == 302
+        response = client.get(f'/t/{tournament.id}')
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'Player Join QR' not in html
+        assert 'placeholder="Passcode"' in html
+
+        client.get('/logout')
+        assert client.post('/login', data={'email': manager.email, 'password': 'secret'}).status_code == 302
+        response = client.get(f'/t/{tournament.id}')
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'Player Join QR' in html
