@@ -4,7 +4,7 @@ from itertools import product
 
 from app.app import db
 from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult, Venue, SiteLog, TournamentLog
-from app.pairing import pair_round, compute_standings
+from app.pairing import pair_round, compute_standings, draft_seating_tables, seeded_cut_pairs
 from datetime import datetime
 
 
@@ -246,6 +246,108 @@ def test_swiss_all_unique_until_cut_then_repeat_allowed(session):
             m.completed = True
         session.commit()
 
+
+def _add_tournament_players(session, tournament, count, prefix):
+    role_user = session.query(Role).filter_by(name='user').first()
+    players = []
+    for i in range(count):
+        user = User(email=f'{prefix}{i}@ex.com', name=f'{prefix}{i}', role=role_user)
+        session.add(user)
+        session.commit()
+        player = TournamentPlayer(tournament_id=tournament.id, user_id=user.id)
+        session.add(player)
+        session.commit()
+        players.append(player)
+    return players
+
+
+def test_draft_round_one_uses_big_x_little_x_from_saved_seating(session):
+    tournament = Tournament(name='Draft Seating Event', format='Draft')
+    session.add(tournament)
+    session.commit()
+    players = _add_tournament_players(session, tournament, 8, 'draftseat')
+    tournament.pairing_options = json.dumps({'draft_seating': [[player.id for player in players]]})
+    session.commit()
+
+    rnd = Round(tournament_id=tournament.id, number=1)
+    session.add(rnd)
+    session.commit()
+
+    matches = pair_round(tournament, rnd, session)
+    pairs = [(match.player1_id, match.player2_id) for match in sorted(matches, key=lambda m: m.table_number)]
+
+    assert pairs == [
+        (players[0].id, players[4].id),
+        (players[1].id, players[5].id),
+        (players[2].id, players[6].id),
+        (players[3].id, players[7].id),
+    ]
+
+
+def test_draft_round_one_uses_big_x_little_x_for_each_pod_with_partial_pod(session, monkeypatch):
+    tournament = Tournament(name='Partial Pod Draft Event', format='Draft')
+    session.add(tournament)
+    session.commit()
+    players = _add_tournament_players(session, tournament, 15, 'draftpartial')
+    tournament.pairing_options = json.dumps({
+        'draft_seating': [
+            [player.id for player in players[:8]],
+            [player.id for player in players[8:]],
+        ]
+    })
+    session.commit()
+    monkeypatch.setattr('app.pairing.random.randrange', lambda stop: 0)
+
+    rnd = Round(tournament_id=tournament.id, number=1)
+    session.add(rnd)
+    session.commit()
+
+    matches = pair_round(tournament, rnd, session)
+    pairs = [(match.player1_id, match.player2_id) for match in sorted(matches, key=lambda m: m.table_number)]
+
+    assert pairs == [
+        (players[0].id, players[4].id),
+        (players[1].id, players[5].id),
+        (players[2].id, players[6].id),
+        (players[3].id, players[7].id),
+        (players[8].id, players[11].id),
+        (players[12].id, players[9].id),
+        (players[10].id, players[13].id),
+        (players[14].id, None),
+    ]
+
+
+def test_draft_seating_is_persisted_for_round_one_pairings(session):
+    tournament = Tournament(name='Persisted Draft Seating Event', format='Draft')
+    session.add(tournament)
+    session.commit()
+    _add_tournament_players(session, tournament, 8, 'draftpersist')
+
+    random.seed(99)
+    seating = draft_seating_tables(tournament, session)
+    saved_seating = [[player.id for player in table] for table in seating]
+    session.commit()
+
+    rnd = Round(tournament_id=tournament.id, number=1)
+    session.add(rnd)
+    session.commit()
+    matches = pair_round(tournament, rnd, session)
+    pairs = [(match.player1_id, match.player2_id) for match in sorted(matches, key=lambda m: m.table_number)]
+
+    table = saved_seating[0]
+    assert pairs == [
+        (table[0], table[4]),
+        (table[1], table[5]),
+        (table[2], table[6]),
+        (table[3], table[7]),
+    ]
+    assert json.loads(tournament.pairing_options)['draft_seating'] == saved_seating
+
+
+def test_seeded_cut_pairs_first_against_last():
+    seeds = list(range(1, 9))
+
+    assert seeded_cut_pairs(seeds) == [(1, 8), (2, 7), (3, 6), (4, 5)]
 
 def test_bulk_register_adds_existing_users(client, session):
     manager_role = session.query(Role).filter_by(name='manager').one()
