@@ -1,0 +1,118 @@
+from datetime import date
+
+from app.models import (
+    League,
+    LeagueCube,
+    LeagueCubeVote,
+    LeaguePlayDate,
+    LeaguePlayDateCube,
+    LeaguePlayer,
+    Match,
+    Role,
+    Round,
+    SiteLog,
+    Tournament,
+    TournamentPlayer,
+    User,
+)
+
+
+def _user(session, email, name, role_name='user', is_admin=False):
+    role = session.query(Role).filter_by(name=role_name).one()
+    user = User(email=email, name=name, role=role, is_admin=is_admin)
+    user.set_password('secret')
+    session.add(user)
+    session.flush()
+    return user
+
+
+def test_admin_can_delete_league_and_audit_log(client, session):
+    admin = _user(session, 'league-delete-admin@example.com', 'League Admin', 'admin', True)
+    league = League(name='Delete Me', is_cube_league=True)
+    tournament = Tournament(name='League Event', format='Draft', league=league)
+    session.add_all([league, tournament])
+    session.commit()
+
+    assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+    response = client.post(f'/admin/leagues/{league.id}/delete')
+
+    assert response.status_code == 302
+    assert session.get(League, league.id) is None
+    session.refresh(tournament)
+    assert tournament.league_id is None
+    log = session.query(SiteLog).filter_by(action='league_delete').one()
+    assert log.result == 'success'
+    assert f'league_id={league.id}' in log.error
+
+
+def test_cube_league_votes_are_limited_to_three_per_play_date(client, session):
+    player = _user(session, 'cube-voter@example.com', 'Cube Voter')
+    league = League(name='Cube League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    session.add(LeaguePlayer(league_id=league.id, user_id=player.id))
+    first = LeagueCube(
+        league_id=league.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/alpha',
+        title='Alpha Cube',
+        image_url='https://cubecobra.com/content/alpha.png',
+    )
+    second = LeagueCube(
+        league_id=league.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/beta',
+        title='Beta Cube',
+    )
+    play_date = LeaguePlayDate(league_id=league.id, play_date=date(2026, 7, 1), is_active=True)
+    session.add_all([first, second, play_date])
+    session.flush()
+    session.add_all([
+        LeaguePlayDateCube(play_date_id=play_date.id, cube_id=first.id),
+        LeaguePlayDateCube(play_date_id=play_date.id, cube_id=second.id),
+    ])
+    session.commit()
+
+    assert client.post('/login', data={'email': player.email, 'password': 'secret'}).status_code == 302
+    response = client.post(
+        f'/leagues/{league.id}/cubes',
+        data={f'votes_{play_date.id}_{first.id}': '2', f'votes_{play_date.id}_{second.id}': '2'},
+    )
+    assert response.status_code == 302
+    assert session.query(LeagueCubeVote).count() == 0
+
+    response = client.post(
+        f'/leagues/{league.id}/cubes',
+        data={f'votes_{play_date.id}_{first.id}': '2', f'votes_{play_date.id}_{second.id}': '1'},
+    )
+    assert response.status_code == 302
+    votes = session.query(LeagueCubeVote).order_by(LeagueCubeVote.cube_id).all()
+    assert [vote.votes for vote in votes] == [2, 1]
+
+
+def test_player_cannot_drop_opponent_when_reporting_match(client, session):
+    player_one = _user(session, 'player-one@example.com', 'Player One')
+    player_two = _user(session, 'player-two@example.com', 'Player Two')
+    tournament = Tournament(name='Drop Test', format='Constructed')
+    session.add(tournament)
+    session.flush()
+    tp_one = TournamentPlayer(tournament_id=tournament.id, user_id=player_one.id)
+    tp_two = TournamentPlayer(tournament_id=tournament.id, user_id=player_two.id)
+    session.add_all([tp_one, tp_two])
+    session.flush()
+    round_one = Round(tournament_id=tournament.id, number=1)
+    session.add(round_one)
+    session.flush()
+    match = Match(round_id=round_one.id, player1_id=tp_one.id, player2_id=tp_two.id, table_number=1)
+    session.add(match)
+    session.commit()
+
+    assert client.post('/login', data={'email': player_one.email, 'password': 'secret'}).status_code == 302
+    response = client.post(
+        f'/match/{match.id}',
+        data={'p1_wins': '2', 'p2_wins': '0', 'draws': '0', 'drop_p2': 'on'},
+    )
+
+    assert response.status_code == 302
+    session.refresh(tp_one)
+    session.refresh(tp_two)
+    assert not tp_one.dropped
+    assert not tp_two.dropped

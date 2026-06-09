@@ -19,6 +19,7 @@ PERMISSION_GROUPS = {
         'join': 'Join tournaments',
         'approve_join': 'Approve tournament join requests',
         'bulk_manage': 'Bulk edit tournaments',
+        'delete_leagues': 'Delete leagues',
     },
     'venues': {
         'manage': 'Create and manage venues, vendors, and artists',
@@ -560,6 +561,7 @@ class League(db.Model):
     name = db.Column(db.String(200), nullable=False)
     start_date = db.Column(db.Date, nullable=True)
     end_date = db.Column(db.Date, nullable=True)
+    is_cube_league = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=utc_now)
 
 
@@ -592,6 +594,57 @@ class LeagueResult(db.Model):
     user = db.relationship('User')
 
     __table_args__ = (UniqueConstraint('league_id', 'tournament_id', 'user_id', name='_league_tournament_user_uc'),)
+
+
+class LeagueCube(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=False)
+    cube_cobra_url = db.Column(db.Text, nullable=False)
+    title = db.Column(db.String(250), nullable=False)
+    image_url = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    league = db.relationship('League', backref=db.backref('cubes', cascade='all, delete-orphan'))
+
+
+class LeaguePlayDate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=False)
+    play_date = db.Column(db.Date, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    league = db.relationship('League', backref=db.backref('play_dates', cascade='all, delete-orphan'))
+
+    __table_args__ = (UniqueConstraint('league_id', 'play_date', name='_league_play_date_uc'),)
+
+
+class LeaguePlayDateCube(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    play_date_id = db.Column(db.Integer, db.ForeignKey('league_play_date.id'), nullable=False)
+    cube_id = db.Column(db.Integer, db.ForeignKey('league_cube.id'), nullable=False)
+
+    play_date = db.relationship('LeaguePlayDate', backref=db.backref('available_cubes', cascade='all, delete-orphan'))
+    cube = db.relationship('LeagueCube')
+
+    __table_args__ = (UniqueConstraint('play_date_id', 'cube_id', name='_league_play_date_cube_uc'),)
+
+
+class LeagueCubeVote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=False)
+    play_date_id = db.Column(db.Integer, db.ForeignKey('league_play_date.id'), nullable=False)
+    cube_id = db.Column(db.Integer, db.ForeignKey('league_cube.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    votes = db.Column(db.Integer, default=0)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
+
+    league = db.relationship('League', backref=db.backref('cube_votes', cascade='all, delete-orphan'))
+    play_date = db.relationship('LeaguePlayDate', backref=db.backref('votes', cascade='all, delete-orphan'))
+    cube = db.relationship('LeagueCube')
+    user = db.relationship('User')
+
+    __table_args__ = (UniqueConstraint('play_date_id', 'cube_id', 'user_id', name='_league_cube_vote_uc'),)
 
 
 class LostFoundItem(db.Model):

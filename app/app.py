@@ -38,6 +38,7 @@ import urllib.parse
 import urllib.request
 from collections import OrderedDict
 from urllib.parse import urlparse
+from html.parser import HTMLParser
 from sqlalchemy import inspect, text, or_
 from sqlalchemy.exc import SQLAlchemyError
 from cryptography.hazmat.primitives import serialization, hashes
@@ -71,6 +72,85 @@ MAJOR_60_CARD_FORMATS = [
 BASE_TOURNAMENT_FORMATS = ['Commander', 'Draft']
 TOURNAMENT_FORMATS = BASE_TOURNAMENT_FORMATS + MAJOR_60_CARD_FORMATS
 MAILGUN_DOMAIN_PATTERN = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$')
+
+
+class CubeCobraMetadataParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.meta = {}
+        self.title = None
+        self._in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag.lower() == 'title':
+            self._in_title = True
+        if tag.lower() == 'meta':
+            key = attrs.get('property') or attrs.get('name')
+            content = attrs.get('content')
+            if key and content:
+                self.meta[key.lower()] = content.strip()
+
+    def handle_endtag(self, tag):
+        if tag.lower() == 'title':
+            self._in_title = False
+
+    def handle_data(self, data):
+        if self._in_title:
+            value = data.strip()
+            if value:
+                self.title = value
+
+
+def normalize_cube_cobra_url(raw_url):
+    url = (raw_url or '').strip()
+    if not url:
+        raise ValueError('Cube Cobra link is required.')
+    if not re.match(r'^https?://', url, re.I):
+        url = f'https://{url}'
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.netloc or '').lower()
+    if host.startswith('www.'):
+        host = host[4:]
+    if host != 'cubecobra.com':
+        raise ValueError('Only Cube Cobra links are supported.')
+    if parsed.scheme not in {'http', 'https'}:
+        raise ValueError('Cube Cobra link must use http or https.')
+    return urllib.parse.urlunparse(('https', parsed.netloc, parsed.path, '', parsed.query, ''))
+
+
+def fetch_cube_cobra_metadata(raw_url):
+    url = normalize_cube_cobra_url(raw_url)
+    title = 'Cube Cobra Cube'
+    image_url = None
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={'User-Agent': 'WaLTER cube preview bot/1.0'},
+        )
+        with urllib.request.urlopen(req, timeout=8) as response:
+            content_type = response.headers.get('Content-Type', '')
+            if 'text/html' in content_type or not content_type:
+                html = response.read(512000).decode('utf-8', errors='ignore')
+                parser = CubeCobraMetadataParser()
+                parser.feed(html)
+                title = (
+                    parser.meta.get('og:title')
+                    or parser.meta.get('twitter:title')
+                    or parser.title
+                    or title
+                ).strip()
+                image_url = (
+                    parser.meta.get('og:image')
+                    or parser.meta.get('twitter:image')
+                    or None
+                )
+    except Exception:
+        title = title
+    title = re.sub(r'\s*[|\-]\s*Cube Cobra\s*$', '', title, flags=re.I).strip() or 'Cube Cobra Cube'
+    if image_url:
+        image_url = urllib.parse.urljoin(url, image_url)
+    return url, title[:250], image_url
 
 
 def _mailgun_messages_url(domain):
@@ -268,6 +348,19 @@ def create_app():
                     {'level': level, 'name': role_name},
                 )
             db.session.commit()
+            from .models import DEFAULT_ROLE_PERMISSIONS, Role  # lazy import to avoid circular reference
+            for role_name, default_perms in DEFAULT_ROLE_PERMISSIONS.items():
+                role = db.session.query(Role).filter_by(name=role_name).first()
+                if role:
+                    current_perms = role.permissions_dict()
+                    changed = False
+                    for key, allowed in default_perms.items():
+                        if key not in current_perms:
+                            current_perms[key] = allowed
+                            changed = True
+                    if changed:
+                        role.permissions = json.dumps(current_perms)
+            db.session.commit()
         from .models import (
             Report,
             TournamentJoinRequest,
@@ -373,11 +466,24 @@ def create_app():
                 db.session.commit()
         TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
         PendingRegistration.__table__.create(bind=db.engine, checkfirst=True)
-        from .models import LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult
+        from .models import (
+            LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult,
+            LeagueCube, LeaguePlayDate, LeaguePlayDateCube, LeagueCubeVote,
+        )
 
         League.__table__.create(bind=db.engine, checkfirst=True)
         LeaguePlayer.__table__.create(bind=db.engine, checkfirst=True)
         LeagueResult.__table__.create(bind=db.engine, checkfirst=True)
+        if 'league' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('league')]
+            if 'is_cube_league' not in columns:
+                db.session.execute(text('ALTER TABLE league ADD COLUMN is_cube_league BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE league SET is_cube_league=0 WHERE is_cube_league IS NULL'))
+                db.session.commit()
+        LeagueCube.__table__.create(bind=db.engine, checkfirst=True)
+        LeaguePlayDate.__table__.create(bind=db.engine, checkfirst=True)
+        LeaguePlayDateCube.__table__.create(bind=db.engine, checkfirst=True)
+        LeagueCubeVote.__table__.create(bind=db.engine, checkfirst=True)
 
         media_engine = db.engines['media']
         LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
@@ -427,6 +533,10 @@ def create_app():
         League,
         LeaguePlayer,
         LeagueResult,
+        LeagueCube,
+        LeaguePlayDate,
+        LeaguePlayDateCube,
+        LeagueCubeVote,
         BadLoginAttempt,
         BlacklistedIP,
         PasswordResetToken,
@@ -959,9 +1069,9 @@ def create_app():
                     selected_tournament = db.session.get(Tournament, int(tournament_id))
                 except (TypeError, ValueError):
                     selected_tournament = None
-                if not selected_tournament or tournament_passcode != selected_tournament.passcode:
-                    flash("Invalid tournament passcode", "error")
-                    log_site('register', 'failure', 'invalid tournament passcode')
+                if not selected_tournament:
+                    flash("Selected tournament was not found", "error")
+                    log_site('register', 'failure', 'invalid tournament selection')
                     return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
             if mode == 'invite_only' and not invite and not selected_tournament:
                 flash('Account creation is invite only. Use the invite link sent by an administrator.', 'error')
@@ -982,7 +1092,7 @@ def create_app():
                 verification_token_hash=_hash_registration_token(verification_token),
                 invite_id=invite.id if invite else None,
                 tournament_id=selected_tournament.id if selected_tournament else None,
-                tournament_passcode=tournament_passcode if selected_tournament else None,
+                tournament_passcode=None,
                 expires_at=datetime.utcnow() + timedelta(minutes=app.config.get('REGISTRATION_PIN_TTL_MINUTES', 15)),
             )
             pending.set_password(password)
@@ -1021,7 +1131,7 @@ def create_app():
         selected_tournament = None
         if pending.tournament_id:
             selected_tournament = db.session.get(Tournament, pending.tournament_id)
-            if not selected_tournament or pending.tournament_passcode != selected_tournament.passcode:
+            if not selected_tournament:
                 db.session.delete(pending)
                 db.session.commit()
                 flash("Tournament invite expired or is no longer valid. Please register again.", "error")
@@ -3696,6 +3806,26 @@ def create_app():
         users = db.session.query(User).order_by(User.name).all()
         return player_rows, results, available_tournaments, users, league_tournament_ids
 
+    def league_vote_context(league):
+        play_dates = db.session.query(LeaguePlayDate).filter_by(league_id=league.id).order_by(LeaguePlayDate.play_date).all()
+        cubes = db.session.query(LeagueCube).filter_by(league_id=league.id).order_by(LeagueCube.title).all()
+        totals = {}
+        user_votes = {}
+        for vote in db.session.query(LeagueCubeVote).filter_by(league_id=league.id).all():
+            totals[(vote.play_date_id, vote.cube_id)] = totals.get((vote.play_date_id, vote.cube_id), 0) + (vote.votes or 0)
+            if current_user.is_authenticated and vote.user_id == current_user.id:
+                user_votes[(vote.play_date_id, vote.cube_id)] = vote.votes or 0
+        available_by_date = {
+            play_date.id: [link.cube_id for link in play_date.available_cubes]
+            for play_date in play_dates
+        }
+        return play_dates, cubes, totals, user_votes, available_by_date
+
+    def require_league_member_or_manager(league):
+        if current_user.has_permission('tournaments.manage'):
+            return True
+        return db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=current_user.id).first() is not None
+
     @app.route('/admin/leagues', methods=['GET', 'POST'])
     def leagues():
         require_permission('tournaments.manage')
@@ -3708,7 +3838,7 @@ def create_app():
             if not name:
                 flash('League name is required.', 'error')
                 return redirect(url_for('leagues'))
-            league = League(name=name, start_date=start_date, end_date=end_date)
+            league = League(name=name, start_date=start_date, end_date=end_date, is_cube_league=bool(request.form.get('is_cube_league')))
             db.session.add(league)
             db.session.flush()
             for user_id in request.form.getlist('player_ids'):
@@ -3755,8 +3885,59 @@ def create_app():
                     result.deck_archetype = (request.form.get(f'archetype_{result.id}') or '').strip()
                 db.session.commit()
                 flash('Deck archetypes updated.', 'success')
+            elif action == 'update_settings':
+                league.is_cube_league = bool(request.form.get('is_cube_league'))
+                db.session.commit()
+                log_site('league_update', 'success', f'league_id={league.id}; cube={league.is_cube_league}')
+                flash('League settings updated.', 'success')
+            elif action == 'add_cube':
+                if not league.is_cube_league:
+                    flash('Enable cube league mode before adding Cube Cobra links.', 'error')
+                else:
+                    try:
+                        url, title, image_url = fetch_cube_cobra_metadata(request.form.get('cube_url'))
+                    except ValueError as exc:
+                        flash(str(exc), 'error')
+                    else:
+                        db.session.add(LeagueCube(league_id=league.id, cube_cobra_url=url, title=title, image_url=image_url))
+                        db.session.commit()
+                        log_site('league_cube_add', 'success', f'league_id={league.id}; url={url}')
+                        flash('Cube added.', 'success')
+            elif action == 'add_play_date':
+                if not league.is_cube_league:
+                    flash('Enable cube league mode before adding play dates.', 'error')
+                else:
+                    play_date_value = parse_date_input(request.form.get('play_date'))
+                    if not play_date_value:
+                        flash('Choose a play date.', 'error')
+                    elif db.session.query(LeaguePlayDate).filter_by(league_id=league.id, play_date=play_date_value).first():
+                        flash('That play date already exists.', 'error')
+                    else:
+                        play_date = LeaguePlayDate(league_id=league.id, play_date=play_date_value, is_active=bool(request.form.get('is_active', '1')))
+                        db.session.add(play_date)
+                        db.session.flush()
+                        cube_ids = {int(cid) for cid in request.form.getlist('cube_ids') if cid.isdigit()}
+                        for cube in db.session.query(LeagueCube).filter(LeagueCube.league_id == league.id, LeagueCube.id.in_(cube_ids)).all():
+                            db.session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+                        db.session.commit()
+                        log_site('league_play_date_add', 'success', f'league_id={league.id}; date={play_date_value}')
+                        flash('Play date added.', 'success')
+            elif action == 'update_play_date':
+                play_date = db.session.get(LeaguePlayDate, int(request.form.get('play_date_id') or 0))
+                if not play_date or play_date.league_id != league.id:
+                    flash('Play date not found.', 'error')
+                else:
+                    play_date.is_active = bool(request.form.get('is_active'))
+                    db.session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id).delete()
+                    cube_ids = {int(cid) for cid in request.form.getlist('cube_ids') if cid.isdigit()}
+                    for cube in db.session.query(LeagueCube).filter(LeagueCube.league_id == league.id, LeagueCube.id.in_(cube_ids)).all():
+                        db.session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+                    db.session.commit()
+                    log_site('league_play_date_update', 'success', f'league_id={league.id}; play_date_id={play_date.id}')
+                    flash('Play date updated.', 'success')
             return redirect(url_for('league_detail', league_id=league.id))
         leaderboard, results, available_tournaments, users, league_tournament_ids = build_league_context(league)
+        play_dates, cubes, cube_vote_totals, cube_user_votes, available_cube_ids = league_vote_context(league)
         return render_template(
             'admin/league_detail.html',
             league=league,
@@ -3765,6 +3946,73 @@ def create_app():
             available_tournaments=available_tournaments,
             users=users,
             league_tournament_ids=league_tournament_ids,
+            play_dates=play_dates,
+            cubes=cubes,
+            cube_vote_totals=cube_vote_totals,
+            cube_user_votes=cube_user_votes,
+            available_cube_ids=available_cube_ids,
+        )
+
+    @app.route('/admin/leagues/<int:league_id>/delete', methods=['POST'])
+    def delete_league(league_id):
+        require_permission('tournaments.delete_leagues')
+        league = db.session.get(League, league_id)
+        if not league:
+            abort(404)
+        name = league.name
+        tournament_count = db.session.query(Tournament).filter_by(league_id=league.id).update({'league_id': None})
+        db.session.delete(league)
+        db.session.commit()
+        log_site('league_delete', 'success', f'league_id={league_id}; name={name}; tournaments_unlinked={tournament_count}')
+        flash(f'Deleted league {name}.', 'success')
+        return redirect(url_for('leagues'))
+
+    @app.route('/leagues/<int:league_id>/cubes', methods=['GET', 'POST'])
+    @login_required
+    def league_cube_voting(league_id):
+        league = db.session.get(League, league_id)
+        if not league or not league.is_cube_league:
+            abort(404)
+        if not require_league_member_or_manager(league):
+            abort(403)
+        if request.method == 'POST':
+            for play_date in db.session.query(LeaguePlayDate).filter_by(league_id=league.id, is_active=True).all():
+                available_ids = {link.cube_id for link in play_date.available_cubes}
+                requested = {}
+                total = 0
+                for cube_id in available_ids:
+                    raw = request.form.get(f'votes_{play_date.id}_{cube_id}', '0')
+                    try:
+                        count = max(0, min(3, int(raw)))
+                    except ValueError:
+                        count = 0
+                    requested[cube_id] = count
+                    total += count
+                if total > 3:
+                    flash(f'{play_date.play_date}: use no more than 3 total votes.', 'error')
+                    return redirect(url_for('league_cube_voting', league_id=league.id))
+                for cube_id, count in requested.items():
+                    vote = db.session.query(LeagueCubeVote).filter_by(play_date_id=play_date.id, cube_id=cube_id, user_id=current_user.id).first()
+                    if count:
+                        if not vote:
+                            vote = LeagueCubeVote(league_id=league.id, play_date_id=play_date.id, cube_id=cube_id, user_id=current_user.id)
+                            db.session.add(vote)
+                        vote.votes = count
+                    elif vote:
+                        db.session.delete(vote)
+            db.session.commit()
+            log_site('league_cube_vote', 'success', f'league_id={league.id}; user_id={current_user.id}')
+            flash('Cube votes saved.', 'success')
+            return redirect(url_for('league_cube_voting', league_id=league.id))
+        play_dates, cubes, cube_vote_totals, cube_user_votes, available_cube_ids = league_vote_context(league)
+        return render_template(
+            'league_cubes.html',
+            league=league,
+            play_dates=play_dates,
+            cubes=cubes,
+            cube_vote_totals=cube_vote_totals,
+            cube_user_votes=cube_user_votes,
+            available_cube_ids=available_cube_ids,
         )
 
     @app.route('/admin/schedule')
@@ -5344,11 +5592,22 @@ def create_app():
             return redirect(url_for('view_round', tid=t.id, rid=m.round_id))
         if request.method == 'POST':
             dropped_ids = []
+            can_drop_any_player = current_user.has_permission('tournaments.manage')
+
+            def player_drop_requested(field_name, tournament_player):
+                if not request.form.get(field_name):
+                    return False
+                if can_drop_any_player or (tournament_player and tournament_player.user_id == current_user.id):
+                    return True
+                flash('Players may only drop themselves from a tournament.', 'error')
+                log_tournament(t.id, 'drop', 'failure', f'user_id={current_user.id}; attempted={tournament_player.user_id if tournament_player else ""}')
+                return False
+
             if t.format.lower() == 'commander':
-                drop_p1 = bool(request.form.get('drop_p1'))
-                drop_p2 = bool(request.form.get('drop_p2'))
-                drop_p3 = bool(request.form.get('drop_p3'))
-                drop_p4 = bool(request.form.get('drop_p4'))
+                drop_p1 = player_drop_requested('drop_p1', m.player1)
+                drop_p2 = player_drop_requested('drop_p2', m.player2) if m.player2_id else False
+                drop_p3 = player_drop_requested('drop_p3', m.player3) if m.player3_id else False
+                drop_p4 = player_drop_requested('drop_p4', m.player4) if m.player4_id else False
                 if request.form.get('is_draw') and not any([drop_p1, drop_p2, drop_p3, drop_p4]):
                     m.result = MatchResult(is_draw=True)
                 else:
@@ -5381,10 +5640,10 @@ def create_app():
                 draws   = int(request.form.get('draws', 0))
                 m.result = MatchResult(player1_wins=p1_wins, player2_wins=p2_wins, draws=draws)
                 m.completed = True
-                if request.form.get('drop_p1'):
+                if player_drop_requested('drop_p1', m.player1):
                     m.player1.dropped = True
                     dropped_ids.append(m.player1.user_id)
-                if m.player2_id and request.form.get('drop_p2'):
+                if m.player2_id and player_drop_requested('drop_p2', m.player2):
                     m.player2.dropped = True
                     dropped_ids.append(m.player2.user_id)
                 # Auto-drop losers in elimination rounds

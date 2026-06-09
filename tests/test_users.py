@@ -164,7 +164,7 @@ def test_mailgun_domain_validation_rejects_url_syntax(app):
             raise AssertionError(f'{domain} should have been rejected')
 
 
-def test_invite_only_registration_requires_tournament_passcode(client, session, app, monkeypatch):
+def test_invite_only_registration_allows_tournament_registration_without_passcode(client, session, app, monkeypatch):
     from app.models import Tournament
 
     app.config['ACCOUNT_CREATION_INVITE_ONLY'] = True
@@ -204,7 +204,6 @@ def test_invite_only_registration_requires_tournament_passcode(client, session, 
         'password': 'secret',
         'password_confirm': 'secret',
         'tournament_id': str(tournament.id),
-        'passcode': '1234',
     })
 
     assert response.status_code == 302
