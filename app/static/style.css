@@ -2339,6 +2339,53 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.compact-cube-grid {
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.compact-cube-grid .cube-result-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 60px;
+  padding: 8px;
+}
+
+.compact-cube-grid .cube-result-image {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+.compact-cube-grid .cube-result-card--text-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.compact-cube-grid .cube-result-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.compact-cube-grid .cube-result-body h3 {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.82rem;
+  line-height: 1.15;
+}
+
+.compact-cube-grid .cube-result-votes {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
 .cube-preview-card {
   display: grid;
   grid-template-columns: minmax(92px, 120px) minmax(0, 1fr);
