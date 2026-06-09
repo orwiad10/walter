@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">League</span>
+    <h2>{{ league.name }}</h2>
+    <p class="page-description">
+      {% if league.start_date or league.end_date %}
+      {{ league.start_date or 'Open' }} → {{ league.end_date or 'Open' }} ·
+      {% endif %}
+      Best 75% attendance scoring: match win 3, draw 1, loss 0.
+    </p>
+  </div>
+  <div class="page-header__actions">
+    {% if league.is_cube_league %}<a class="btn" href="{{ url_for('league_cube_voting', league_id=league.id) }}">Cube Voting</a>{% endif %}
+    <a class="btn ghost" href="{{ url_for('my_leagues') }}">My Leagues</a>
+  </div>
+</section>
+
+<section class="stats-grid">
+  <div class="stat-card"><span>Players</span><strong>{{ leaderboard|length }}</strong></div>
+  <div class="stat-card"><span>Tournaments</span><strong>{{ league_tournament_ids|length }}</strong></div>
+  <div class="stat-card"><span>Imported results</span><strong>{{ results|length }}</strong></div>
+</section>
+
+<section class="panel-card">
+  <div class="section-heading">
+    <div>
+      <h3>Leaderboard</h3>
+      <p>Only each player's highest-scoring 75% of tournament appearances are counted.</p>
+    </div>
+  </div>
+  {% if leaderboard %}
+  <table class="table league-table">
+    <thead>
+      <tr><th>Rank</th><th>Player</th><th>League points</th><th>Counted</th><th>Played</th><th>Record counted</th><th>Raw points</th></tr>
+    </thead>
+    <tbody>
+      {% for row in leaderboard %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ row.player.name }}</td>
+        <td><strong>{{ row.league_points }}</strong></td>
+        <td>{{ row.counted_count }}</td>
+        <td>{{ row.played }}</td>
+        <td>{{ row.wins }}-{{ row.draws }}-{{ row.losses }}</td>
+        <td>{{ row.raw_points }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No standings have been imported for this league yet.</p>
+  {% endif %}
+</section>
+
+{% if league.is_cube_league %}
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Cube Voting Results</h3><p>Vote totals are shown by play date. Members can cast or edit their votes from Cube Voting.</p></div></div>
+  {% if play_dates %}
+    {% for play_date in play_dates %}
+    {% set available = available_cube_ids.get(play_date.id, []) %}
+    <div class="league-play-date-form">
+      <h4>{{ play_date.play_date }}{% if not play_date.is_active %} <span class="status-pill warning">closed</span>{% endif %}</h4>
+      {% if available %}
+      <div class="league-card-grid cube-card-grid compact-cube-grid">
+        {% for cube in cubes if cube.id in available %}
+        <article class="league-card cube-preview-card">
+          {% if cube.image_url %}<img class="cube-preview-image" src="{{ cube.image_url }}" alt="{{ cube.title }} preview" loading="lazy">{% endif %}
+          <div class="cube-preview-body">
+            <h3><a href="{{ cube.cube_cobra_url }}" target="_blank" rel="noopener noreferrer">{{ cube.title }}</a></h3>
+            <p class="muted-text">Total votes: {{ cube_vote_totals.get((play_date.id, cube.id), 0) }}</p>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<p class="empty-state compact-empty">No cubes are available for this date yet.</p>{% endif %}
+    </div>
+    {% endfor %}
+  {% else %}<p class="empty-state">No cube play dates have been configured yet.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

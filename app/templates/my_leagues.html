@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">Player Dashboard</span>
+    <h2>My Leagues</h2>
+    <p class="page-description">Leagues where you are listed as a member. League management remains restricted to tournament staff.</p>
+  </div>
+</section>
+
+{% if memberships %}
+<div class="league-card-grid">
+  {% for membership in memberships %}
+  {% set league = membership.league %}
+  <article class="league-card">
+    <div>
+      <h3><a href="{{ url_for('view_league', league_id=league.id) }}">{{ league.name }}</a></h3>
+      <p class="muted-text">
+        {% if league.start_date or league.end_date %}
+          {{ league.start_date or 'Open' }} → {{ league.end_date or 'Open' }}
+        {% else %}
+          Open schedule
+        {% endif %}
+        {% if league.is_cube_league %} · Cube league{% endif %}
+      </p>
+      <p class="muted-text">Member since {{ membership.created_at.date() if membership.created_at else 'unknown' }}</p>
+    </div>
+    <div class="card-actions compact-actions">
+      <a class="btn ghost" href="{{ url_for('view_league', league_id=league.id) }}">View League</a>
+      {% if league.is_cube_league %}<a class="btn" href="{{ url_for('league_cube_voting', league_id=league.id) }}">Cube Voting</a>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <p class="page-description">You are not a member of any leagues yet.</p>
+  <a class="btn" href="{{ url_for('index') }}">Browse Tournaments</a>
+</div>
+{% endif %}
+{% endblock %}
