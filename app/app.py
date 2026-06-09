@@ -3809,12 +3809,27 @@ def create_app():
     def league_vote_context(league):
         play_dates = db.session.query(LeaguePlayDate).filter_by(league_id=league.id).order_by(LeaguePlayDate.play_date).all()
         cubes = db.session.query(LeagueCube).filter_by(league_id=league.id).order_by(LeagueCube.title).all()
-        totals = {}
+        totals = {
+            (play_date_id, cube_id): total or 0
+            for play_date_id, cube_id, total in (
+                db.session.query(
+                    LeagueCubeVote.play_date_id,
+                    LeagueCubeVote.cube_id,
+                    db.func.coalesce(db.func.sum(LeagueCubeVote.votes), 0),
+                )
+                .filter(LeagueCubeVote.league_id == league.id)
+                .group_by(LeagueCubeVote.play_date_id, LeagueCubeVote.cube_id)
+                .all()
+            )
+        }
         user_votes = {}
-        for vote in db.session.query(LeagueCubeVote).filter_by(league_id=league.id).all():
-            totals[(vote.play_date_id, vote.cube_id)] = totals.get((vote.play_date_id, vote.cube_id), 0) + (vote.votes or 0)
-            if current_user.is_authenticated and vote.user_id == current_user.id:
-                user_votes[(vote.play_date_id, vote.cube_id)] = vote.votes or 0
+        if current_user.is_authenticated:
+            user_votes = {
+                (vote.play_date_id, vote.cube_id): vote.votes or 0
+                for vote in db.session.query(LeagueCubeVote)
+                .filter_by(league_id=league.id, user_id=current_user.id)
+                .all()
+            }
         available_by_date = {
             play_date.id: [link.cube_id for link in play_date.available_cubes]
             for play_date in play_dates
@@ -3966,6 +3981,40 @@ def create_app():
         log_site('league_delete', 'success', f'league_id={league_id}; name={name}; tournaments_unlinked={tournament_count}')
         flash(f'Deleted league {name}.', 'success')
         return redirect(url_for('leagues'))
+
+    @app.route('/my-leagues')
+    @login_required
+    def my_leagues():
+        memberships = (
+            db.session.query(LeaguePlayer)
+            .join(League)
+            .filter(LeaguePlayer.user_id == current_user.id)
+            .order_by(League.created_at.desc())
+            .all()
+        )
+        return render_template('my_leagues.html', memberships=memberships)
+
+    @app.route('/leagues/<int:league_id>')
+    @login_required
+    def view_league(league_id):
+        league = db.session.get(League, league_id)
+        if not league:
+            abort(404)
+        if not require_league_member_or_manager(league):
+            abort(403)
+        leaderboard, results, _available_tournaments, _users, league_tournament_ids = build_league_context(league)
+        play_dates, cubes, cube_vote_totals, _cube_user_votes, available_cube_ids = league_vote_context(league)
+        return render_template(
+            'league_view.html',
+            league=league,
+            leaderboard=leaderboard,
+            results=results,
+            league_tournament_ids=league_tournament_ids,
+            play_dates=play_dates,
+            cubes=cubes,
+            cube_vote_totals=cube_vote_totals,
+            available_cube_ids=available_cube_ids,
+        )
 
     @app.route('/leagues/<int:league_id>/cubes', methods=['GET', 'POST'])
     @login_required

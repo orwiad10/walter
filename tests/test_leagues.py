@@ -116,3 +116,78 @@ def test_player_cannot_drop_opponent_when_reporting_match(client, session):
     session.refresh(tp_two)
     assert not tp_one.dropped
     assert not tp_two.dropped
+
+
+def test_player_can_view_member_leagues_without_manage_controls(client, session):
+    member = _user(session, 'league-member@example.com', 'League Member')
+    other = _user(session, 'league-other@example.com', 'League Other')
+    league = League(name='Members Only League', is_cube_league=True)
+    hidden = League(name='Hidden League')
+    session.add_all([league, hidden])
+    session.flush()
+    session.add(LeaguePlayer(league_id=league.id, user_id=member.id))
+    session.commit()
+
+    assert client.post('/login', data={'email': member.email, 'password': 'secret'}).status_code == 302
+    response = client.get('/my-leagues')
+    assert response.status_code == 200
+    assert b'Members Only League' in response.data
+    assert b'Hidden League' not in response.data
+
+    response = client.get(f'/leagues/{league.id}')
+    assert response.status_code == 200
+    assert b'League Settings' not in response.data
+    assert b'Assign Players' not in response.data
+    assert b'Import Tournament' not in response.data
+    assert b'Cube Voting' in response.data
+
+    client.get('/logout')
+    assert client.post('/login', data={'email': other.email, 'password': 'secret'}).status_code == 302
+    assert client.get(f'/leagues/{league.id}').status_code == 403
+
+
+def test_cube_league_vote_totals_update_when_votes_change(client, session):
+    player = _user(session, 'cube-updater@example.com', 'Cube Updater')
+    league = League(name='Update Vote League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    session.add(LeaguePlayer(league_id=league.id, user_id=player.id))
+    first = LeagueCube(
+        league_id=league.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/first',
+        title='First Cube',
+    )
+    second = LeagueCube(
+        league_id=league.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/second',
+        title='Second Cube',
+    )
+    play_date = LeaguePlayDate(league_id=league.id, play_date=date(2026, 8, 1), is_active=True)
+    session.add_all([first, second, play_date])
+    session.flush()
+    session.add_all([
+        LeaguePlayDateCube(play_date_id=play_date.id, cube_id=first.id),
+        LeaguePlayDateCube(play_date_id=play_date.id, cube_id=second.id),
+    ])
+    session.commit()
+
+    assert client.post('/login', data={'email': player.email, 'password': 'secret'}).status_code == 302
+    response = client.post(
+        f'/leagues/{league.id}/cubes',
+        data={f'votes_{play_date.id}_{first.id}': '2', f'votes_{play_date.id}_{second.id}': '1'},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b'Total votes: 2' in response.data
+    assert b'Total votes: 1' in response.data
+
+    response = client.post(
+        f'/leagues/{league.id}/cubes',
+        data={f'votes_{play_date.id}_{first.id}': '0', f'votes_{play_date.id}_{second.id}': '3'},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b'Total votes: 0' in response.data
+    assert b'Total votes: 3' in response.data
+    votes = session.query(LeagueCubeVote).order_by(LeagueCubeVote.cube_id).all()
+    assert [(vote.cube_id, vote.votes) for vote in votes] == [(second.id, 3)]

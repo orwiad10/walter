@@ -2333,3 +2333,51 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
 .cube-vote-form input[type="number"] {
   max-width: 5rem;
 }
+
+/* Compact cube previews: keep Cube Cobra artwork and titles from overflowing cards. */
+.cube-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.cube-preview-card {
+  display: grid;
+  grid-template-columns: minmax(92px, 120px) minmax(0, 1fr);
+  align-items: start;
+  gap: 0.8rem;
+  padding: 14px;
+}
+
+.cube-preview-image {
+  width: 120px;
+  height: 86px;
+  max-height: none;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.cube-preview-body {
+  min-width: 0;
+}
+
+.cube-preview-body h3 {
+  font-size: 1rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.cube-preview-body .muted-text,
+.cube-preview-body label {
+  font-size: 0.88rem;
+}
+
+@media (max-width: 520px) {
+  .cube-preview-card {
+    grid-template-columns: 1fr;
+  }
+
+  .cube-preview-image {
+    width: 100%;
+    height: 120px;
+  }
+}
