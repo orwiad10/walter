@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">Cube League</span>
+    <h2>{{ league.name }} Cube Voting</h2>
+    <p class="page-description">Vote for the cubes you want to draft on each play date. You may spend up to 3 votes per date.</p>
+  </div>
+</section>
+
+{% if play_dates %}
+<form method="post" class="cube-vote-form">
+  {% for play_date in play_dates %}
+    {% set available = available_cube_ids.get(play_date.id, []) %}
+    <section class="panel-card">
+      <div class="section-heading"><div><h3>{{ play_date.play_date }}</h3><p>{% if play_date.is_active %}Voting open — use up to 3 votes for this date.{% else %}Voting is closed for this date.{% endif %}</p></div></div>
+      {% if available %}
+      <div class="league-card-grid cube-card-grid">
+        {% for cube in cubes if cube.id in available %}
+        <article class="league-card cube-preview-card">
+          {% if cube.image_url %}<img class="cube-preview-image" src="{{ cube.image_url }}" alt="{{ cube.title }} preview" loading="lazy">{% endif %}
+          <div>
+            <h3><a href="{{ cube.cube_cobra_url }}" target="_blank" rel="noopener noreferrer">{{ cube.title }}</a></h3>
+            <p class="muted-text">Total votes: {{ cube_vote_totals.get((play_date.id, cube.id), 0) }}</p>
+            <label>Your votes
+              <input type="number" name="votes_{{ play_date.id }}_{{ cube.id }}" min="0" max="3" value="{{ cube_user_votes.get((play_date.id, cube.id), 0) }}" {% if not play_date.is_active %}disabled{% endif %}>
+            </label>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<p class="empty-state">No cubes are available for this date yet.</p>{% endif %}
+    </section>
+  {% endfor %}
+  <div class="form-actions start-actions"><button class="btn" type="submit">Save Votes</button></div>
+</form>
+{% else %}
+<p class="empty-state">No cube play dates have been configured yet.</p>
+{% endif %}
+{% endblock %}

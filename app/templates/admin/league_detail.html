@@ -12,9 +12,77 @@
     </p>
   </div>
   <div class="page-header__actions">
+    {% if league.is_cube_league %}<a class="btn" href="{{ url_for('league_cube_voting', league_id=league.id) }}">Cube Voting</a>{% endif %}
     <a class="btn ghost" href="{{ url_for('leagues') }}">All Leagues</a>
   </div>
 </section>
+
+
+<section class="panel-card">
+  <div class="section-heading"><div><h3>League Settings</h3><p>Mark cube leagues to enable Cube Cobra previews, play dates, and member voting.</p></div></div>
+  <form method="post" class="modern-form grid-form">
+    <input type="hidden" name="action" value="update_settings">
+    <label class="checkbox-label wide-field"><input type="checkbox" name="is_cube_league" value="1" {% if league.is_cube_league %}checked{% endif %}> Cube league</label>
+    <div class="form-actions wide-field start-actions"><button class="btn" type="submit">Save Settings</button></div>
+  </form>
+</section>
+
+{% if league.is_cube_league %}
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Cube Cobra Library</h3><p>Add Cube Cobra links. WaLTER links back to Cube Cobra and previews the cube title and image when available.</p></div></div>
+  <form method="post" class="modern-form grid-form">
+    <input type="hidden" name="action" value="add_cube">
+    <label class="wide-field">Cube Cobra URL
+      <input type="url" name="cube_url" placeholder="https://cubecobra.com/cube/overview/..." required>
+    </label>
+    <div class="form-actions wide-field start-actions"><button class="btn" type="submit">Add Cube</button></div>
+  </form>
+  {% if cubes %}
+  <div class="league-card-grid cube-card-grid">
+    {% for cube in cubes %}
+    <article class="league-card cube-preview-card">
+      {% if cube.image_url %}<img class="cube-preview-image" src="{{ cube.image_url }}" alt="{{ cube.title }} preview" loading="lazy">{% endif %}
+      <div>
+        <h3><a href="{{ cube.cube_cobra_url }}" target="_blank" rel="noopener noreferrer">{{ cube.title }}</a></h3>
+        <p class="muted-text">Cube Cobra</p>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}<p class="empty-state">No cubes have been added yet.</p>{% endif %}
+</section>
+
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Play Dates &amp; Voting Ballots</h3><p>Admins choose the play dates and which cubes are available for members to vote on. Members can spend up to 3 votes per date.</p></div></div>
+  <form method="post" class="modern-form grid-form">
+    <input type="hidden" name="action" value="add_play_date">
+    <label>Play date <input type="date" name="play_date" required></label>
+    <label class="checkbox-label"><input type="checkbox" name="is_active" value="1" checked> Open for voting</label>
+    <label class="wide-field">Cubes available for vote
+      <select name="cube_ids" multiple size="6">
+        {% for cube in cubes %}<option value="{{ cube.id }}">{{ cube.title }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="form-actions wide-field start-actions"><button class="btn" type="submit">Add Play Date</button></div>
+  </form>
+  {% if play_dates %}
+    {% for play_date in play_dates %}
+    <form method="post" class="league-play-date-form">
+      <input type="hidden" name="action" value="update_play_date">
+      <input type="hidden" name="play_date_id" value="{{ play_date.id }}">
+      <h4>{{ play_date.play_date }}{% if not play_date.is_active %} <span class="status-pill warning">closed</span>{% endif %}</h4>
+      <label class="checkbox-label"><input type="checkbox" name="is_active" value="1" {% if play_date.is_active %}checked{% endif %}> Open for voting</label>
+      <label>Cubes available
+        <select name="cube_ids" multiple size="5">
+          {% for cube in cubes %}<option value="{{ cube.id }}" {% if cube.id in available_cube_ids.get(play_date.id, []) %}selected{% endif %}>{{ cube.title }} — {{ cube_vote_totals.get((play_date.id, cube.id), 0) }} votes</option>{% endfor %}
+        </select>
+      </label>
+      <button class="btn ghost" type="submit">Save Ballot</button>
+    </form>
+    {% endfor %}
+  {% else %}<p class="empty-state">No play dates have been configured yet.</p>{% endif %}
+</section>
+{% endif %}
 
 <section class="stats-grid">
   <div class="stat-card"><span>Players</span><strong>{{ leaderboard|length }}</strong></div>

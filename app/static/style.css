@@ -2305,3 +2305,31 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
     width: auto;
   }
 }
+
+.cube-card-grid {
+  align-items: stretch;
+}
+
+.cube-preview-card {
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.cube-preview-image {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.league-play-date-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.cube-vote-form input[type="number"] {
+  max-width: 5rem;
+}
