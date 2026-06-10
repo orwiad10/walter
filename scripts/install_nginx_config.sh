@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_CONFIG="$REPO_DIR/nginx/walter.conf"
 DEFAULT_TLS_CONFIG="$REPO_DIR/nginx/walter-tls.conf"
+DEFAULT_SECURITY_HEADERS="$REPO_DIR/nginx/snippets/security-headers.conf"
+DEFAULT_HARDENING_CONFIG="$REPO_DIR/nginx/walter-hardening.conf"
 DEFAULT_APP_CONFIG="$REPO_DIR/config.yaml"
 
 CONFIG_FILE="$DEFAULT_CONFIG"
@@ -14,6 +16,8 @@ DRY_RUN=0
 RELOAD_NGINX=1
 DISABLE_DEFAULT_SITE=1
 TLS_DOMAIN=""
+TLS_ADDITIONAL_DOMAINS=""
+SERVER_NAMES=""
 CERT_DIR=""
 ACME_WEBROOT="/var/www/letsencrypt"
 APP_CONFIG="$DEFAULT_APP_CONFIG"
@@ -33,6 +37,8 @@ Copies the Walter Nginx config into the correct Linux Nginx location:
 Options:
   -c, --config PATH     Source Nginx config to install (default: $DEFAULT_CONFIG)
       --tls-domain NAME  Render and install the TLS 1.2/1.3 Let's Encrypt config for NAME
+      --tls-additional-domains NAMES
+                        Comma-separated extra names on the certificate, such as www.example.com
       --cert-dir PATH    Let's Encrypt live cert directory (default: /etc/letsencrypt/live/NAME)
       --acme-webroot PATH
                         Webroot for HTTP-01 challenges (default: $ACME_WEBROOT)
@@ -117,6 +123,15 @@ while [[ $# -gt 0 ]]; do
       TLS_DOMAIN="$2"
       shift 2
       ;;
+    --tls-additional-domains)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        log "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      TLS_ADDITIONAL_DOMAINS="$2"
+      shift 2
+      ;;
     --cert-dir)
       if [[ $# -lt 2 || -z "${2:-}" ]]; then
         log "Missing value for $1" >&2
@@ -169,15 +184,45 @@ while [[ $# -gt 0 ]]; do
 done
 
 
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+validate_dns_name() {
+  local label="$1"
+  local name="$2"
+
+  if [[ -z "$name" || "$name" == *"/"* || "$name" == *[[:space:]]* ]]; then
+    log "$label must be a DNS name, not a path or value with spaces: $name" >&2
+    exit 1
+  fi
+}
+
+build_server_names() {
+  local raw extra
+  validate_dns_name "TLS domain" "$TLS_DOMAIN"
+  SERVER_NAMES="$TLS_DOMAIN"
+
+  if [[ -n "$TLS_ADDITIONAL_DOMAINS" ]]; then
+    IFS=',' read -ra raw <<< "$TLS_ADDITIONAL_DOMAINS"
+    for extra in "${raw[@]}"; do
+      extra="$(trim_whitespace "$extra")"
+      [[ -z "$extra" ]] && continue
+      validate_dns_name "Additional TLS domain" "$extra"
+      SERVER_NAMES+=" $extra"
+    done
+  fi
+}
+
 if [[ -n "$TLS_DOMAIN" ]]; then
   if [[ "$CONFIG_EXPLICIT" -eq 0 ]]; then
     CONFIG_FILE="$DEFAULT_TLS_CONFIG"
   fi
 
-  if [[ "$TLS_DOMAIN" == *"/"* || "$TLS_DOMAIN" == *" "* ]]; then
-    log "TLS domain must be a DNS name, not a path or value with spaces: $TLS_DOMAIN" >&2
-    exit 1
-  fi
+  build_server_names
 
   CERT_DIR="${CERT_DIR:-/etc/letsencrypt/live/$TLS_DOMAIN}"
 
@@ -258,8 +303,9 @@ escape_sed_replacement() {
 }
 
 render_config() {
-  local escaped_domain escaped_cert_dir escaped_acme_webroot escaped_flask_ip escaped_flask_port
+  local escaped_domain escaped_server_names escaped_cert_dir escaped_acme_webroot escaped_flask_ip escaped_flask_port
   escaped_domain="$(escape_sed_replacement "$TLS_DOMAIN")"
+  escaped_server_names="$(escape_sed_replacement "${SERVER_NAMES:-$TLS_DOMAIN}")"
   escaped_cert_dir="$(escape_sed_replacement "$CERT_DIR")"
   escaped_acme_webroot="$(escape_sed_replacement "$ACME_WEBROOT")"
   escaped_flask_ip="$(escape_sed_replacement "$FLASK_IP")"
@@ -268,6 +314,7 @@ render_config() {
   GENERATED_CONFIG="$(mktemp)"
   sed \
     -e "s/__WALTER_DOMAIN__/$escaped_domain/g" \
+    -e "s/__WALTER_SERVER_NAMES__/$escaped_server_names/g" \
     -e "s/__WALTER_CERT_DIR__/$escaped_cert_dir/g" \
     -e "s/__WALTER_ACME_WEBROOT__/$escaped_acme_webroot/g" \
     -e "s/__WALTER_FLASK_IP__/$escaped_flask_ip/g" \
@@ -282,6 +329,27 @@ cleanup_generated_config() {
   fi
 }
 trap cleanup_generated_config EXIT
+
+
+install_nginx_support_files() {
+  if [[ ! -f "$DEFAULT_HARDENING_CONFIG" ]]; then
+    log "Nginx hardening config not found: $DEFAULT_HARDENING_CONFIG" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "$DEFAULT_SECURITY_HEADERS" ]]; then
+    log "Nginx security headers snippet not found: $DEFAULT_SECURITY_HEADERS" >&2
+    exit 1
+  fi
+
+  log "Installing Walter Nginx hardening directives to /etc/nginx/conf.d/walter-hardening.conf"
+  run_root mkdir -p /etc/nginx/conf.d
+  run_root install -m 0644 "$DEFAULT_HARDENING_CONFIG" /etc/nginx/conf.d/walter-hardening.conf
+
+  log "Installing Walter security headers snippet to /etc/nginx/snippets/security-headers.conf"
+  run_root mkdir -p /etc/nginx/snippets
+  run_root install -m 0644 "$DEFAULT_SECURITY_HEADERS" /etc/nginx/snippets/security-headers.conf
+}
 
 disable_packaged_default_site() {
   if [[ "$DISABLE_DEFAULT_SITE" -ne 1 ]]; then
@@ -307,6 +375,7 @@ disable_packaged_default_site() {
 
 load_app_config
 render_config
+install_nginx_support_files
 
 if [[ -n "$TLS_DOMAIN" ]]; then
   log "Ensuring ACME challenge webroot exists at $ACME_WEBROOT"
