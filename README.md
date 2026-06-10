@@ -50,6 +50,8 @@ letsencrypt_email: admin@example.com
 
 To test the ACME/HTTP-01 validation flow without creating or replacing certificate files, set `letsencrypt_dry_run: true` in `config.yaml`. Dry-run mode still requires a real public DNS name that points at the server, installs the temporary HTTP Nginx config needed for validation, runs Certbot with `--dry-run`, and then skips installing the TLS Nginx config because Certbot does not write live certificate files during a dry run.
 
+If Cloudflare shows **Error 525: SSL handshake failed**, verify that `tls_domain` is set to the hostname Cloudflare is proxying (for this deployment, `walter-pair.us`) and re-run `./start-server.sh` on the origin. A 525 means Cloudflare reached the origin but could not complete the TLS handshake, which is expected if the app is only serving the temporary HTTP config or if the certificate-backed HTTPS vhost was never installed. After the startup script installs or renews the Let's Encrypt certificate and renders `nginx/walter-tls.conf`, keep Cloudflare SSL/TLS mode on **Full (strict)** so Cloudflare validates the origin certificate instead of masking certificate problems.
+
 You can still manage the Nginx config manually:
 
 1) Install Nginx with the HTTP config so Certbot can complete HTTP-01 validation:

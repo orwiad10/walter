@@ -9,7 +9,7 @@ flask_port: 5000
 last_table_number: 200
 # Optional production HTTPS settings. When tls_domain is set, start-server.sh
 # checks for a Let's Encrypt certificate and requests or renews it as needed.
-# tls_domain: tournaments.example.com
+tls_domain: walter-pair.us
 # Optional comma-separated certificate/server-name aliases, for example:
 # tls_additional_domains: www.tournaments.example.com
 # letsencrypt_email: admin@example.com
