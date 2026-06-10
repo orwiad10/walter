@@ -217,6 +217,48 @@ install_http_nginx_config() {
   ensure_nginx_running
 }
 
+
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+validate_tls_additional_domains() {
+  local raw extra
+
+  if [[ -z "${TLS_ADDITIONAL_DOMAINS:-}" ]]; then
+    return 0
+  fi
+
+  IFS=',' read -ra raw <<< "$TLS_ADDITIONAL_DOMAINS"
+  for extra in "${raw[@]}"; do
+    extra="$(trim_whitespace "$extra")"
+    [[ -z "$extra" ]] && continue
+    if [[ "$extra" == *"/"* || "$extra" == *[[:space:]]* ]]; then
+      echo "tls_additional_domains entries must be DNS names, not paths or values with spaces: $extra" >&2
+      exit 1
+    fi
+  done
+}
+
+append_tls_additional_domain_args() {
+  local -n target_args=$1
+  local raw extra
+
+  if [[ -z "${TLS_ADDITIONAL_DOMAINS:-}" ]]; then
+    return 0
+  fi
+
+  IFS=',' read -ra raw <<< "$TLS_ADDITIONAL_DOMAINS"
+  for extra in "${raw[@]}"; do
+    extra="$(trim_whitespace "$extra")"
+    [[ -z "$extra" ]] && continue
+    target_args+=(-d "$extra")
+  done
+}
+
 ensure_letsencrypt_certificate() {
   if [[ "${OSTYPE:-}" != linux* ]]; then
     return 0
@@ -233,6 +275,7 @@ ensure_letsencrypt_certificate() {
   fi
 
   validate_letsencrypt_settings
+  validate_tls_additional_domains
   install_certbot
 
   local cert_dir="${TLS_CERT_DIR:-/etc/letsencrypt/live/$TLS_DOMAIN}"
@@ -241,6 +284,7 @@ ensure_letsencrypt_certificate() {
   local dry_run=0
   local fullchain="$cert_dir/fullchain.pem"
   local certbot_args=(certonly --webroot -w "$acme_webroot" -d "$TLS_DOMAIN" --non-interactive --agree-tos --keep-until-expiring)
+  append_tls_additional_domain_args certbot_args
 
   if is_truthy "${LETSENCRYPT_DRY_RUN:-false}"; then
     dry_run=1
@@ -284,7 +328,11 @@ ensure_letsencrypt_certificate() {
   fi
 
   echo "Installing TLS Nginx config for $TLS_DOMAIN..."
-  "$NGINX_INSTALL_SCRIPT" --tls-domain "$TLS_DOMAIN" --cert-dir "$cert_dir" --acme-webroot "$acme_webroot" --app-config "$CONFIG_FILE"
+  local nginx_tls_args=(--tls-domain "$TLS_DOMAIN" --cert-dir "$cert_dir" --acme-webroot "$acme_webroot" --app-config "$CONFIG_FILE")
+  if [[ -n "${TLS_ADDITIONAL_DOMAINS:-}" ]]; then
+    nginx_tls_args+=(--tls-additional-domains "$TLS_ADDITIONAL_DOMAINS")
+  fi
+  "$NGINX_INSTALL_SCRIPT" "${nginx_tls_args[@]}"
   ensure_nginx_running
 }
 
@@ -395,6 +443,7 @@ keys = [
     'flask_port',
     'tls_domain',
     'tls_cert_dir',
+    'tls_additional_domains',
     'letsencrypt_email',
     'letsencrypt_renewal_days',
     'letsencrypt_dry_run',

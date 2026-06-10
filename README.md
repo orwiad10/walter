@@ -24,7 +24,7 @@ After editing `config.yaml`, restart the app so the new settings are loaded:
 - Linux/macOS: `./restart-server.sh`
 - Windows PowerShell: `./restart-server.ps1`
 
-On Linux, `start-server.sh` installs the HTTP Nginx site automatically when `tls_domain` is blank so other computers on the LAN can browse to `http://<server-lan-ip>/` without connecting directly to the Waitress port. The installer copies the config to `/etc/nginx/sites-available` and enables it via `/etc/nginx/sites-enabled` on Debian/Ubuntu-style systems. On systems that use `/etc/nginx/conf.d`, it installs `walter.conf` there instead. It also disables the packaged default Nginx site so requests to the server IP show Walter instead of the "Welcome to nginx!" page. Use `./scripts/install_nginx_config.sh --help` to see options such as `--dry-run`, `--config`, `--site-name`, `--no-reload`, and `--keep-default-site`.
+On Linux, `start-server.sh` installs the HTTP Nginx site automatically when `tls_domain` is blank so other computers on the LAN can browse to `http://<server-lan-ip>/` without connecting directly to the Waitress port. The installer copies the config to `/etc/nginx/sites-available` and enables it via `/etc/nginx/sites-enabled` on Debian/Ubuntu-style systems. On systems that use `/etc/nginx/conf.d`, it installs `walter.conf` there instead. It also disables the packaged default Nginx site so requests to the server IP show Walter instead of the "Welcome to nginx!" page. The installer writes `nginx/walter-hardening.conf` to Nginx's `conf.d` directory to disable version tokens and writes the shared security-header snippet to `/etc/nginx/snippets/security-headers.conf`. Use `./scripts/install_nginx_config.sh --help` to see options such as `--dry-run`, `--config`, `--site-name`, `--no-reload`, and `--keep-default-site`.
 
 If LAN clients still cannot reach the app, browse to the server's LAN address on port 80 (for example, `http://192.168.1.25/`) and make sure host firewall rules allow inbound HTTP. If you see the default Nginx welcome page after installing, re-run `./scripts/install_nginx_config.sh` and confirm that Nginx reloaded successfully. If you see a `502 Bad Gateway` page instead, make sure the Waitress host and port in `config.yaml` match the upstream address in `nginx/walter.conf`; the rendered config expects Waitress at the `flask_ip` and `flask_port` values from `config.yaml`.
 
@@ -38,6 +38,8 @@ Example `config.yaml` options:
 
 ```yaml
 tls_domain: tournaments.example.com
+# Optional: also serve aliases covered by the same certificate.
+# tls_additional_domains: www.tournaments.example.com
 letsencrypt_email: admin@example.com
 # Optional overrides:
 # letsencrypt_renewal_days: 30
@@ -60,7 +62,7 @@ You can still manage the Nginx config manually:
 3) Install the TLS config rendered for your production domain:
    - `./scripts/install_nginx_config.sh --tls-domain tournaments.example.com`
 
-The TLS template lives at `nginx/walter-tls.conf`. It serves HTTPS on port 443, redirects normal HTTP traffic to HTTPS, leaves `/.well-known/acme-challenge/` available on port 80 for Let's Encrypt renewals, enables TLS 1.2 and TLS 1.3, and restricts both TLS versions to FIPS-suitable AES-GCM cipher suites. TLS 1.2 is limited to `ECDHE-ECDSA-AES256-GCM-SHA384`, `ECDHE-RSA-AES256-GCM-SHA384`, `ECDHE-ECDSA-AES128-GCM-SHA256`, and `ECDHE-RSA-AES128-GCM-SHA256`; TLS 1.3 is limited to `TLS_AES_256_GCM_SHA384` and `TLS_AES_128_GCM_SHA256`. If your certificate lives somewhere other than `/etc/letsencrypt/live/<domain>`, pass `--cert-dir /path/to/live/certdir`; if your ACME challenge webroot differs, pass `--acme-webroot /path/to/webroot`.
+The TLS template lives at `nginx/walter-tls.conf`. It serves HTTPS on port 443 only for configured hostnames, redirects HTTP traffic to the canonical `tls_domain`, rejects TLS handshakes for unknown/default hostnames, leaves `/.well-known/acme-challenge/` available on port 80 for Let's Encrypt renewals, includes security headers from `nginx/snippets/security-headers.conf`, enables TLS 1.2 and TLS 1.3, and restricts both TLS versions to FIPS-suitable AES-GCM cipher suites. TLS 1.2 is limited to `ECDHE-ECDSA-AES256-GCM-SHA384`, `ECDHE-RSA-AES256-GCM-SHA384`, `ECDHE-ECDSA-AES128-GCM-SHA256`, and `ECDHE-RSA-AES128-GCM-SHA256`; TLS 1.3 is limited to `TLS_AES_256_GCM_SHA384` and `TLS_AES_128_GCM_SHA256`. If your certificate lives somewhere other than `/etc/letsencrypt/live/<domain>`, pass `--cert-dir /path/to/live/certdir`; if your ACME challenge webroot differs, pass `--acme-webroot /path/to/webroot`. To include aliases such as `www.tournaments.example.com`, set `tls_additional_domains` in `config.yaml` or pass `--tls-additional-domains www.tournaments.example.com` to the installer; the certificate request and Nginx `server_name` list must match.
 
 ## Account verification and invites
 
