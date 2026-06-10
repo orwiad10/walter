@@ -24,6 +24,8 @@ APP_CONFIG="$DEFAULT_APP_CONFIG"
 FLASK_IP="127.0.0.1"
 FLASK_PORT="5000"
 GENERATED_CONFIG=""
+GENERATED_HARDENING_CONFIG=""
+HARDENING_CONFIG_TO_INSTALL="$DEFAULT_HARDENING_CONFIG"
 CONFIG_EXPLICIT=0
 
 usage() {
@@ -323,13 +325,71 @@ render_config() {
   CONFIG_FILE="$GENERATED_CONFIG"
 }
 
-cleanup_generated_config() {
+cleanup_generated_files() {
   if [[ -n "$GENERATED_CONFIG" && -f "$GENERATED_CONFIG" ]]; then
     rm -f "$GENERATED_CONFIG"
   fi
-}
-trap cleanup_generated_config EXIT
 
+  if [[ -n "$GENERATED_HARDENING_CONFIG" && -f "$GENERATED_HARDENING_CONFIG" ]]; then
+    rm -f "$GENERATED_HARDENING_CONFIG"
+  fi
+}
+trap cleanup_generated_files EXIT
+
+nginx_file_has_server_tokens() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*server_tokens[[:space:]]+[^;]+;/ { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$1"
+}
+
+nginx_has_existing_server_tokens() {
+  local exclude_path="/etc/nginx/conf.d/walter-hardening.conf"
+  local nginx_file
+
+  if [[ ! -d /etc/nginx ]]; then
+    return 1
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    while IFS= read -r -d '' nginx_file; do
+      if nginx_file_has_server_tokens "$nginx_file"; then
+        return 0
+      fi
+    done < <(find /etc/nginx -type f ! -path "$exclude_path" -print0)
+  elif command -v sudo >/dev/null 2>&1; then
+    while IFS= read -r -d '' nginx_file; do
+      if sudo awk '
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*server_tokens[[:space:]]+[^;]+;/ { found = 1 }
+        END { exit found ? 0 : 1 }
+      ' "$nginx_file"; then
+        return 0
+      fi
+    done < <(sudo find /etc/nginx -type f ! -path "$exclude_path" -print0)
+  fi
+
+  return 1
+}
+
+prepare_hardening_config() {
+  if nginx_has_existing_server_tokens; then
+    log "Existing Nginx server_tokens directive found; installing Walter hardening without a duplicate server_tokens directive."
+    GENERATED_HARDENING_CONFIG="$(mktemp)"
+    HARDENING_CONFIG_TO_INSTALL="$GENERATED_HARDENING_CONFIG"
+    awk '
+      /^[[:space:]]*server_tokens[[:space:]]+[^;]+;/ {
+        print "# server_tokens is already configured elsewhere in /etc/nginx."
+        next
+      }
+      { print }
+    ' "$DEFAULT_HARDENING_CONFIG" > "$GENERATED_HARDENING_CONFIG"
+    return 0
+  fi
+
+  HARDENING_CONFIG_TO_INSTALL="$DEFAULT_HARDENING_CONFIG"
+}
 
 install_nginx_support_files() {
   if [[ ! -f "$DEFAULT_HARDENING_CONFIG" ]]; then
@@ -342,9 +402,11 @@ install_nginx_support_files() {
     exit 1
   fi
 
+  prepare_hardening_config
+
   log "Installing Walter Nginx hardening directives to /etc/nginx/conf.d/walter-hardening.conf"
   run_root mkdir -p /etc/nginx/conf.d
-  run_root install -m 0644 "$DEFAULT_HARDENING_CONFIG" /etc/nginx/conf.d/walter-hardening.conf
+  run_root install -m 0644 "$HARDENING_CONFIG_TO_INSTALL" /etc/nginx/conf.d/walter-hardening.conf
 
   log "Installing Walter security headers snippet to /etc/nginx/snippets/security-headers.conf"
   run_root mkdir -p /etc/nginx/snippets
