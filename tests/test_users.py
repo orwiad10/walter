@@ -4,7 +4,7 @@ from sqlalchemy import text
 
 from app.app import db
 
-from app.models import User, Role
+from app.models import SiteLog, User, Role
 
 
 def test_user_crud(session):
@@ -230,6 +230,25 @@ def test_account_locks_after_three_bad_passwords(client, session, app):
     assert response.status_code == 200
     assert b'Account locked' in response.data
 
+
+def test_site_logs_and_current_connections_use_cf_connecting_ip(client, session):
+    from app.app import CURRENT_CONNECTIONS
+
+    CURRENT_CONNECTIONS.clear()
+    response = client.post(
+        '/login',
+        data={'email': 'missing-cf@example.com', 'password': 'wrong'},
+        headers={
+            'CF-Connecting-IP': '198.51.100.24',
+            'X-Real-IP': '172.69.151.76',
+            'X-Forwarded-For': '203.0.113.9, 172.69.151.76',
+        },
+    )
+
+    assert response.status_code == 200
+    log = session.query(SiteLog).filter_by(action='login', result='failure').order_by(SiteLog.id.desc()).first()
+    assert log.ip_address == '198.51.100.24'
+    assert any(item['ip_address'] == '198.51.100.24' for item in CURRENT_CONNECTIONS.values())
 
 def test_admin_bad_passwords_blacklist_ip_without_locking_account(client, session, app):
     app.config['ACCOUNT_LOCKOUT_ATTEMPTS'] = 3

@@ -823,12 +823,15 @@ def create_app():
         )
 
     def _client_ip():
+        cf_connecting_ip = request.headers.get('CF-Connecting-IP', '')
+        if cf_connecting_ip:
+            return cf_connecting_ip.split(',')[0].strip()
+        real_ip = request.headers.get('X-Real-IP', '')
+        if real_ip:
+            return real_ip.split(',')[0].strip()
         forwarded = request.headers.get('X-Forwarded-For', '')
         if forwarded:
             return forwarded.split(',')[0].strip()
-        real_ip = request.headers.get('X-Real-IP') or request.headers.get('CF-Connecting-IP')
-        if real_ip:
-            return real_ip.split(',')[0].strip()
         return request.remote_addr or 'unknown'
 
     def _browser_fingerprint():
