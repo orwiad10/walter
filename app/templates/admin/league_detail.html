@@ -110,7 +110,7 @@
         <td><strong>{{ row.league_points }}</strong></td>
         <td>{{ row.counted_count }}</td>
         <td>{{ row.played }}</td>
-        <td>{{ row.wins }}-{{ row.draws }}-{{ row.losses }}</td>
+        <td>{{ row.wins }}-{{ row.losses }}-{{ row.draws }}</td>
         <td>{{ row.raw_points }}</td>
       </tr>
       {% endfor %}
@@ -143,7 +143,7 @@
   <form method="post" class="panel-card modern-form">
     <input type="hidden" name="action" value="import_tournament">
     <h3>Import Tournament</h3>
-    <p class="muted-text">Imports standings points, W-D-L records, cube status, and creates missing league player assignments.</p>
+    <p class="muted-text">Imports standings points, W-L-D records, cube status, and creates missing league player assignments.</p>
     <label>Tournament
       <select name="tournament_id" required>
         <option value="">Select tournament</option>
@@ -176,7 +176,7 @@
           <td>{{ result.tournament.name }}</td>
           <td>{{ result.user.name }}</td>
           <td>{{ result.points }}</td>
-          <td>{{ result.wins }}-{{ result.draws }}-{{ result.losses }}</td>
+          <td>{{ result.wins }}-{{ result.losses }}-{{ result.draws }}</td>
           <td>{{ result.tournament.format }}</td>
           <td>{% if result.tournament.format == 'Draft' and result.tournament.is_cube %}Yes{% else %}No{% endif %}</td>
           <td><input type="text" name="archetype_{{ result.id }}" value="{{ result.deck_archetype or '' }}" placeholder="Izzet Tempo, Mono-Red..."></td>

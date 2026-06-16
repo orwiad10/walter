@@ -9,16 +9,6 @@
   <li>Current connections: {{ connections }}</li>
   <li>System uptime: {{ uptime }} seconds</li>
 </ul>
-{% if password_seed %}
-<p>Password seed: {{ password_seed }}</p>
-{% else %}
-<form method="post">
-  <label>Confirm password to reveal seed:</label>
-  <input type="password" name="password">
-  <button class="btn" type="submit">Reveal</button>
-</form>
-{% endif %}
-
 <section class="panel-card">
   <div class="section-heading"><div><h3>Backup &amp; Transfer</h3><p>Export or import tournaments, users, roles, and permission settings.</p></div></div>
   <p>Create a private JSON backup for moving data between WaLTER instances or restoring a backup.</p>
