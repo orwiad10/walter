@@ -7,6 +7,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_CONFIG="$REPO_DIR/nginx/walter.conf"
 DEFAULT_TLS_CONFIG="$REPO_DIR/nginx/walter-tls.conf"
 DEFAULT_APP_CONFIG="$REPO_DIR/config.yaml"
+SECURITY_HEADERS_SOURCE="$REPO_DIR/nginx/snippets/security-headers.conf"
 
 CONFIG_FILE="$DEFAULT_CONFIG"
 SITE_NAME="walter"
@@ -328,12 +329,21 @@ cleanup_generated_files() {
 }
 trap cleanup_generated_files EXIT
 
+install_security_headers_snippet() {
+  if [[ ! -f "$SECURITY_HEADERS_SOURCE" ]]; then
+    log "Security headers snippet not found: $SECURITY_HEADERS_SOURCE" >&2
+    exit 1
+  fi
+
+  log "Installing Walter security headers snippet to /etc/nginx/snippets/security-headers.conf"
+  run_root mkdir -p /etc/nginx/snippets
+  run_root install -m 0644 "$SECURITY_HEADERS_SOURCE" /etc/nginx/snippets/security-headers.conf
+}
+
 remove_legacy_nginx_hardening() {
   log "Removing legacy Walter Nginx hardening directives from /etc/nginx/conf.d/walter-hardening.conf"
   run_root rm -f /etc/nginx/conf.d/walter-hardening.conf
 
-  log "Removing legacy Walter security headers snippet from /etc/nginx/snippets/security-headers.conf"
-  run_root rm -f /etc/nginx/snippets/security-headers.conf
 }
 
 disable_packaged_default_site() {
@@ -361,6 +371,7 @@ disable_packaged_default_site() {
 load_app_config
 render_config
 remove_legacy_nginx_hardening
+install_security_headers_snippet
 
 if [[ -n "$TLS_DOMAIN" ]]; then
   log "Ensuring ACME challenge webroot exists at $ACME_WEBROOT"
