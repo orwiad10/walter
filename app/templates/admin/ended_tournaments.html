@@ -15,7 +15,10 @@
       {% for t in tournaments %}
       <tr>
         <td>{{ t.name }}</td><td>{{ t.format }}</td><td>{{ player_counts[t.id] }}</td><td>{{ t.ended_at }}</td>
-        <td><a class="btn ghost" href="{{ url_for('view_tournament', tid=t.id) }}">Open</a></td>
+        <td>
+          <a class="btn ghost" href="{{ url_for('view_tournament', tid=t.id) }}">Open</a>
+          <form method="post" action="{{ url_for('reopen_tournament', tid=t.id) }}" class="inline-form" onsubmit="return confirm('Reopen this tournament?');"><button class="btn secondary" type="submit">Reopen</button></form>
+        </td>
       </tr>
       {% endfor %}
     </tbody>

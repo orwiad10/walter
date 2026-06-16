@@ -213,6 +213,9 @@ img {
   transform: translateY(-10px);
   transition: opacity 0.18s ease, transform 0.18s ease;
   z-index: 20;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .dropdown-menu.open {
@@ -1122,6 +1125,11 @@ ul.flashes {
   margin-bottom: 24px;
 }
 
+.inline-form {
+  display: inline-flex;
+  margin: 0;
+}
+
 .inline-form-divider {
   text-align:center;
   margin:12px 0;
@@ -1203,6 +1211,9 @@ ul.flashes {
     padding: 20px;
     box-shadow: var(--shadow-soft);
     display: none;
+    max-height: calc(100vh - var(--nav-height) - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .app-nav.open {
     display: block;
@@ -1234,6 +1245,9 @@ ul.flashes {
     background: rgba(15, 23, 42, 0.95);
     display: none;
     gap: 8px;
+    max-height: min(55vh, 420px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .nav-item.open .dropdown-menu {
     display: flex;

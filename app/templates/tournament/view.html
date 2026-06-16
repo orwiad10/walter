@@ -11,6 +11,13 @@
     <a class="btn ghost" href="{{ url_for('assign_judges', tid=t.id) }}">Assign Judges</a>
     {% endif %}
     {% if show_passcode %}<span class="metric-pill">Passcode {{ t.passcode }}</span>{% endif %}
+    {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
+      {% if t.ended_at or t.manually_completed %}
+      <form method="post" action="{{ url_for('reopen_tournament', tid=t.id) }}" onsubmit="return confirm('Reopen this tournament?');"><button class="btn ghost" type="submit">Reopen</button></form>
+      {% else %}
+      <form method="post" action="{{ url_for('complete_tournament', tid=t.id) }}" onsubmit="return confirm('Mark this tournament complete?');"><button class="btn" type="submit">Mark Complete</button></form>
+      {% endif %}
+    {% endif %}
   </div>
 </section>
 

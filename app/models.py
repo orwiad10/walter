@@ -337,6 +337,7 @@ class Tournament(db.Model):
     start_time = db.Column(db.DateTime, nullable=True)
     started_at = db.Column(db.DateTime, nullable=True)
     ended_at = db.Column(db.DateTime, nullable=True)
+    manually_completed = db.Column(db.Boolean, default=False)
     # Judge assignments
     head_judge_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     floor_judges = db.Column(db.Text, default='[]')  # store list of user ids as JSON
