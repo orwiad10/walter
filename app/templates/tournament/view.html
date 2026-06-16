@@ -556,6 +556,7 @@ Sideboard
       {% if can_view_player_decks %}
       <th>Deck</th>
       {% endif %}
+      {% if current_user.has_permission('tournaments.manage') %}<th>Admin</th>{% endif %}
     </tr>
   </thead>
   <tbody>
@@ -580,6 +581,17 @@ Sideboard
         {% else %}
         <span class="deck-status deck-status-draft">No deck submitted</span>
         {% endif %}
+      </td>
+      {% endif %}
+      {% if current_user.has_permission('tournaments.manage') %}
+      <td>
+        <form method="post" action="{{ url_for('replace_tournament_player', tid=t.id, player_id=p.id) }}" class="inline-form">
+          <select name="replacement_user_id" required>
+            <option value="">Replace with...</option>
+            {% for user in available_users %}<option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}
+          </select>
+          <button class="btn ghost" type="submit">Replace</button>
+        </form>
       </td>
       {% endif %}
     </tr>

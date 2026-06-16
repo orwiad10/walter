@@ -758,6 +758,33 @@ def create_app():
         return render_template('index.html', tournaments=visible_tournaments, player_counts=player_counts,
                                server_now=datetime.utcnow())
 
+
+    @app.route('/home')
+    @login_required
+    def login_home():
+        active_count = db.session.query(Tournament).filter(Tournament.ended_at.is_(None)).count()
+        my_tournament_count = db.session.query(TournamentPlayer).filter_by(user_id=current_user.id).count()
+        my_league_count = db.session.query(LeaguePlayer).filter_by(user_id=current_user.id).count()
+        return render_template(
+            'home.html',
+            active_count=active_count,
+            my_tournament_count=my_tournament_count,
+            my_league_count=my_league_count,
+        )
+
+    @app.route('/admin/tournaments/ended')
+    @login_required
+    def ended_tournaments():
+        require_permission('tournaments.manage')
+        tournaments = (
+            db.session.query(Tournament)
+            .filter(Tournament.ended_at.isnot(None))
+            .order_by(Tournament.ended_at.desc(), Tournament.created_at.desc())
+            .all()
+        )
+        player_counts = {t.id: len(t.players) for t in tournaments}
+        return render_template('admin/ended_tournaments.html', tournaments=tournaments, player_counts=player_counts)
+
     def _send_mailgun_email(to_email, subject, text):
         api_key = app.config.get('MAILGUN_API_KEY')
         domain = app.config.get('MAILGUN_DOMAIN')
@@ -1234,9 +1261,7 @@ def create_app():
                     return redirect(post_login_url)
                 if next_url:
                     return redirect(url_for('index'))
-                if u.role and u.role.level < DEFAULT_ROLE_LEVELS.get('user', 500):
-                    return redirect(url_for('venue_management'))
-                return redirect(url_for('my_tournaments'))
+                return redirect(url_for('login_home'))
             bad_login_result = 'bad_password' if u else 'unknown_user'
             try:
                 _record_bad_login(email, u, bad_login_result)
@@ -2396,6 +2421,11 @@ def create_app():
         join_requests = db.session.query(TournamentJoinRequest).order_by(TournamentJoinRequest.id).all()
         league_players = db.session.query(LeaguePlayer).order_by(LeaguePlayer.id).all()
         league_results = db.session.query(LeagueResult).order_by(LeagueResult.id).all()
+        league_cubes = db.session.query(LeagueCube).order_by(LeagueCube.id).all()
+        league_play_dates = db.session.query(LeaguePlayDate).order_by(LeaguePlayDate.id).all()
+        league_play_date_cubes = db.session.query(LeaguePlayDateCube).order_by(LeaguePlayDateCube.id).all()
+        league_cube_votes = db.session.query(LeagueCubeVote).order_by(LeagueCubeVote.id).all()
+        registration_invites = db.session.query(RegistrationInvite).order_by(RegistrationInvite.id).all()
 
         return {
             'format': BACKUP_FORMAT,
@@ -2441,6 +2471,7 @@ def create_app():
                     'start_date': iso_date(l.start_date),
                     'end_date': iso_date(l.end_date),
                     'created_at': iso_datetime(l.created_at),
+                    'is_cube_league': bool(l.is_cube_league),
                 }
                 for l in leagues
             ],
@@ -2598,6 +2629,26 @@ def create_app():
                 }
                 for m in matches if m.round_id in round_ids
             ],
+            'registration_invites': [
+                {
+                    'id': i.id, 'email': i.email, 'token_hash': i.token_hash,
+                    'created_by_id': i.created_by_id, 'created_at': iso_datetime(i.created_at),
+                    'expires_at': iso_datetime(i.expires_at), 'used_at': iso_datetime(i.used_at),
+                    'used_by_id': i.used_by_id, 'status': i.status,
+                } for i in registration_invites
+            ],
+            'league_cubes': [
+                {'id': c.id, 'league_id': c.league_id, 'cube_cobra_url': c.cube_cobra_url, 'title': c.title, 'image_url': c.image_url, 'created_at': iso_datetime(c.created_at)} for c in league_cubes
+            ],
+            'league_play_dates': [
+                {'id': d.id, 'league_id': d.league_id, 'play_date': iso_date(d.play_date), 'is_active': bool(d.is_active), 'created_at': iso_datetime(d.created_at)} for d in league_play_dates
+            ],
+            'league_play_date_cubes': [
+                {'id': x.id, 'play_date_id': x.play_date_id, 'cube_id': x.cube_id} for x in league_play_date_cubes
+            ],
+            'league_cube_votes': [
+                {'id': v.id, 'league_id': v.league_id, 'play_date_id': v.play_date_id, 'cube_id': v.cube_id, 'user_id': v.user_id, 'votes': v.votes, 'updated_at': iso_datetime(v.updated_at)} for v in league_cube_votes
+            ],
             'league_results': [
                 {
                     'id': lr.id,
@@ -2676,7 +2727,7 @@ def create_app():
         if payload.get('version') != 1:
             raise ValueError('Unsupported backup version.')
 
-        counts = {key: 0 for key in ['roles', 'users', 'leagues', 'venues', 'vendors', 'artists', 'tournaments', 'players', 'decks', 'join_requests', 'rounds', 'matches', 'league_players', 'league_results']}
+        counts = {key: 0 for key in ['roles', 'users', 'leagues', 'venues', 'vendors', 'artists', 'tournaments', 'players', 'decks', 'join_requests', 'rounds', 'matches', 'league_players', 'league_results', 'league_cubes', 'league_play_dates', 'league_play_date_cubes', 'league_cube_votes', 'registration_invites']}
         role_map = {}
         user_map = {}
         league_map = {}
@@ -2684,6 +2735,8 @@ def create_app():
         venue_map = {}
         player_map = {}
         round_map = {}
+        cube_map = {}
+        play_date_map = {}
 
         for item in payload.get('roles', []):
             name = (item.get('name') or '').strip()
@@ -2750,6 +2803,7 @@ def create_app():
                 league.start_date = parse_iso_date(item.get('start_date'))
                 league.end_date = parse_iso_date(item.get('end_date'))
                 league.created_at = parse_iso_datetime(item.get('created_at')) or league.created_at
+                league.is_cube_league = bool(item.get('is_cube_league'))
                 counts['leagues'] += 1
             league_map[item.get('id')] = league
         db.session.flush()
@@ -2879,6 +2933,28 @@ def create_app():
             player_map[item.get('id')] = player
         db.session.flush()
 
+        for item in payload.get('registration_invites', []):
+            email = (item.get('email') or '').strip().lower()
+            token_hash = item.get('token_hash')
+            creator = user_map.get(item.get('created_by_id'))
+            if not email or not token_hash or not creator:
+                continue
+            invite = db.session.query(RegistrationInvite).filter_by(token_hash=token_hash).first()
+            is_new = invite is None
+            if is_new:
+                invite = RegistrationInvite(email=email, token_hash=token_hash, created_by=creator)
+                db.session.add(invite)
+            if overwrite or is_new:
+                invite.email = email
+                invite.created_by = creator
+                invite.created_at = parse_iso_datetime(item.get('created_at')) or invite.created_at
+                invite.expires_at = parse_iso_datetime(item.get('expires_at'))
+                invite.used_at = parse_iso_datetime(item.get('used_at'))
+                invite.used_by = user_map.get(item.get('used_by_id'))
+                invite.status = item.get('status') or invite.status
+                counts['registration_invites'] += 1
+        db.session.flush()
+
         for item in payload.get('league_players', []):
             league = league_map.get(item.get('league_id'))
             user = user_map.get(item.get('user_id'))
@@ -2980,6 +3056,71 @@ def create_app():
                     match.result.p4_place = result_data.get('p4_place')
                     match.result.is_draw = bool(result_data.get('is_draw'))
                 counts['matches'] += 1
+        db.session.flush()
+
+        for item in payload.get('league_cubes', []):
+            league = league_map.get(item.get('league_id'))
+            title = (item.get('title') or '').strip()
+            url = (item.get('cube_cobra_url') or '').strip()
+            if not league or not title or not url:
+                continue
+            cube = db.session.query(LeagueCube).filter_by(league_id=league.id, cube_cobra_url=url).first()
+            is_new = cube is None
+            if is_new:
+                cube = LeagueCube(league=league, cube_cobra_url=url, title=title)
+                db.session.add(cube)
+            if overwrite or is_new:
+                cube.title = title
+                cube.image_url = item.get('image_url')
+                cube.created_at = parse_iso_datetime(item.get('created_at')) or cube.created_at
+                counts['league_cubes'] += 1
+            cube_map[item.get('id')] = cube
+        db.session.flush()
+
+        for item in payload.get('league_play_dates', []):
+            league = league_map.get(item.get('league_id'))
+            date_value = parse_iso_date(item.get('play_date'))
+            if not league or not date_value:
+                continue
+            play_date = db.session.query(LeaguePlayDate).filter_by(league_id=league.id, play_date=date_value).first()
+            is_new = play_date is None
+            if is_new:
+                play_date = LeaguePlayDate(league=league, play_date=date_value)
+                db.session.add(play_date)
+            if overwrite or is_new:
+                play_date.is_active = bool(item.get('is_active'))
+                play_date.created_at = parse_iso_datetime(item.get('created_at')) or play_date.created_at
+                counts['league_play_dates'] += 1
+            play_date_map[item.get('id')] = play_date
+        db.session.flush()
+
+        for item in payload.get('league_play_date_cubes', []):
+            play_date = play_date_map.get(item.get('play_date_id'))
+            cube = cube_map.get(item.get('cube_id'))
+            if not play_date or not cube:
+                continue
+            link = db.session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id, cube_id=cube.id).first()
+            if not link:
+                db.session.add(LeaguePlayDateCube(play_date=play_date, cube=cube))
+                counts['league_play_date_cubes'] += 1
+        db.session.flush()
+
+        for item in payload.get('league_cube_votes', []):
+            league = league_map.get(item.get('league_id'))
+            play_date = play_date_map.get(item.get('play_date_id'))
+            cube = cube_map.get(item.get('cube_id'))
+            user = user_map.get(item.get('user_id'))
+            if not league or not play_date or not cube or not user:
+                continue
+            vote = db.session.query(LeagueCubeVote).filter_by(play_date_id=play_date.id, cube_id=cube.id, user_id=user.id).first()
+            is_new = vote is None
+            if is_new:
+                vote = LeagueCubeVote(league=league, play_date=play_date, cube=cube, user=user)
+                db.session.add(vote)
+            if overwrite or is_new:
+                vote.votes = item.get('votes') or 0
+                vote.updated_at = parse_iso_datetime(item.get('updated_at')) or vote.updated_at
+                counts['league_cube_votes'] += 1
         db.session.flush()
 
         for item in payload.get('league_results', []):
@@ -3856,8 +3997,6 @@ def create_app():
             league = League(name=name, start_date=start_date, end_date=end_date, is_cube_league=bool(request.form.get('is_cube_league')))
             db.session.add(league)
             db.session.flush()
-            for user_id in request.form.getlist('player_ids'):
-                db.session.add(LeaguePlayer(league_id=league.id, user_id=int(user_id)))
             tournament_id = request.form.get('tournament_id')
             if tournament_id:
                 tournament = db.session.get(Tournament, int(tournament_id))
@@ -4244,17 +4383,26 @@ def create_app():
         invites = db.session.query(RegistrationInvite).order_by(RegistrationInvite.created_at.desc()).all()
         return render_template('admin/registration_invites.html', invites=invites)
 
+    @app.route('/admin/registration-invites/<int:invite_id>/revoke', methods=['POST'])
+    @login_required
+    def revoke_registration_invite(invite_id):
+        require_permission('admin.site_settings')
+        invite = db.session.get(RegistrationInvite, invite_id)
+        if not invite:
+            abort(404)
+        if invite.used_at or invite.status == 'used':
+            flash('Used invites cannot be revoked.', 'error')
+        else:
+            invite.status = 'revoked'
+            db.session.commit()
+            log_site('registration_invite_revoke', 'success', f'invite_id={invite.id}; email={invite.email}')
+            flash('Registration invite revoked.', 'success')
+        return redirect(url_for('admin_registration_invites'))
+
     @app.route('/admin/panel', methods=['GET', 'POST'])
     def admin_panel():
         require_admin()
         log_site('view_admin_panel', 'success')
-        password_seed = None
-        if request.method == 'POST':
-            if current_user.check_password(request.form.get('password', '')):
-                password_seed = PASSWORD_SEED
-                log_site('reveal_password_seed', 'success')
-            else:
-                log_site('reveal_password_seed', 'failure')
         process = psutil.Process(os.getpid())
         db_path = db.engine.url.database
         db_size = os.path.getsize(db_path) if db_path and os.path.exists(db_path) else 0
@@ -4278,7 +4426,6 @@ def create_app():
             cpu_usage=cpu_usage,
             connections=connections,
             uptime=uptime_seconds,
-            password_seed=password_seed,
         )
 
     @app.route('/admin/backup', methods=['GET', 'POST'])
@@ -5182,6 +5329,35 @@ def create_app():
         db.session.commit()
         log_tournament(tid, 'add_player_inline', 'success', f'user_id={player.id}')
         flash('Player added to tournament.', 'success')
+        return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/players/<int:player_id>/replace', methods=['POST'])
+    @login_required
+    def replace_tournament_player(tid, player_id):
+        require_permission('tournaments.manage')
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        entry = db.session.get(TournamentPlayer, player_id)
+        if not entry or entry.tournament_id != tid:
+            abort(404)
+        try:
+            replacement_user_id = int(request.form.get('replacement_user_id') or 0)
+        except (TypeError, ValueError):
+            replacement_user_id = 0
+        replacement = db.session.get(User, replacement_user_id)
+        if not replacement:
+            flash('Choose a replacement player.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        existing = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, user_id=replacement.id).first()
+        if existing and existing.id != entry.id:
+            flash('Replacement player is already in this tournament.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        old_user_id = entry.user_id
+        entry.user_id = replacement.id
+        db.session.commit()
+        log_tournament(tid, 'replace_player', 'success', f'old_user_id={old_user_id}; new_user_id={replacement.id}; ended={bool(t.ended_at)}')
+        flash('Tournament player replaced.', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/logs')

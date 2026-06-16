@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">Tournament Tools</span>
+    <h2>Ended Tournaments</h2>
+    <p class="page-description">Review tournaments that have been marked ended.</p>
+  </div>
+</section>
+<section class="panel-card">
+  {% if tournaments %}
+  <table class="table compact-table">
+    <thead><tr><th>Name</th><th>Format</th><th>Players</th><th>Ended</th><th></th></tr></thead>
+    <tbody>
+      {% for t in tournaments %}
+      <tr>
+        <td>{{ t.name }}</td><td>{{ t.format }}</td><td>{{ player_counts[t.id] }}</td><td>{{ t.ended_at }}</td>
+        <td><a class="btn ghost" href="{{ url_for('view_tournament', tid=t.id) }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="empty-state">No ended tournaments yet.</p>{% endif %}
+</section>
+{% endblock %}

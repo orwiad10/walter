@@ -10,7 +10,7 @@
 
 {% if play_dates %}
 <form method="post" class="cube-vote-form">
-  {% for play_date in play_dates %}
+  {% for play_date in play_dates if play_date.is_active %}
     {% set available = available_cube_ids.get(play_date.id, []) %}
     <section class="panel-card">
       <div class="section-heading"><div><h3>{{ play_date.play_date }}</h3><p>{% if play_date.is_active %}Voting open — use up to 3 votes for this date.{% else %}Voting is closed for this date.{% endif %}</p></div></div>

@@ -20,7 +20,7 @@
   <h3>Invite Log</h3>
   {% if invites %}
   <table class="table compact-table">
-    <thead><tr><th>Email</th><th>Status</th><th>Sent</th><th>Expires</th><th>Used</th><th>Admin</th></tr></thead>
+    <thead><tr><th>Email</th><th>Status</th><th>Sent</th><th>Expires</th><th>Used</th><th>Admin</th><th>Actions</th></tr></thead>
     <tbody>
       {% for invite in invites %}
       <tr>
@@ -30,6 +30,7 @@
         <td>{{ invite.expires_at or '-' }}</td>
         <td>{{ invite.used_at or '-' }}</td>
         <td>{{ invite.created_by.name if invite.created_by else '-' }}</td>
+        <td>{% if not invite.used_at and invite.status == 'sent' %}<form method="post" action="{{ url_for('revoke_registration_invite', invite_id=invite.id) }}"><button class="btn danger" type="submit">Revoke</button></form>{% else %}-{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

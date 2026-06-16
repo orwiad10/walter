@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">Account Home</span>
+    <h2>Welcome, {{ current_user.name }}</h2>
+    <p class="page-description">Choose where you want to go next. This login screen is separate from the tournaments landing page.</p>
+  </div>
+</section>
+<section class="stats-grid">
+  <div class="stat-card"><span>Active tournaments</span><strong>{{ active_count }}</strong></div>
+  <div class="stat-card"><span>My tournaments</span><strong>{{ my_tournament_count }}</strong></div>
+  <div class="stat-card"><span>My leagues</span><strong>{{ my_league_count }}</strong></div>
+</section>
+<section class="panel-card">
+  <div class="form-actions start-actions">
+    <a class="btn" href="{{ url_for('my_tournaments') }}">My Tournaments</a>
+    <a class="btn ghost" href="{{ url_for('index') }}">All Active Tournaments</a>
+    <a class="btn ghost" href="{{ url_for('my_leagues') }}">My Leagues</a>
+    {% if current_user.has_permission('tournaments.manage') %}<a class="btn ghost" href="{{ url_for('ended_tournaments') }}">Ended Tournaments</a>{% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -34,13 +34,6 @@
         {% endfor %}
       </select>
     </label>
-    <label class="wide-field">Assign players
-      <select name="player_ids" multiple size="8">
-        {% for user in users %}
-        <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
     <div class="form-actions wide-field start-actions">
       <button class="btn" type="submit">Create League</button>
     </div>
