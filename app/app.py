@@ -147,7 +147,7 @@ def fetch_cube_cobra_metadata(raw_url):
                 )
     except Exception:
         title = title
-    title = re.sub(r'\s*[|\-]\s*Cube Cobra\s*$', '', title, flags=re.I).strip() or 'Cube Cobra Cube'
+    title = re.sub(r'\s*[|\-]\s*Cube Cobra(?:\s+List)?\s*$', '', title, flags=re.I).strip() or 'Cube Cobra Cube'
     if image_url:
         image_url = urllib.parse.urljoin(url, image_url)
     return url, title[:250], image_url
@@ -310,6 +310,10 @@ def create_app():
                 db.session.commit()
             if 'ended_at' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN ended_at DATETIME'))
+                db.session.commit()
+            if 'manually_completed' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN manually_completed BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE tournament SET manually_completed=0 WHERE manually_completed IS NULL'))
                 db.session.commit()
         if 'user' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('user')]
@@ -661,7 +665,7 @@ def create_app():
     def tournament_is_complete(tournament):
         players = list(getattr(tournament, 'players', []) or [])
         rounds = sorted(list(getattr(tournament, 'rounds', []) or []), key=lambda r: r.number)
-        if getattr(tournament, 'ended_at', None):
+        if getattr(tournament, 'ended_at', None) or getattr(tournament, 'manually_completed', False):
             return True
         if not rounds:
             return False
@@ -2539,6 +2543,9 @@ def create_app():
                     'draft_time': t.draft_time,
                     'deck_build_time': t.deck_build_time,
                     'start_time': iso_datetime(t.start_time),
+                    'started_at': iso_datetime(t.started_at),
+                    'ended_at': iso_datetime(t.ended_at),
+                    'manually_completed': bool(t.manually_completed),
                     'head_judge_id': t.head_judge_id,
                     'floor_judges': t.floor_judge_ids(),
                     'round_timer_end': iso_datetime(t.round_timer_end),
@@ -2895,6 +2902,9 @@ def create_app():
                 tournament.draft_time = item.get('draft_time')
                 tournament.deck_build_time = item.get('deck_build_time')
                 tournament.start_time = parse_iso_datetime(item.get('start_time'))
+                tournament.started_at = parse_iso_datetime(item.get('started_at'))
+                tournament.ended_at = parse_iso_datetime(item.get('ended_at'))
+                tournament.manually_completed = bool(item.get('manually_completed'))
                 tournament.head_judge = user_map.get(item.get('head_judge_id'))
                 floor_ids = [user_map[uid].id for uid in item.get('floor_judges') or [] if uid in user_map and user_map[uid].id]
                 tournament.floor_judges = json.dumps(floor_ids)
@@ -4708,6 +4718,38 @@ def create_app():
 
         flash(f'Bulk action applied to {count} tournament' + ('s' if count != 1 else '') + '.', 'success')
         return redirect(url_for('index'))
+
+    @app.route('/admin/tournaments/<int:tid>/complete', methods=['POST'])
+    def complete_tournament(tid):
+        require_permission('tournaments.manage')
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        now = datetime.utcnow()
+        t.manually_completed = True
+        t.ended_at = t.ended_at or now
+        t.round_timer_end = None
+        t.draft_timer_end = None
+        t.deck_timer_end = None
+        db.session.commit()
+        flash('Tournament marked complete.', 'success')
+        log_site('complete_tournament', 'success', f'tournament_id={tid}')
+        log_tournament(tid, 'complete', 'success')
+        return redirect(request.referrer or url_for('index'))
+
+    @app.route('/admin/tournaments/<int:tid>/reopen', methods=['POST'])
+    def reopen_tournament(tid):
+        require_permission('tournaments.manage')
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        t.manually_completed = False
+        t.ended_at = None
+        db.session.commit()
+        flash('Tournament reopened.', 'success')
+        log_site('reopen_tournament', 'success', f'tournament_id={tid}')
+        log_tournament(tid, 'reopen', 'success')
+        return redirect(request.referrer or url_for('view_tournament', tid=tid))
 
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):

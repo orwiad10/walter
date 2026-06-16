@@ -11,14 +11,6 @@
     <a class="btn secondary" href="{{ url_for('register') }}">Create Account</a>
   </div>
 </section>
-<section class="panel-card">
-  <div class="section-heading">
-    <div>
-      <h3>Tournament information is private</h3>
-      <p>Active tournaments are only shown after you log in.</p>
-    </div>
-  </div>
-</section>
 {% else %}
 <section class="page-header">
   <div class="page-header__title">
@@ -37,6 +29,7 @@
 {% if can_manage_tournaments %}
   {% for t in tournaments %}
   <form id="delete-tournament-form-{{ t.id }}" method="post" action="{{ url_for('delete_tournament', tid=t.id) }}" onsubmit="return confirm('Delete this tournament?');"></form>
+  <form id="complete-tournament-form-{{ t.id }}" method="post" action="{{ url_for('complete_tournament', tid=t.id) }}" onsubmit="return confirm('Mark this tournament complete?');"></form>
   {% endfor %}
 {% endif %}
 {% if can_bulk_edit %}
@@ -83,6 +76,7 @@
       {% if can_manage_tournaments %}
       <div class="card-actions">
         <a class="btn secondary" href="{{ url_for('edit_tournament', tid=t.id) }}">Edit</a>
+        <button form="complete-tournament-form-{{ t.id }}" class="btn" type="submit">Mark Complete</button>
         <button form="delete-tournament-form-{{ t.id }}" class="btn danger" type="submit">Delete</button>
       </div>
       {% endif %}

@@ -413,7 +413,7 @@ def test_anonymous_home_hides_tournaments(client, session):
 
     assert response.status_code == 200
     assert b'Private Event' not in response.data
-    assert b'Tournament information is private' in response.data
+    assert b'Tournament information is private' not in response.data
 
 
 def test_authenticated_home_shows_tournaments(client, session):
