@@ -19,7 +19,7 @@
 
 
 <section class="panel-card">
-  <div class="section-heading"><div><h3>League Settings</h3><p>Mark cube leagues to enable Cube Cobra previews, play dates, and member voting.</p></div></div>
+  <div class="section-heading"><div><h3>League Settings</h3><p>Mark cube leagues to enable Cube Cobra previews, League Events, and member voting.</p></div></div>
   <form method="post" class="modern-form grid-form">
     <input type="hidden" name="action" value="update_settings">
     <label class="checkbox-label wide-field"><input type="checkbox" name="is_cube_league" value="1" {% if league.is_cube_league %}checked{% endif %}> Cube league</label>
@@ -53,22 +53,21 @@
 </section>
 
 <section class="panel-card">
-  <div class="section-heading"><div><h3>Play Dates &amp; Voting Ballots</h3><p>Admins choose the play dates and which cubes are available for members to vote on. Members can spend up to 3 votes per date.</p></div></div>
+  <div class="section-heading"><div><h3>League Events &amp; Voting Ballots</h3><p>Admins choose the League Events and which cubes are available for members to vote on. Members can spend up to 3 votes per event.</p></div></div>
   <form method="post" class="modern-form grid-form">
     <input type="hidden" name="action" value="add_play_date">
-    <label>Play date <input type="date" name="play_date" required></label>
+    <label>League Event <input type="date" name="play_date" required></label>
     <label class="checkbox-label"><input type="checkbox" name="is_active" value="1" checked> Open for voting</label>
     <label class="wide-field">Cubes available for vote
       <select name="cube_ids" multiple size="6">
         {% for cube in cubes %}<option value="{{ cube.id }}">{{ cube.title }}</option>{% endfor %}
       </select>
     </label>
-    <div class="form-actions wide-field start-actions"><button class="btn" type="submit">Add Play Date</button></div>
+    <div class="form-actions wide-field start-actions"><button class="btn" type="submit">Add League Event</button></div>
   </form>
   {% if play_dates %}
     {% for play_date in play_dates %}
     <form method="post" class="league-play-date-form">
-      <input type="hidden" name="action" value="update_play_date">
       <input type="hidden" name="play_date_id" value="{{ play_date.id }}">
       <h4>{{ play_date.play_date }}{% if not play_date.is_active %} <span class="status-pill warning">closed</span>{% endif %}</h4>
       <label class="checkbox-label"><input type="checkbox" name="is_active" value="1" {% if play_date.is_active %}checked{% endif %}> Open for voting</label>
@@ -77,10 +76,13 @@
           {% for cube in cubes %}<option value="{{ cube.id }}" {% if cube.id in available_cube_ids.get(play_date.id, []) %}selected{% endif %}>{{ cube.title }} — {{ cube_vote_totals.get((play_date.id, cube.id), 0) }} votes</option>{% endfor %}
         </select>
       </label>
-      <button class="btn ghost" type="submit">Save Ballot</button>
+      <div class="form-actions start-actions">
+        <button class="btn ghost" type="submit" name="action" value="update_play_date">Save Ballot</button>
+        <button class="btn danger" type="submit" name="action" value="delete_play_date" onclick="return confirm('Remove this League Event? This will delete its ballot and votes.');">Remove League Event</button>
+      </div>
     </form>
     {% endfor %}
-  {% else %}<p class="empty-state">No play dates have been configured yet.</p>{% endif %}
+  {% else %}<p class="empty-state">No League Events have been configured yet.</p>{% endif %}
 </section>
 {% endif %}
 
