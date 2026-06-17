@@ -191,3 +191,36 @@ def test_cube_league_vote_totals_update_when_votes_change(client, session):
     assert b'Total votes: 3' in response.data
     votes = session.query(LeagueCubeVote).order_by(LeagueCubeVote.cube_id).all()
     assert [(vote.cube_id, vote.votes) for vote in votes] == [(second.id, 3)]
+
+
+def test_cube_cobra_titles_drop_list_prefix():
+    from app.app import clean_cube_cobra_title
+
+    assert clean_cube_cobra_title('Cube Cobra List: FirstCube') == 'FirstCube'
+    assert clean_cube_cobra_title('Food Fight - Cube Cobra List') == 'Food Fight'
+
+
+def test_cube_cobra_images_use_local_proxy(client, session):
+    player = _user(session, 'cube-image@example.com', 'Cube Image')
+    league = League(name='Image League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    session.add(LeaguePlayer(league_id=league.id, user_id=player.id))
+    cube = LeagueCube(
+        league_id=league.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/alpha',
+        title='Alpha Cube',
+        image_url='https://cubecobra.com/content/alpha.png',
+    )
+    play_date = LeaguePlayDate(league_id=league.id, play_date=date(2026, 7, 1), is_active=True)
+    session.add_all([cube, play_date])
+    session.flush()
+    session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+    session.commit()
+
+    assert client.post('/login', data={'email': player.email, 'password': 'secret'}).status_code == 302
+    response = client.get(f'/leagues/{league.id}/cubes')
+
+    assert response.status_code == 200
+    assert b'/cube-cobra-image?url=https://cubecobra.com/content/alpha.png' in response.data
+    assert b'referrerpolicy="no-referrer"' in response.data
