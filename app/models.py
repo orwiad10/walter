@@ -6,6 +6,7 @@ import uuid
 import os
 import json
 import secrets
+import hashlib
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -34,6 +35,7 @@ PERMISSION_GROUPS = {
         'login_audit': 'Audit failed login attempts',
         'ip_blacklist': 'Manage blacklisted IP addresses',
         'site_settings': 'Manage site settings and registration invites',
+        'api_keys': 'Create API keys',
     },
 }
 
@@ -125,6 +127,7 @@ class User(db.Model, UserMixin):
     failed_login_count = db.Column(db.Integer, nullable=False, default=0)
     locked_at = db.Column(db.DateTime, nullable=True)
     lock_reason = db.Column(db.Text, nullable=True)
+    color_mode = db.Column(db.String(10), nullable=False, default='light')
 
     def set_password(self, pw, *, unlock=True):
         self.salt = 'werkzeug'
@@ -191,6 +194,39 @@ class User(db.Model, UserMixin):
         if not self.role:
             return False
         return self.role.permissions_dict().get(key, False)
+
+
+class ApiKey(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    key_hash = db.Column(db.String(64), unique=True, nullable=False)
+    prefix = db.Column(db.String(16), nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('api_keys', cascade='all, delete-orphan'))
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+
+    @staticmethod
+    def hash_token(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    @classmethod
+    def create_token(cls):
+        return 'wlt_' + secrets.token_urlsafe(32)
+
+    @classmethod
+    def from_token(cls, token, user, name, created_by=None):
+        return cls(
+            user=user,
+            name=name,
+            key_hash=cls.hash_token(token),
+            prefix=token[:12],
+            created_by=created_by,
+        )
 
 
 class BadLoginAttempt(db.Model):
