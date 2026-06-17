@@ -62,6 +62,10 @@ PASSWORD_SEED = None
 CURRENT_CONNECTIONS = OrderedDict()
 CUBE_COBRA_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 CUBE_COBRA_FALLBACK_IMAGE_URL = 'https://assets.cubecobra.com/content/sticker.png'
+CUBE_PREVIEW_IMAGE_HOSTS = {
+    'cubecobra.com',
+    'scryfall.io',
+}
 
 MAJOR_60_CARD_FORMATS = [
     'Standard',
@@ -130,6 +134,15 @@ def clean_cube_cobra_title(raw_title):
         title = re.sub(r'\s*[|\-]\s*Cube Cobra(?:\s+List)?\s*$', '', title, flags=re.I)
         title = title.strip()
     return title or 'Cube Cobra Cube'
+
+
+def is_allowed_cube_preview_image_url(image_url):
+    parsed = urllib.parse.urlparse(image_url)
+    host = (parsed.hostname or '').lower()
+    return parsed.scheme == 'https' and any(
+        host == allowed_host or host.endswith(f'.{allowed_host}')
+        for allowed_host in CUBE_PREVIEW_IMAGE_HOSTS
+    )
 
 
 def fetch_cube_cobra_metadata(raw_url):
@@ -1908,11 +1921,7 @@ def create_app():
     @login_required
     def cube_cobra_image():
         image_url = request.args.get('url', '').strip()
-        parsed = urllib.parse.urlparse(image_url)
-        host = (parsed.hostname or '').lower()
-        if parsed.scheme != 'https' or not (
-            host == 'cubecobra.com' or host.endswith('.cubecobra.com')
-        ):
+        if not is_allowed_cube_preview_image_url(image_url):
             abort(404)
         try:
             req = urllib.request.Request(
