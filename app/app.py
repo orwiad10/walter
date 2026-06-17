@@ -119,6 +119,13 @@ def normalize_cube_cobra_url(raw_url):
     return urllib.parse.urlunparse(('https', parsed.netloc, parsed.path, '', parsed.query, ''))
 
 
+def clean_cube_cobra_title(raw_title):
+    title = (raw_title or '').strip()
+    title = re.sub(r'^\s*Cube Cobra(?:\s+List)?\s*:\s*', '', title, flags=re.I)
+    title = re.sub(r'\s*[|\-]\s*Cube Cobra(?:\s+List)?\s*$', '', title, flags=re.I)
+    return title.strip() or 'Cube Cobra Cube'
+
+
 def fetch_cube_cobra_metadata(raw_url):
     url = normalize_cube_cobra_url(raw_url)
     title = 'Cube Cobra Cube'
@@ -147,7 +154,7 @@ def fetch_cube_cobra_metadata(raw_url):
                 )
     except Exception:
         title = title
-    title = re.sub(r'\s*[|\-]\s*Cube Cobra(?:\s+List)?\s*$', '', title, flags=re.I).strip() or 'Cube Cobra Cube'
+    title = clean_cube_cobra_title(title)
     if image_url:
         image_url = urllib.parse.urljoin(url, image_url)
     return url, title[:250], image_url
@@ -1884,6 +1891,30 @@ def create_app():
         log_site('lost_found_update', 'success', f'id={item_id}')
         flash('Lost & Found entry updated.', 'success')
         return redirect(url_for('lost_and_found', venue_id=venue.id))
+
+
+    @app.route('/cube-cobra-image')
+    @login_required
+    def cube_cobra_image():
+        image_url = request.args.get('url', '').strip()
+        parsed = urllib.parse.urlparse(image_url)
+        host = (parsed.netloc or '').lower()
+        if host.startswith('www.'):
+            host = host[4:]
+        if parsed.scheme != 'https' or host != 'cubecobra.com':
+            abort(404)
+        try:
+            req = urllib.request.Request(
+                image_url,
+                headers={'User-Agent': 'WaLTER cube preview bot/1.0'},
+            )
+            with urllib.request.urlopen(req, timeout=8) as response:
+                content_type = response.headers.get('Content-Type', 'application/octet-stream').split(';', 1)[0].strip().lower()
+                if not content_type.startswith('image/'):
+                    abort(404)
+                return Response(response.read(2 * 1024 * 1024), content_type=content_type)
+        except Exception:
+            abort(404)
 
     @app.route('/media/<path:filename>')
     @login_required
