@@ -91,6 +91,43 @@ def test_cube_league_votes_are_limited_to_three_per_play_date(client, session):
     assert [vote.votes for vote in votes] == [2, 1]
 
 
+def test_admin_can_remove_league_event_ballot_and_votes(client, session):
+    admin = _user(session, 'league-event-admin@example.com', 'League Event Admin', 'admin', True)
+    player = _user(session, 'league-event-voter@example.com', 'League Event Voter')
+    league = League(name='Removable Event League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    cube = LeagueCube(
+        league_id=league.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/remove-me',
+        title='Removal Cube',
+    )
+    play_date = LeaguePlayDate(league_id=league.id, play_date=date(2026, 9, 1), is_active=True)
+    session.add_all([cube, play_date])
+    session.flush()
+    session.add_all([
+        LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id),
+        LeagueCubeVote(league_id=league.id, play_date_id=play_date.id, cube_id=cube.id, user_id=player.id, votes=3),
+    ])
+    session.commit()
+
+    assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+    response = client.post(
+        f'/admin/leagues/{league.id}',
+        data={'action': 'delete_play_date', 'play_date_id': str(play_date.id)},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b'League Event removed.' in response.data
+    assert session.get(LeaguePlayDate, play_date.id) is None
+    assert session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id).count() == 0
+    assert session.query(LeagueCubeVote).filter_by(play_date_id=play_date.id).count() == 0
+    log = session.query(SiteLog).filter_by(action='league_play_date_delete').one()
+    assert log.result == 'success'
+    assert f'play_date_id={play_date.id}' in log.error
+
+
 def test_player_cannot_drop_opponent_when_reporting_match(client, session):
     player_one = _user(session, 'player-one@example.com', 'Player One')
     player_two = _user(session, 'player-two@example.com', 'Player Two')

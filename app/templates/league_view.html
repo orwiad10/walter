@@ -56,7 +56,7 @@
 
 {% if league.is_cube_league %}
 <section class="panel-card">
-  <div class="section-heading"><div><h3>Cube Voting Results</h3><p>Vote totals are shown by play date. Members can cast or edit their votes from Cube Voting.</p></div></div>
+  <div class="section-heading"><div><h3>Cube Voting Results</h3><p>Vote totals are shown by League Event. Members can cast or edit their votes from Cube Voting.</p></div></div>
   {% if play_dates %}
     {% for play_date in play_dates if play_date.is_active %}
     {% set available = available_cube_ids.get(play_date.id, []) %}
@@ -74,10 +74,10 @@
         </article>
         {% endfor %}
       </div>
-      {% else %}<p class="empty-state compact-empty">No cubes are available for this date yet.</p>{% endif %}
+      {% else %}<p class="empty-state compact-empty">No cubes are available for this event yet.</p>{% endif %}
     </div>
     {% endfor %}
-  {% else %}<p class="empty-state">No cube play dates have been configured yet.</p>{% endif %}
+  {% else %}<p class="empty-state">No cube League Events have been configured yet.</p>{% endif %}
 </section>
 {% endif %}
 {% endblock %}

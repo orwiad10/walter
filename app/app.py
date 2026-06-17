@@ -4136,13 +4136,13 @@ def create_app():
                         flash('Cube added.', 'success')
             elif action == 'add_play_date':
                 if not league.is_cube_league:
-                    flash('Enable cube league mode before adding play dates.', 'error')
+                    flash('Enable cube league mode before adding League Events.', 'error')
                 else:
                     play_date_value = parse_date_input(request.form.get('play_date'))
                     if not play_date_value:
-                        flash('Choose a play date.', 'error')
+                        flash('Choose a League Event date.', 'error')
                     elif db.session.query(LeaguePlayDate).filter_by(league_id=league.id, play_date=play_date_value).first():
-                        flash('That play date already exists.', 'error')
+                        flash('That League Event already exists.', 'error')
                     else:
                         play_date = LeaguePlayDate(league_id=league.id, play_date=play_date_value, is_active=bool(request.form.get('is_active', '1')))
                         db.session.add(play_date)
@@ -4152,11 +4152,11 @@ def create_app():
                             db.session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
                         db.session.commit()
                         log_site('league_play_date_add', 'success', f'league_id={league.id}; date={play_date_value}')
-                        flash('Play date added.', 'success')
+                        flash('League Event added.', 'success')
             elif action == 'update_play_date':
                 play_date = db.session.get(LeaguePlayDate, int(request.form.get('play_date_id') or 0))
                 if not play_date or play_date.league_id != league.id:
-                    flash('Play date not found.', 'error')
+                    flash('League Event not found.', 'error')
                 else:
                     play_date.is_active = bool(request.form.get('is_active'))
                     db.session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id).delete()
@@ -4165,7 +4165,19 @@ def create_app():
                         db.session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
                     db.session.commit()
                     log_site('league_play_date_update', 'success', f'league_id={league.id}; play_date_id={play_date.id}')
-                    flash('Play date updated.', 'success')
+                    flash('League Event updated.', 'success')
+            elif action == 'delete_play_date':
+                play_date = db.session.get(LeaguePlayDate, int(request.form.get('play_date_id') or 0))
+                if not play_date or play_date.league_id != league.id:
+                    flash('League Event not found.', 'error')
+                else:
+                    play_date_id = play_date.id
+                    db.session.query(LeagueCubeVote).filter_by(play_date_id=play_date.id).delete()
+                    db.session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id).delete()
+                    db.session.delete(play_date)
+                    db.session.commit()
+                    log_site('league_play_date_delete', 'success', f'league_id={league.id}; play_date_id={play_date_id}')
+                    flash('League Event removed.', 'success')
             return redirect(url_for('league_detail', league_id=league.id))
         leaderboard, results, available_tournaments, users, league_tournament_ids = build_league_context(league)
         play_dates, cubes, cube_vote_totals, cube_user_votes, available_cube_ids = league_vote_context(league)
