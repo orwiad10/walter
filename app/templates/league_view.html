@@ -65,10 +65,10 @@
       {% if available %}
       <div class="league-card-grid cube-card-grid compact-cube-grid">
         {% for cube in cubes if cube.id in available %}
-        <article class="league-card cube-preview-card cube-result-card{% if not cube.image_url %} cube-result-card--text-only{% endif %}">
-          {% if cube.image_url %}<img class="cube-preview-image cube-result-image" src="{{ url_for('cube_cobra_image', url=cube.image_url) }}" referrerpolicy="no-referrer" alt="{{ cube.title }} preview" loading="lazy">{% endif %}
+        <article class="league-card cube-preview-card cube-result-card">
+          <img class="cube-preview-image cube-result-image" src="{{ url_for('cube_cobra_image', url=cube.image_url or cube_cobra_fallback_image_url) }}" referrerpolicy="no-referrer" alt="{{ cube.title|cube_cobra_title }} preview" loading="lazy">
           <div class="cube-preview-body cube-result-body">
-            <h3><a href="{{ cube.cube_cobra_url }}" target="_blank" rel="noopener noreferrer">{{ cube.title }}</a></h3>
+            <h3><a href="{{ cube.cube_cobra_url }}" target="_blank" rel="noopener noreferrer">{{ cube.title|cube_cobra_title }}</a></h3>
             <span class="cube-result-votes">{{ cube_vote_totals.get((play_date.id, cube.id), 0) }} votes</span>
           </div>
         </article>

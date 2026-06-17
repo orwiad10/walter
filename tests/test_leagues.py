@@ -204,7 +204,33 @@ def test_cube_cobra_titles_drop_list_prefix():
 
     assert clean_cube_cobra_title('Cube Cobra List: FirstCube') == 'FirstCube'
     assert clean_cube_cobra_title('Food Fight - Cube Cobra List') == 'Food Fight'
+    assert clean_cube_cobra_title('Cube Cobra List: Cube Cobra List: FirstCube') == 'FirstCube'
 
+
+def test_cube_tiles_show_preview_image_and_clean_title(client, session):
+    admin = _user(session, 'cube-tile-admin@example.com', 'Cube Tile Admin', 'admin', True)
+    league = League(name='Tile League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    session.add(
+        LeagueCube(
+            league_id=league.id,
+            cube_cobra_url='https://cubecobra.com/cube/overview/firstcube',
+            title='Cube Cobra List: Cube Cobra List: FirstCube',
+        )
+    )
+    session.commit()
+
+    assert client.post(
+        '/login',
+        data={'email': admin.email, 'password': 'secret'},
+    ).status_code == 302
+    response = client.get(f'/admin/leagues/{league.id}')
+
+    assert response.status_code == 200
+    assert b'FirstCube</a>' in response.data
+    assert b'Cube Cobra List: FirstCube</a>' not in response.data
+    assert b'/cube-cobra-image?url=https://assets.cubecobra.com/content/sticker.png' in response.data
 
 def test_cube_cobra_image_proxy_allows_subdomains(client, session, monkeypatch):
     import app.app as app_module

@@ -18,9 +18,9 @@
       <div class="league-card-grid cube-card-grid">
         {% for cube in cubes if cube.id in available %}
         <article class="league-card cube-preview-card">
-          {% if cube.image_url %}<img class="cube-preview-image" src="{{ url_for('cube_cobra_image', url=cube.image_url) }}" referrerpolicy="no-referrer" alt="{{ cube.title }} preview" loading="lazy">{% endif %}
+          <img class="cube-preview-image" src="{{ url_for('cube_cobra_image', url=cube.image_url or cube_cobra_fallback_image_url) }}" referrerpolicy="no-referrer" alt="{{ cube.title|cube_cobra_title }} preview" loading="lazy">
           <div class="cube-preview-body">
-            <h3><a href="{{ cube.cube_cobra_url }}" target="_blank" rel="noopener noreferrer">{{ cube.title }}</a></h3>
+            <h3><a href="{{ cube.cube_cobra_url }}" target="_blank" rel="noopener noreferrer">{{ cube.title|cube_cobra_title }}</a></h3>
             <p class="muted-text">Total votes: {{ cube_vote_totals.get((play_date.id, cube.id), 0) }}</p>
             <label>Your votes
               <input type="number" name="votes_{{ play_date.id }}_{{ cube.id }}" min="0" max="3" value="{{ cube_user_votes.get((play_date.id, cube.id), 0) }}" {% if not play_date.is_active %}disabled{% endif %}>
