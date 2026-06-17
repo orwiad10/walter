@@ -29,6 +29,7 @@
           <li class="nav-item"><a class="nav-link" href="{{ url_for('my_leagues') }}">My Leagues</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('messages_home') }}">Messages <span id="nav-messages-count" class="nav-badge{% if not nav_unread_messages %} hidden{% endif %}">{{ nav_unread_messages }}</span></a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('submit_report') }}">Report Issue</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('user_settings') }}">Settings</a></li>
           {% if current_user.has_permission('tournaments.manage') %}
           <li class="nav-item has-dropdown">
             <button class="nav-link" type="button" data-dropdown-toggle aria-expanded="false">Tournament Tools</button>

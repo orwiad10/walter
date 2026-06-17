@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Account</span>
+    <h2>User Settings</h2>
+    <p class="page-description">Manage your appearance preferences and administrator API access.</p>
+  </div>
+</section>
+
+<section class="panel-card">
+  <h3>Appearance</h3>
+  <form method="post" class="stacked-form">
+    <input type="hidden" name="action" value="appearance">
+    <label>Color mode
+      <select name="color_mode" required>
+        <option value="light"{% if selected_color_mode == 'light' %} selected{% endif %}>Light — bright default interface</option>
+        <option value="dark"{% if selected_color_mode == 'dark' %} selected{% endif %}>Dark — low-light interface</option>
+      </select>
+    </label>
+    <div class="form-actions"><button class="btn" type="submit">Save Settings</button></div>
+  </form>
+</section>
+
+<section class="panel-card">
+  <h3>API Keys</h3>
+  {% if current_user.has_permission('admin.api_keys') %}
+    {% if new_api_key %}
+      <div class="flash success">
+        Copy this API key now. It will not be shown again:<br>
+        <code>{{ new_api_key }}</code>
+      </div>
+    {% endif %}
+    <form method="post" class="stacked-form">
+      <input type="hidden" name="action" value="api_key">
+      <label>Key name <input type="text" name="name" maxlength="120" placeholder="Automation key"></label>
+      <div class="form-actions"><button class="btn" type="submit">Create API Key</button></div>
+    </form>
+  {% else %}
+    <p class="muted">Only administrators with the API key permission can create API keys.</p>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for key in api_keys %}
+        <tr>
+          <td>{{ key.name }}</td>
+          <td><code>{{ key.prefix }}</code></td>
+          <td>{{ key.created_at.strftime('%Y-%m-%d %H:%M') if key.created_at else '' }}</td>
+          <td>{{ key.last_used_at.strftime('%Y-%m-%d %H:%M') if key.last_used_at else 'Never' }}</td>
+          <td>{{ 'Revoked' if key.revoked_at else 'Active' }}</td>
+          <td>{% if not key.revoked_at %}<form method="post" action="{{ url_for('revoke_api_key', key_id=key.id) }}"><button class="btn btn-danger" type="submit">Revoke</button></form>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No API keys yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -403,6 +403,7 @@ def create_app():
             Venue,
             Vendor,
             ArtistProfile,
+            ApiKey,
             SiteLog,
             TournamentLog,
         )  # lazy import to avoid circular reference
@@ -418,6 +419,10 @@ def create_app():
                 db.session.commit()
             if 'lock_reason' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN lock_reason TEXT'))
+                db.session.commit()
+            if 'color_mode' not in columns:
+                db.session.execute(text("ALTER TABLE user ADD COLUMN color_mode VARCHAR(10) DEFAULT 'light'"))
+                db.session.execute(text("UPDATE user SET color_mode='light' WHERE color_mode IS NULL"))
                 db.session.commit()
 
         BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
@@ -457,6 +462,7 @@ def create_app():
         Venue.__table__.create(bind=db.engine, checkfirst=True)
         Vendor.__table__.create(bind=db.engine, checkfirst=True)
         ArtistProfile.__table__.create(bind=db.engine, checkfirst=True)
+        ApiKey.__table__.create(bind=db.engine, checkfirst=True)
 
         logs_engine = db.engines['logs']
         SiteLog.__table__.create(bind=logs_engine, checkfirst=True)
@@ -575,7 +581,9 @@ def create_app():
         Venue,
         Vendor,
         ArtistProfile,
+        ApiKey,
         all_permission_keys,
+        utc_now,
     )
     from .pairing import pair_round, recommended_rounds, compute_standings, player_points, draft_seating_tables, seeded_cut_pairs
 
@@ -911,6 +919,10 @@ def create_app():
         return 'invite_only' if app.config.get('ACCOUNT_CREATION_INVITE_ONLY', False) else 'open'
 
     def site_theme():
+        if current_user.is_authenticated:
+            theme = getattr(current_user, 'color_mode', None)
+            if theme in {'light', 'dark'}:
+                return theme
         theme = get_site_setting('site_theme', 'light')
         if theme in {'light', 'dark'}:
             return theme
@@ -1756,6 +1768,215 @@ def create_app():
             .count()
         )
         return {'count': count}
+
+    def _json_error(message, status=400):
+        response = jsonify({'error': message})
+        response.status_code = status
+        return response
+
+    def _api_log(action, result, error=None):
+        _safe_log_site(f'api.{action}', result, error)
+
+    def _api_current_user():
+        auth = request.headers.get('Authorization', '')
+        token = ''
+        if auth.lower().startswith('bearer '):
+            token = auth.split(None, 1)[1].strip()
+        token = token or request.headers.get('X-API-Key', '').strip()
+        if not token:
+            return None, None
+        api_key = db.session.query(ApiKey).filter_by(key_hash=ApiKey.hash_token(token), revoked_at=None).first()
+        if not api_key or not api_key.user:
+            return None, None
+        api_key.last_used_at = utc_now()
+        db.session.commit()
+        return api_key.user, api_key
+
+    def require_api_permission(perm):
+        user, api_key = _api_current_user()
+        if not user:
+            _api_log('auth', 'failure', 'missing or invalid api key')
+            abort(401)
+        if not user.has_permission(perm):
+            _api_log('auth', 'failure', perm)
+            abort(403)
+        return user, api_key
+
+    def user_payload(user):
+        return {'id': user.id, 'name': user.name, 'email': user.email or '', 'role': user.role.name if user.role else None, 'is_admin': bool(user.is_admin)}
+
+    def tournament_payload(t):
+        return {'id': t.id, 'name': t.name, 'format': t.format, 'structure': t.structure, 'start_time': t.start_time.isoformat() if t.start_time else None, 'league_id': t.league_id, 'venue_id': t.venue_id}
+
+    def league_payload(league):
+        return {'id': league.id, 'name': league.name, 'start_date': league.start_date.isoformat() if league.start_date else None, 'end_date': league.end_date.isoformat() if league.end_date else None, 'is_cube_league': bool(league.is_cube_league)}
+
+    @app.route('/settings', methods=['GET', 'POST'])
+    @login_required
+    def user_settings():
+        new_api_key = None
+        if request.method == 'POST':
+            action = request.form.get('action')
+            if action == 'appearance':
+                color_mode = request.form.get('color_mode', 'light')
+                if color_mode not in {'light', 'dark'}:
+                    color_mode = 'light'
+                current_user.color_mode = color_mode
+                db.session.commit()
+                flash('Settings saved.', 'success')
+                return redirect(url_for('user_settings'))
+            if action == 'api_key':
+                if not current_user.has_permission('admin.api_keys'):
+                    log_site('api_key_create', 'failure', 'missing admin.api_keys')
+                    abort(403)
+                name = (request.form.get('name') or 'API key').strip()[:120]
+                token = ApiKey.create_token()
+                db.session.add(ApiKey.from_token(token, current_user, name, created_by=current_user))
+                db.session.commit()
+                log_site('api_key_create', 'success', f'api_key_name={name}')
+                new_api_key = token
+        keys = db.session.query(ApiKey).filter_by(user_id=current_user.id).order_by(ApiKey.created_at.desc()).all()
+        return render_template('user_settings.html', api_keys=keys, new_api_key=new_api_key, selected_color_mode=site_theme())
+
+    @app.route('/settings/api-keys/<int:key_id>/revoke', methods=['POST'])
+    @login_required
+    def revoke_api_key(key_id):
+        key = db.session.get(ApiKey, key_id)
+        if not key or key.user_id != current_user.id:
+            abort(404)
+        key.revoked_at = utc_now()
+        db.session.commit()
+        log_site('api_key_revoke', 'success', f'api_key_id={key.id}')
+        flash('API key revoked.', 'success')
+        return redirect(url_for('user_settings'))
+
+    @app.route('/api/v1/users', methods=['GET', 'POST'])
+    def api_users():
+        api_user, _ = require_api_permission('users.manage')
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            name = (data.get('name') or '').strip()
+            email = (data.get('email') or '').strip().lower() or None
+            if not name:
+                return _json_error('name is required')
+            user = User(name=name, email=email)
+            if data.get('password'):
+                user.set_password(data['password'])
+            db.session.add(user)
+            db.session.commit()
+            _api_log('users.create', 'success', f'user_id={user.id}; api_user_id={api_user.id}')
+            return jsonify(user_payload(user)), 201
+        users = db.session.query(User).order_by(User.name).all()
+        _api_log('users.list', 'success')
+        return jsonify({'users': [user_payload(u) for u in users]})
+
+    @app.route('/api/v1/tournaments', methods=['GET', 'POST'])
+    def api_tournaments():
+        api_user, _ = require_api_permission('tournaments.manage')
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            name = (data.get('name') or '').strip()
+            fmt = (data.get('format') or 'Commander').strip()
+            if not name:
+                return _json_error('name is required')
+            tournament = Tournament(name=name, format=fmt, structure=data.get('structure') or 'swiss')
+            db.session.add(tournament)
+            db.session.commit()
+            _api_log('tournaments.create', 'success', f'tournament_id={tournament.id}; api_user_id={api_user.id}')
+            return jsonify(tournament_payload(tournament)), 201
+        tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
+        _api_log('tournaments.list', 'success')
+        return jsonify({'tournaments': [tournament_payload(t) for t in tournaments]})
+
+    @app.route('/api/v1/leagues', methods=['GET', 'POST'])
+    def api_leagues():
+        api_user, _ = require_api_permission('tournaments.manage')
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            name = (data.get('name') or '').strip()
+            if not name:
+                return _json_error('name is required')
+            league = League(name=name, is_cube_league=bool(data.get('is_cube_league')))
+            db.session.add(league)
+            db.session.commit()
+            _api_log('leagues.create', 'success', f'league_id={league.id}; api_user_id={api_user.id}')
+            return jsonify(league_payload(league)), 201
+        leagues = db.session.query(League).order_by(League.name).all()
+        _api_log('leagues.list', 'success')
+        return jsonify({'leagues': [league_payload(l) for l in leagues]})
+
+    @app.route('/api/v1/users/<int:user_id>', methods=['GET', 'PATCH', 'DELETE'])
+    def api_user_detail(user_id):
+        api_user, _ = require_api_permission('users.manage')
+        user = db.session.get(User, user_id)
+        if not user:
+            return _json_error('not found', 404)
+        if request.method == 'PATCH':
+            data = request.get_json(silent=True) or {}
+            if 'name' in data:
+                user.name = (data.get('name') or user.name).strip()
+            if 'email' in data:
+                user.email = (data.get('email') or '').strip().lower() or None
+            if data.get('password'):
+                user.set_password(data['password'])
+            db.session.commit()
+            _api_log('users.update', 'success', f'user_id={user.id}; api_user_id={api_user.id}')
+        elif request.method == 'DELETE':
+            deleted_id = user.id
+            db.session.delete(user)
+            db.session.commit()
+            _api_log('users.delete', 'success', f'user_id={deleted_id}; api_user_id={api_user.id}')
+            return jsonify({'deleted': True})
+        else:
+            _api_log('users.get', 'success', f'user_id={user.id}')
+        return jsonify(user_payload(user))
+
+    @app.route('/api/v1/tournaments/<int:tournament_id>', methods=['GET', 'PATCH', 'DELETE'])
+    def api_tournament_detail(tournament_id):
+        api_user, _ = require_api_permission('tournaments.manage')
+        tournament = db.session.get(Tournament, tournament_id)
+        if not tournament:
+            return _json_error('not found', 404)
+        if request.method == 'PATCH':
+            data = request.get_json(silent=True) or {}
+            for field in ('name', 'format', 'structure'):
+                if field in data and data[field]:
+                    setattr(tournament, field, str(data[field]).strip())
+            db.session.commit()
+            _api_log('tournaments.update', 'success', f'tournament_id={tournament.id}; api_user_id={api_user.id}')
+        elif request.method == 'DELETE':
+            deleted_id = tournament.id
+            db.session.delete(tournament)
+            db.session.commit()
+            _api_log('tournaments.delete', 'success', f'tournament_id={deleted_id}; api_user_id={api_user.id}')
+            return jsonify({'deleted': True})
+        else:
+            _api_log('tournaments.get', 'success', f'tournament_id={tournament.id}')
+        return jsonify(tournament_payload(tournament))
+
+    @app.route('/api/v1/leagues/<int:league_id>', methods=['GET', 'PATCH', 'DELETE'])
+    def api_league_detail(league_id):
+        api_user, _ = require_api_permission('tournaments.manage')
+        league = db.session.get(League, league_id)
+        if not league:
+            return _json_error('not found', 404)
+        if request.method == 'PATCH':
+            data = request.get_json(silent=True) or {}
+            if 'name' in data and data['name']:
+                league.name = str(data['name']).strip()
+            if 'is_cube_league' in data:
+                league.is_cube_league = bool(data['is_cube_league'])
+            db.session.commit()
+            _api_log('leagues.update', 'success', f'league_id={league.id}; api_user_id={api_user.id}')
+        elif request.method == 'DELETE':
+            deleted_id = league.id
+            db.session.delete(league)
+            db.session.commit()
+            _api_log('leagues.delete', 'success', f'league_id={deleted_id}; api_user_id={api_user.id}')
+            return jsonify({'deleted': True})
+        else:
+            _api_log('leagues.get', 'success', f'league_id={league.id}')
+        return jsonify(league_payload(league))
 
     @app.template_filter('cube_cobra_title')
     def cube_cobra_title_filter(title):
@@ -4424,19 +4645,21 @@ def create_app():
                 mode = request.form.get('registration_mode', 'open')
                 if mode not in {'open', 'invite_only', 'closed'}:
                     mode = 'open'
-                theme = request.form.get('site_theme', 'light')
-                if theme not in {'light', 'dark'}:
-                    theme = 'light'
+                theme = request.form.get('site_theme')
+                if theme is not None:
+                    if theme not in {'light', 'dark'}:
+                        theme = 'light'
+                    set_site_setting('site_theme', theme)
+                    current_user.color_mode = theme
                 set_site_setting('registration_mode', mode)
-                set_site_setting('site_theme', theme)
                 db.session.commit()
-                log_site('site_settings_update', 'success', f'registration_mode={mode}; site_theme={theme}')
+                details = f'registration_mode={mode}' + (f'; site_theme={theme}' if theme is not None else '')
+                log_site('site_settings_update', 'success', details)
                 flash('Site settings saved.', 'success')
             return redirect(url_for('site_settings'))
         return render_template(
             'admin/site_settings.html',
             registration_mode=registration_mode(),
-            selected_site_theme=site_theme(),
         )
 
     @app.route('/admin/registration-invites', methods=['GET', 'POST'])
