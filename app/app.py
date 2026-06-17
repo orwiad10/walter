@@ -47,7 +47,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hmac as crypto_hmac
-from werkzeug.exceptions import MethodNotAllowed, NotFound
+from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 from werkzeug.routing import RequestRedirect
 from werkzeug.utils import safe_join, secure_filename
 from PIL import Image, ImageOps
@@ -60,6 +60,7 @@ login_manager = LoginManager()
 PASSWORD_KEY = None
 PASSWORD_SEED = None
 CURRENT_CONNECTIONS = OrderedDict()
+CUBE_COBRA_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 
 MAJOR_60_CARD_FORMATS = [
     'Standard',
@@ -1898,10 +1899,10 @@ def create_app():
     def cube_cobra_image():
         image_url = request.args.get('url', '').strip()
         parsed = urllib.parse.urlparse(image_url)
-        host = (parsed.netloc or '').lower()
-        if host.startswith('www.'):
-            host = host[4:]
-        if parsed.scheme != 'https' or host != 'cubecobra.com':
+        host = (parsed.hostname or '').lower()
+        if parsed.scheme != 'https' or not (
+            host == 'cubecobra.com' or host.endswith('.cubecobra.com')
+        ):
             abort(404)
         try:
             req = urllib.request.Request(
@@ -1909,10 +1910,23 @@ def create_app():
                 headers={'User-Agent': 'WaLTER cube preview bot/1.0'},
             )
             with urllib.request.urlopen(req, timeout=8) as response:
-                content_type = response.headers.get('Content-Type', 'application/octet-stream').split(';', 1)[0].strip().lower()
+                content_type = (
+                    response.headers.get('Content-Type', 'application/octet-stream')
+                    .split(';', 1)[0]
+                    .strip()
+                    .lower()
+                )
                 if not content_type.startswith('image/'):
                     abort(404)
-                return Response(response.read(2 * 1024 * 1024), content_type=content_type)
+                content_length = response.headers.get('Content-Length')
+                if content_length and int(content_length) > CUBE_COBRA_IMAGE_MAX_BYTES:
+                    abort(413)
+                body = response.read(CUBE_COBRA_IMAGE_MAX_BYTES + 1)
+                if len(body) > CUBE_COBRA_IMAGE_MAX_BYTES:
+                    abort(413)
+                return Response(body, content_type=content_type)
+        except HTTPException:
+            raise
         except Exception:
             abort(404)
 
