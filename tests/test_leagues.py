@@ -267,6 +267,43 @@ def test_cube_cobra_image_proxy_allows_subdomains(client, session, monkeypatch):
     assert response.data == b'pngdata'
 
 
+def test_cube_cobra_image_proxy_allows_scryfall_card_images(client, session, monkeypatch):
+    import app.app as app_module
+
+    player = _user(session, 'cube-proxy-scryfall@example.com', 'Cube Proxy Scryfall')
+    session.commit()
+
+    class FakeResponse:
+        headers = {'Content-Type': 'image/jpeg', 'Content-Length': '7'}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size):
+            return b'jpgdata'
+
+    monkeypatch.setattr(
+        app_module.urllib.request,
+        'urlopen',
+        lambda req, timeout: FakeResponse(),
+    )
+
+    assert client.post(
+        '/login',
+        data={'email': player.email, 'password': 'secret'},
+    ).status_code == 302
+    response = client.get(
+        '/cube-cobra-image?url=https://cards.scryfall.io/art_crop/front/0/f/card.jpg'
+    )
+
+    assert response.status_code == 200
+    assert response.content_type == 'image/jpeg'
+    assert response.data == b'jpgdata'
+
+
 def test_cube_cobra_image_proxy_rejects_large_content_length(client, session, monkeypatch):
     import app.app as app_module
 
