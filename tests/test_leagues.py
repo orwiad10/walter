@@ -71,7 +71,10 @@ def test_cube_league_votes_are_limited_to_three_per_play_date(client, session):
     ])
     session.commit()
 
-    assert client.post('/login', data={'email': player.email, 'password': 'secret'}).status_code == 302
+    assert client.post(
+        '/login',
+        data={'email': player.email, 'password': 'secret'},
+    ).status_code == 302
     response = client.post(
         f'/leagues/{league.id}/cubes',
         data={f'votes_{play_date.id}_{first.id}': '2', f'votes_{play_date.id}_{second.id}': '2'},
@@ -171,7 +174,10 @@ def test_cube_league_vote_totals_update_when_votes_change(client, session):
     ])
     session.commit()
 
-    assert client.post('/login', data={'email': player.email, 'password': 'secret'}).status_code == 302
+    assert client.post(
+        '/login',
+        data={'email': player.email, 'password': 'secret'},
+    ).status_code == 302
     response = client.post(
         f'/leagues/{league.id}/cubes',
         data={f'votes_{play_date.id}_{first.id}': '2', f'votes_{play_date.id}_{second.id}': '1'},
@@ -200,6 +206,111 @@ def test_cube_cobra_titles_drop_list_prefix():
     assert clean_cube_cobra_title('Food Fight - Cube Cobra List') == 'Food Fight'
 
 
+def test_cube_cobra_image_proxy_allows_subdomains(client, session, monkeypatch):
+    import app.app as app_module
+
+    player = _user(session, 'cube-proxy@example.com', 'Cube Proxy')
+    session.commit()
+
+    class FakeResponse:
+        headers = {'Content-Type': 'image/png', 'Content-Length': '7'}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size):
+            return b'pngdata'
+
+    monkeypatch.setattr(
+        app_module.urllib.request,
+        'urlopen',
+        lambda req, timeout: FakeResponse(),
+    )
+
+    assert client.post(
+        '/login',
+        data={'email': player.email, 'password': 'secret'},
+    ).status_code == 302
+    response = client.get('/cube-cobra-image?url=https://images.cubecobra.com/content/alpha.png')
+
+    assert response.status_code == 200
+    assert response.content_type == 'image/png'
+    assert response.data == b'pngdata'
+
+
+def test_cube_cobra_image_proxy_rejects_large_content_length(client, session, monkeypatch):
+    import app.app as app_module
+
+    player = _user(session, 'cube-proxy-large@example.com', 'Cube Proxy Large')
+    session.commit()
+
+    class FakeResponse:
+        headers = {
+            'Content-Type': 'image/png',
+            'Content-Length': str(app_module.CUBE_COBRA_IMAGE_MAX_BYTES + 1),
+        }
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size):
+            raise AssertionError('large images should be rejected before reading the body')
+
+    monkeypatch.setattr(
+        app_module.urllib.request,
+        'urlopen',
+        lambda req, timeout: FakeResponse(),
+    )
+
+    assert client.post(
+        '/login',
+        data={'email': player.email, 'password': 'secret'},
+    ).status_code == 302
+    response = client.get('/cube-cobra-image?url=https://cubecobra.com/content/large.png')
+
+    assert response.status_code == 413
+
+
+def test_cube_cobra_image_proxy_rejects_large_body_without_content_length(client, session, monkeypatch):
+    import app.app as app_module
+
+    player = _user(session, 'cube-proxy-large-body@example.com', 'Cube Proxy Large Body')
+    session.commit()
+
+    class FakeResponse:
+        headers = {'Content-Type': 'image/png'}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size):
+            assert size == app_module.CUBE_COBRA_IMAGE_MAX_BYTES + 1
+            return b'x' * size
+
+    monkeypatch.setattr(
+        app_module.urllib.request,
+        'urlopen',
+        lambda req, timeout: FakeResponse(),
+    )
+
+    assert client.post(
+        '/login',
+        data={'email': player.email, 'password': 'secret'},
+    ).status_code == 302
+    response = client.get('/cube-cobra-image?url=https://cubecobra.com/content/large-body.png')
+
+    assert response.status_code == 413
+
+
 def test_cube_cobra_images_use_local_proxy(client, session):
     player = _user(session, 'cube-image@example.com', 'Cube Image')
     league = League(name='Image League', is_cube_league=True)
@@ -218,7 +329,10 @@ def test_cube_cobra_images_use_local_proxy(client, session):
     session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
     session.commit()
 
-    assert client.post('/login', data={'email': player.email, 'password': 'secret'}).status_code == 302
+    assert client.post(
+        '/login',
+        data={'email': player.email, 'password': 'secret'},
+    ).status_code == 302
     response = client.get(f'/leagues/{league.id}/cubes')
 
     assert response.status_code == 200
