@@ -61,6 +61,7 @@ PASSWORD_KEY = None
 PASSWORD_SEED = None
 CURRENT_CONNECTIONS = OrderedDict()
 CUBE_COBRA_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+CUBE_COBRA_FALLBACK_IMAGE_URL = 'https://assets.cubecobra.com/content/sticker.png'
 
 MAJOR_60_CARD_FORMATS = [
     'Standard',
@@ -122,9 +123,13 @@ def normalize_cube_cobra_url(raw_url):
 
 def clean_cube_cobra_title(raw_title):
     title = (raw_title or '').strip()
-    title = re.sub(r'^\s*Cube Cobra(?:\s+List)?\s*:\s*', '', title, flags=re.I)
-    title = re.sub(r'\s*[|\-]\s*Cube Cobra(?:\s+List)?\s*$', '', title, flags=re.I)
-    return title.strip() or 'Cube Cobra Cube'
+    previous = None
+    while title and title != previous:
+        previous = title
+        title = re.sub(r'^\s*Cube Cobra(?:\s+List)?\s*:\s*', '', title, flags=re.I)
+        title = re.sub(r'\s*[|\-]\s*Cube Cobra(?:\s+List)?\s*$', '', title, flags=re.I)
+        title = title.strip()
+    return title or 'Cube Cobra Cube'
 
 
 def fetch_cube_cobra_metadata(raw_url):
@@ -1739,6 +1744,10 @@ def create_app():
         )
         return {'count': count}
 
+    @app.template_filter('cube_cobra_title')
+    def cube_cobra_title_filter(title):
+        return clean_cube_cobra_title(title)
+
     @app.context_processor
     def inject_navigation_counts():
         unread = 0
@@ -1760,6 +1769,7 @@ def create_app():
             'nav_open_reports': open_reports,
             'nav_registration_mode': registration_mode(),
             'site_theme': site_theme(),
+            'cube_cobra_fallback_image_url': CUBE_COBRA_FALLBACK_IMAGE_URL,
         }
 
     @app.route('/reports', methods=['GET', 'POST'])
