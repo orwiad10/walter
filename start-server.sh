@@ -587,6 +587,17 @@ export MTG_LOG_DB_PATH="$LOG_DB_FILE"
 printf 'Installing dependencies...\n'
 "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS_FILE" >/dev/null
 
+# The vendored discord.py package is imported directly by discord_bot.py, so
+# make sure its third-party runtime dependency is present even if an existing
+# virtualenv was created before aiohttp was added to requirements.txt.
+if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
+import aiohttp  # noqa: F401
+PY
+then
+  printf 'Installing missing Discord bot dependency aiohttp...\n'
+  "$PYTHON_BIN" -m pip install 'aiohttp>=3.7.4,<4' >/dev/null
+fi
+
 if is_truthy "$BOT_INSTALL_ENABLED"; then
   bot_install_target="$BOT_INSTALL_PATH"
   if [[ -n "$BOT_INSTALL_EXTRAS" ]]; then
