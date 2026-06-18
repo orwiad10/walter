@@ -83,6 +83,7 @@ $BotSecretKey = $cfg.bot_secret_key
 $BotPermissionsInt = $cfg.bot_permissions_int
 $BotChannelId = $cfg.bot_channel_id
 $BotAnnounceReady = $cfg.bot_announce_ready
+$BotSyncGuildCommands = $cfg.bot_sync_guild_commands
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 ######enable testing###########
@@ -109,6 +110,7 @@ if([string]::IsNullOrEmpty($BotRuntimeErrorLogFile)){ $BotRuntimeErrorLogFile = 
 if([string]::IsNullOrEmpty($BotApiBaseUrl)){ $BotApiBaseUrl = "http://127.0.0.1:$FlaskPort" }
 if([string]::IsNullOrEmpty($BotPollIntervalSeconds)){ $BotPollIntervalSeconds = 30 }
 if($null -eq $BotAnnounceReady){ $BotAnnounceReady = $true }
+if($null -eq $BotSyncGuildCommands){ $BotSyncGuildCommands = $true }
 
 #check if Flask/Waitress is already running and stop it if necessary
 $flaskpid = try{
@@ -155,6 +157,7 @@ $env:BOT_SECRET_KEY = $BotSecretKey
 $env:BOT_PERMISSIONS_INT = $BotPermissionsInt
 $env:BOT_CHANNEL_ID = $BotChannelId
 $env:BOT_ANNOUNCE_READY = $BotAnnounceReady
+$env:BOT_SYNC_GUILD_COMMANDS = $BotSyncGuildCommands
 
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 
