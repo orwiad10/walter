@@ -69,9 +69,13 @@ The TLS template lives at `nginx/walter-tls.conf`. It serves HTTPS on port 443 o
 
 ## Walter bot configuration
 
-Discord application values such as the application ID, public key, client ID, OAuth secret, permissions integer, and target channel should be configured through `config.yaml` only when the bot runtime needs them. The startup scripts export these values to the bot process as environment variables. For production, prefer environment overrides or a secret manager for `bot_token` and `bot_secret_key`.
+Discord application values such as the application ID, public key, client ID, OAuth secret, permissions integer, and target channel should be configured through `config.yaml` only when the bot runtime needs them. The startup scripts export these values to the bot process as environment variables. When `bot_runtime_enabled` is `auto`, `start-server.sh` and `start-server.ps1` start the bot after Waitress whenever exactly one of `bot_runtime_module` or `bot_runtime_script` is configured. Set `bot_runtime_enabled` to `false` to disable startup even when a runtime target is configured. For production, prefer environment overrides or a secret manager for `bot_token` and `bot_secret_key`.
 
 ```yaml
+bot_runtime_enabled: auto
+bot_runtime_module: ""
+bot_runtime_script: ""
+bot_runtime_args: ""
 bot_token: ""
 bot_appid: ""
 bot_pubkey: ""

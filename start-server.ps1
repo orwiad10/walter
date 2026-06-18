@@ -98,7 +98,7 @@ if([string]::IsNullOrEmpty($PasswordResetTtlMinutes)){ $PasswordResetTtlMinutes 
 if($null -eq $BotInstallEnabled){ $BotInstallEnabled = $false }
 if([string]::IsNullOrEmpty($BotInstallPath)){ $BotInstallPath = "walter-bot" }
 if($null -eq $BotInstallEditable){ $BotInstallEditable = $true }
-if($null -eq $BotRuntimeEnabled){ $BotRuntimeEnabled = $false }
+if($null -eq $BotRuntimeEnabled){ $BotRuntimeEnabled = "auto" }
 if([string]::IsNullOrEmpty($BotRuntimeLogFile)){ $BotRuntimeLogFile = "walter-bot.log" }
 if([string]::IsNullOrEmpty($BotRuntimeErrorLogFile)){ $BotRuntimeErrorLogFile = "walter-bot.err.log" }
 
@@ -178,6 +178,14 @@ python -m flask --app app.app db-init
 Write-Host "Creating default admin user..."
 python -m flask --app app.app create-admin --email $newadmin.UserName --password $newadmin.GetNetworkCredential().Password
 
+function Test-BotRuntimeShouldStart {
+    $mode = [string]$BotRuntimeEnabled
+    if([string]::IsNullOrWhiteSpace($mode) -or $mode.ToLowerInvariant() -eq "auto"){
+        return (-not [string]::IsNullOrEmpty($BotRuntimeModule) -or -not [string]::IsNullOrEmpty($BotRuntimeScript))
+    }
+    return ($mode.ToLowerInvariant() -in @("1", "true", "yes", "y", "on"))
+}
+
 Write-Host "Starting Waitress server..."
 $waitressLog = Join-Path $PSScriptRoot "waitress-server.log"
 $waitressErrorLog = Join-Path $PSScriptRoot "waitress-server.err.log"
@@ -185,7 +193,7 @@ $waitressArgs = @("-m", "waitress", "--host=$FlaskIP", "--port=$FlaskPort", "app
 Start-Process -NoNewWindow -FilePath "python" -ArgumentList $waitressArgs -RedirectStandardOutput $waitressLog -RedirectStandardError $waitressErrorLog
 Write-Host "Waitress server started. Logs: $waitressLog; errors: $waitressErrorLog"
 
-if($BotRuntimeEnabled){
+if(Test-BotRuntimeShouldStart){
     if(-not [string]::IsNullOrEmpty($BotRuntimeModule) -and -not [string]::IsNullOrEmpty($BotRuntimeScript)){
         Write-Error "Only one of bot_runtime_module or bot_runtime_script may be configured."
         exit 1
