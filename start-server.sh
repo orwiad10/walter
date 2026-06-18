@@ -478,6 +478,7 @@ keys = [
     'bot_secret_key',
     'bot_permissions_int',
     'bot_channel_id',
+    'bot_announce_ready',
 ]
 
 for key in keys:
@@ -535,6 +536,7 @@ BOT_CLIENT_ID="${BOT_CLIENT_ID:-}"
 BOT_SECRET_KEY="${BOT_SECRET_KEY:-}"
 BOT_PERMISSIONS_INT="${BOT_PERMISSIONS_INT:-}"
 BOT_CHANNEL_ID="${BOT_CHANNEL_ID:-}"
+BOT_ANNOUNCE_READY="${BOT_ANNOUNCE_READY:-true}"
 
 cd "$SCRIPT_DIR"
 
@@ -562,6 +564,7 @@ export BOT_CLIENT_ID
 export BOT_SECRET_KEY
 export BOT_PERMISSIONS_INT
 export BOT_CHANNEL_ID
+export BOT_ANNOUNCE_READY
 
 ensure_letsencrypt_certificate
 

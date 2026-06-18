@@ -87,14 +87,14 @@ bot_client_id: ""
 bot_secret_key: ""
 bot_permissions_int: ""
 bot_channel_id: ""
+bot_announce_ready: true
 ```
 
 For the included read-only Discord bot, create an administrator API key from
 Settings, set `bot_runtime_script: "discord_bot.py"`, set `bot_api_key` to that
 one-time key value, and set `bot_token` to the Discord bot token. The bot
 registers slash commands for listing tournaments, standings, and latest-round
-pairings. If `bot_channel_id` and `bot_poll_tournament_id` are set, it also polls
-for newly paired rounds and posts pairings to that channel.
+pairings. If `bot_channel_id` is set, it posts a startup message to that channel so you can verify the bot can write to the chat; set `bot_announce_ready: false` to suppress that message. If `bot_channel_id` and `bot_poll_tournament_id` are set, it also polls for newly paired rounds and posts pairings to that channel.
 
 ## Account verification and invites
 
