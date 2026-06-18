@@ -457,6 +457,17 @@ keys = [
     'account_lockout_attempts',
     'ip_blacklist_attempts',
     'password_reset_ttl_minutes',
+    'bot_install_enabled',
+    'bot_install_path',
+    'bot_install_editable',
+    'bot_install_extras',
+    'bot_runtime_enabled',
+    'bot_runtime_module',
+    'bot_runtime_script',
+    'bot_runtime_args',
+    'bot_runtime_log_file',
+    'bot_runtime_error_log_file',
+    'bot_token',
 ]
 
 for key in keys:
@@ -493,6 +504,17 @@ ACCOUNT_CREATION_INVITE_ONLY="${ACCOUNT_CREATION_INVITE_ONLY:-false}"
 ACCOUNT_LOCKOUT_ATTEMPTS="${ACCOUNT_LOCKOUT_ATTEMPTS:-3}"
 IP_BLACKLIST_ATTEMPTS="${IP_BLACKLIST_ATTEMPTS:-10}"
 PASSWORD_RESET_TTL_MINUTES="${PASSWORD_RESET_TTL_MINUTES:-60}"
+BOT_INSTALL_ENABLED="${BOT_INSTALL_ENABLED:-false}"
+BOT_INSTALL_PATH="${BOT_INSTALL_PATH:-walter-bot}"
+BOT_INSTALL_EDITABLE="${BOT_INSTALL_EDITABLE:-true}"
+BOT_INSTALL_EXTRAS="${BOT_INSTALL_EXTRAS:-}"
+BOT_RUNTIME_ENABLED="${BOT_RUNTIME_ENABLED:-false}"
+BOT_RUNTIME_MODULE="${BOT_RUNTIME_MODULE:-}"
+BOT_RUNTIME_SCRIPT="${BOT_RUNTIME_SCRIPT:-}"
+BOT_RUNTIME_ARGS="${BOT_RUNTIME_ARGS:-}"
+BOT_RUNTIME_LOG_FILE="${BOT_RUNTIME_LOG_FILE:-walter-bot.log}"
+BOT_RUNTIME_ERROR_LOG_FILE="${BOT_RUNTIME_ERROR_LOG_FILE:-walter-bot.err.log}"
+BOT_TOKEN="${BOT_TOKEN:-}"
 
 cd "$SCRIPT_DIR"
 
@@ -509,6 +531,7 @@ export ACCOUNT_CREATION_INVITE_ONLY
 export ACCOUNT_LOCKOUT_ATTEMPTS
 export IP_BLACKLIST_ATTEMPTS
 export PASSWORD_RESET_TTL_MINUTES
+export BOT_TOKEN
 
 ensure_letsencrypt_certificate
 
@@ -533,6 +556,19 @@ export MTG_LOG_DB_PATH="$LOG_DB_FILE"
 
 printf 'Installing dependencies...\n'
 "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS_FILE" >/dev/null
+
+if is_truthy "$BOT_INSTALL_ENABLED"; then
+  bot_install_target="$BOT_INSTALL_PATH"
+  if [[ -n "$BOT_INSTALL_EXTRAS" ]]; then
+    bot_install_target="${bot_install_target}[${BOT_INSTALL_EXTRAS}]"
+  fi
+  printf 'Installing Walter bot package from %s...\n' "$BOT_INSTALL_PATH"
+  if is_truthy "$BOT_INSTALL_EDITABLE"; then
+    "$PYTHON_BIN" -m pip install -e "$bot_install_target" >/dev/null
+  else
+    "$PYTHON_BIN" -m pip install "$bot_install_target" >/dev/null
+  fi
+fi
 
 printf 'Stopping existing Flask/Waitress server on port %s if present...\n' "$FLASK_PORT"
 "$PYTHON_BIN" - "$FLASK_PORT" <<'PY'
@@ -608,6 +644,25 @@ printf 'Starting Waitress server...\n'
 nohup "$PYTHON_BIN" -m waitress --host="$FLASK_IP" --port="$FLASK_PORT" app.app:app > "$SCRIPT_DIR/waitress-server.log" 2>&1 &
 WAITRESS_PID=$!
 printf 'Waitress server started with PID %s. Logs: %s\n' "$WAITRESS_PID" "$SCRIPT_DIR/waitress-server.log"
+
+if is_truthy "$BOT_RUNTIME_ENABLED"; then
+  if [[ -n "$BOT_RUNTIME_MODULE" && -n "$BOT_RUNTIME_SCRIPT" ]]; then
+    echo "Only one of bot_runtime_module or bot_runtime_script may be configured." >&2
+    exit 1
+  fi
+  if [[ -z "$BOT_RUNTIME_MODULE" && -z "$BOT_RUNTIME_SCRIPT" ]]; then
+    echo "bot_runtime_enabled is true, but neither bot_runtime_module nor bot_runtime_script is configured." >&2
+    exit 1
+  fi
+  read -r -a bot_args <<< "$BOT_RUNTIME_ARGS"
+  if [[ -n "$BOT_RUNTIME_MODULE" ]]; then
+    nohup "$PYTHON_BIN" -m "$BOT_RUNTIME_MODULE" "${bot_args[@]}" > "$SCRIPT_DIR/$BOT_RUNTIME_LOG_FILE" 2> "$SCRIPT_DIR/$BOT_RUNTIME_ERROR_LOG_FILE" &
+  else
+    nohup "$PYTHON_BIN" "$BOT_RUNTIME_SCRIPT" "${bot_args[@]}" > "$SCRIPT_DIR/$BOT_RUNTIME_LOG_FILE" 2> "$SCRIPT_DIR/$BOT_RUNTIME_ERROR_LOG_FILE" &
+  fi
+  BOT_PID=$!
+  printf 'Walter bot started with PID %s. Logs: %s; errors: %s\n' "$BOT_PID" "$SCRIPT_DIR/$BOT_RUNTIME_LOG_FILE" "$SCRIPT_DIR/$BOT_RUNTIME_ERROR_LOG_FILE"
+fi
 
 sleep 3
 
