@@ -27,7 +27,10 @@ from __future__ import annotations
 import threading
 import subprocess
 import warnings
-import audioop
+try:
+    import audioop
+except ModuleNotFoundError:  # pragma: no cover - depends on Python version/runtime deps
+    audioop = None
 import asyncio
 import logging
 import shlex
@@ -54,6 +57,22 @@ if TYPE_CHECKING:
 AT = TypeVar('AT', bound='AudioSource')
 
 _log = logging.getLogger(__name__)
+
+
+def _mul_pcm16(data: bytes, factor: float) -> bytes:
+    """Scale little-endian signed 16-bit PCM samples without audioop."""
+
+    if len(data) % 2:
+        raise ValueError('not a whole number of frames')
+
+    output = bytearray(len(data))
+    for index in range(0, len(data), 2):
+        sample = int.from_bytes(data[index:index + 2], 'little', signed=True)
+        scaled = int(sample * factor)
+        scaled = max(-32768, min(32767, scaled))
+        output[index:index + 2] = scaled.to_bytes(2, 'little', signed=True)
+    return bytes(output)
+
 
 __all__ = (
     'AudioSource',
@@ -754,6 +773,8 @@ class PCMVolumeTransformer(AudioSource, Generic[AT]):
 
     def read(self) -> bytes:
         ret = self.original.read()
+        if audioop is None:
+            return _mul_pcm16(ret, min(self._volume, 2.0))
         return audioop.mul(ret, 2, min(self._volume, 2.0))
 
 
