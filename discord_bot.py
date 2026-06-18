@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -30,11 +31,32 @@ BOT_API_KEY = os.environ.get('BOT_API_KEY', '').strip()
 BOT_POLL_TOURNAMENT_ID = os.environ.get('BOT_POLL_TOURNAMENT_ID', '').strip()
 BOT_POLL_INTERVAL_SECONDS = int(os.environ.get('BOT_POLL_INTERVAL_SECONDS', '30') or 30)
 BOT_ANNOUNCE_READY = os.environ.get('BOT_ANNOUNCE_READY', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
-BOT_SYNC_GUILD_COMMANDS = os.environ.get('BOT_SYNC_GUILD_COMMANDS', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
+BOT_SYNC_GUILD_COMMANDS = os.environ.get('BOT_SYNC_GUILD_COMMANDS', 'false').strip().lower() not in {'0', 'false', 'no', 'off'}
+BOT_CLEAR_GUILD_COMMANDS = os.environ.get('BOT_CLEAR_GUILD_COMMANDS', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
 
 
 class WalterApiError(RuntimeError):
     """Raised when the Walter API cannot return a successful response."""
+
+
+def _format_http_error_detail(exc: error.HTTPError) -> str:
+    body = exc.read().decode('utf-8', errors='replace').strip()
+    content_type = exc.headers.get('Content-Type', '') if exc.headers else ''
+    if 'application/json' in content_type:
+        try:
+            import json
+
+            payload = json.loads(body)
+            if isinstance(payload, dict):
+                return str(payload.get('error') or payload.get('message') or payload)
+        except ValueError:
+            pass
+    if '<html' in body.lower():
+        title_match = re.search(r'<title>(.*?)</title>', body, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            return re.sub(r'\s+', ' ', title_match.group(1)).strip()
+        return exc.reason or 'HTTP error'
+    return body or exc.reason or 'HTTP error'
 
 
 class WalterApiClient:
@@ -62,7 +84,7 @@ class WalterApiClient:
 
                 return json.loads(response.read().decode('utf-8'))
         except error.HTTPError as exc:
-            detail = exc.read().decode('utf-8', errors='replace')
+            detail = _format_http_error_detail(exc)
             raise WalterApiError(f'Walter API returned HTTP {exc.code}: {detail}') from exc
         except error.URLError as exc:
             raise WalterApiError(f'Could not reach Walter API: {exc.reason}') from exc
@@ -83,7 +105,7 @@ class WalterApiClient:
             with request.urlopen(api_request, timeout=10) as response:
                 return json.loads(response.read().decode('utf-8'))
         except error.HTTPError as exc:
-            detail = exc.read().decode('utf-8', errors='replace')
+            detail = _format_http_error_detail(exc)
             raise WalterApiError(f'Walter API returned HTTP {exc.code}: {detail}') from exc
         except error.URLError as exc:
             raise WalterApiError(f'Could not reach Walter API: {exc.reason}') from exc
@@ -199,8 +221,11 @@ class WalterBot(discord.Client):
         print(f'Connected to {len(self.guilds)} Discord server(s).')
         print(f'Walter API: {BOT_API_BASE_URL}')
 
-        if BOT_SYNC_GUILD_COMMANDS and not self._guild_commands_synced:
-            await self._sync_guild_commands()
+        if not self._guild_commands_synced:
+            if BOT_SYNC_GUILD_COMMANDS:
+                await self._sync_guild_commands()
+            elif BOT_CLEAR_GUILD_COMMANDS:
+                await self._clear_guild_commands()
 
         if BOT_CHANNEL_ID and BOT_ANNOUNCE_READY and not self._ready_announced:
             channel = await self._get_messageable_channel(BOT_CHANNEL_ID)
@@ -217,6 +242,16 @@ class WalterBot(discord.Client):
                 print(f'Synced {len(synced_commands)} slash command(s) to guild {guild.id}: {command_names}')
             except discord.DiscordException as exc:
                 print(f'Could not sync slash commands to guild {guild.id}: {exc}')
+        self._guild_commands_synced = True
+
+    async def _clear_guild_commands(self):
+        for guild in self.guilds:
+            try:
+                self.tree.clear_commands(guild=guild)
+                await self.tree.sync(guild=guild)
+                print(f'Cleared guild-specific slash commands for guild {guild.id}; using global commands only.')
+            except discord.DiscordException as exc:
+                print(f'Could not clear guild slash commands for guild {guild.id}: {exc}')
         self._guild_commands_synced = True
 
     async def _get_messageable_channel(self, channel_id: str) -> discord.abc.Messageable | None:

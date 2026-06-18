@@ -138,7 +138,7 @@ def test_discord_authorization_requires_username_and_one_time_pass(client, sessi
     session.commit()
 
     response = client.post(
-        '/api/v1/discord/authorize',
+        '/api/v1/discord/authorize/',
         json={
             'discord_user_id': '1234567890',
             'discord_username': 'walterplayer',
