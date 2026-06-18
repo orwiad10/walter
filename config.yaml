@@ -67,4 +67,6 @@ bot_client_id: ""
 bot_secret_key: ""
 bot_permissions_int: ""
 bot_channel_id: ""
-bot_sync_guild_commands: true
+bot_announce_ready: false
+bot_sync_guild_commands: false
+bot_clear_guild_commands: true
