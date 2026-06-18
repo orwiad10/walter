@@ -51,6 +51,10 @@ bot_runtime_script: ""
 bot_runtime_args: ""
 bot_runtime_log_file: walter-bot.log
 bot_runtime_error_log_file: walter-bot.err.log
+bot_api_base_url: "http://127.0.0.1:5000"
+bot_api_key: ""
+bot_poll_tournament_id: ""
+bot_poll_interval_seconds: 30
 # Prefer setting this through a secret manager or environment override in
 # production; start-server.* exports it as BOT_TOKEN for the bot process.
 bot_token: ""

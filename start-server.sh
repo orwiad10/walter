@@ -467,6 +467,10 @@ keys = [
     'bot_runtime_args',
     'bot_runtime_log_file',
     'bot_runtime_error_log_file',
+    'bot_api_base_url',
+    'bot_api_key',
+    'bot_poll_tournament_id',
+    'bot_poll_interval_seconds',
     'bot_token',
     'bot_appid',
     'bot_pubkey',
@@ -520,6 +524,10 @@ BOT_RUNTIME_SCRIPT="${BOT_RUNTIME_SCRIPT:-}"
 BOT_RUNTIME_ARGS="${BOT_RUNTIME_ARGS:-}"
 BOT_RUNTIME_LOG_FILE="${BOT_RUNTIME_LOG_FILE:-walter-bot.log}"
 BOT_RUNTIME_ERROR_LOG_FILE="${BOT_RUNTIME_ERROR_LOG_FILE:-walter-bot.err.log}"
+BOT_API_BASE_URL="${BOT_API_BASE_URL:-http://127.0.0.1:$FLASK_PORT}"
+BOT_API_KEY="${BOT_API_KEY:-}"
+BOT_POLL_TOURNAMENT_ID="${BOT_POLL_TOURNAMENT_ID:-}"
+BOT_POLL_INTERVAL_SECONDS="${BOT_POLL_INTERVAL_SECONDS:-30}"
 BOT_TOKEN="${BOT_TOKEN:-}"
 BOT_APPID="${BOT_APPID:-}"
 BOT_PUBKEY="${BOT_PUBKEY:-}"
@@ -543,6 +551,10 @@ export ACCOUNT_CREATION_INVITE_ONLY
 export ACCOUNT_LOCKOUT_ATTEMPTS
 export IP_BLACKLIST_ATTEMPTS
 export PASSWORD_RESET_TTL_MINUTES
+export BOT_API_BASE_URL
+export BOT_API_KEY
+export BOT_POLL_TOURNAMENT_ID
+export BOT_POLL_INTERVAL_SECONDS
 export BOT_TOKEN
 export BOT_APPID
 export BOT_PUBKEY
