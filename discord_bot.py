@@ -30,7 +30,7 @@ BOT_API_BASE_URL = os.environ.get('BOT_API_BASE_URL', 'http://127.0.0.1:5000').s
 BOT_API_KEY = os.environ.get('BOT_API_KEY', '').strip()
 BOT_POLL_TOURNAMENT_ID = os.environ.get('BOT_POLL_TOURNAMENT_ID', '').strip()
 BOT_POLL_INTERVAL_SECONDS = int(os.environ.get('BOT_POLL_INTERVAL_SECONDS', '30') or 30)
-BOT_ANNOUNCE_READY = os.environ.get('BOT_ANNOUNCE_READY', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
+BOT_ANNOUNCE_READY = os.environ.get('BOT_ANNOUNCE_READY', 'false').strip().lower() not in {'0', 'false', 'no', 'off'}
 BOT_SYNC_GUILD_COMMANDS = os.environ.get('BOT_SYNC_GUILD_COMMANDS', 'false').strip().lower() not in {'0', 'false', 'no', 'off'}
 BOT_CLEAR_GUILD_COMMANDS = os.environ.get('BOT_CLEAR_GUILD_COMMANDS', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
 

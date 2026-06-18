@@ -127,6 +127,33 @@ def _admin_api_token(session):
     return token
 
 
+
+
+def test_discord_authorization_accepts_legacy_connect_endpoint(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    player = User(email='discord-connect@example.com', name='Discord Connect', role=user_role)
+    one_time_pass = 'connectpass123'
+    player.discord_username = 'walterconnect'
+    player.set_discord_authorization_token(one_time_pass)
+    session.add(player)
+    session.commit()
+
+    response = client.post(
+        '/connect',
+        json={
+            'discord_user_id': '2345678901',
+            'discord_username': 'walterconnect',
+            'one_time_pass': one_time_pass,
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 200
+    session.refresh(player)
+    assert player.discord_user_id == '2345678901'
+    assert player.discord_authorization_token_hash is None
+
 def test_discord_authorization_requires_username_and_one_time_pass(client, session):
     token = _admin_api_token(session)
     user_role = session.query(Role).filter_by(name='user').one()

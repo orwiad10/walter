@@ -38,3 +38,7 @@ def test_http_error_detail_collapses_html_title():
 def test_guild_command_sync_is_disabled_by_default_to_avoid_duplicates():
     assert discord_bot.BOT_SYNC_GUILD_COMMANDS is False
     assert discord_bot.BOT_CLEAR_GUILD_COMMANDS is True
+
+
+def test_ready_announcement_is_disabled_by_default():
+    assert discord_bot.BOT_ANNOUNCE_READY is False

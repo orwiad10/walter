@@ -2082,6 +2082,7 @@ def create_app():
             'round': round_payload(round_obj),
         })
 
+    @app.route('/connect', methods=['POST'], strict_slashes=False)
     @app.route('/api/v1/discord/authorize', methods=['POST'], strict_slashes=False)
     def api_discord_authorize():
         require_api_permission('tournaments.manage')
