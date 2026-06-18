@@ -10,8 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
+from pathlib import Path
 from typing import Any
 from urllib import error, request
+
+VENDORED_DISCORD_PATH = Path(__file__).resolve().parent / 'walter-bot'
+if VENDORED_DISCORD_PATH.is_dir():
+    sys.path.insert(0, str(VENDORED_DISCORD_PATH))
 
 import discord
 from discord import app_commands
