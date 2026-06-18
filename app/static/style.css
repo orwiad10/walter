@@ -2442,3 +2442,15 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
     height: 120px;
   }
 }
+
+.one-time-discord-pass {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--brand-text);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
