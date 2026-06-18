@@ -115,3 +115,97 @@ def test_api_key_can_read_tournament_standings_and_latest_round(client, session)
     assert len(latest_round['matches']) == 2
     assert latest_round['matches'][0]['table_number'] == 1
     assert len(latest_round['matches'][0]['players']) == 2
+
+
+def _admin_api_token(session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='discord-admin@example.com', name='Discord Admin', role=admin_role, is_admin=True)
+    token = ApiKey.create_token()
+    session.add(admin)
+    session.flush()
+    session.add(ApiKey.from_token(token, admin, 'Discord bot', created_by=admin))
+    return token
+
+
+def test_discord_authorization_requires_username_and_one_time_pass(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    player = User(email='discord-player@example.com', name='Discord Player', role=user_role)
+    one_time_pass = 'abc123pass'
+    player.discord_username = 'walterplayer'
+    player.set_discord_authorization_token(one_time_pass)
+    session.add(player)
+    session.commit()
+
+    response = client.post(
+        '/api/v1/discord/authorize',
+        json={
+            'discord_user_id': '1234567890',
+            'discord_username': 'walterplayer',
+            'one_time_pass': one_time_pass,
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 200
+    session.refresh(player)
+    assert player.discord_user_id == '1234567890'
+    assert player.discord_authorization_token_hash is None
+
+
+def test_discord_report_pairing_requires_authorized_participant(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    tournament = Tournament(name='Discord Open', format='Draft')
+    players = []
+    for idx in range(1, 5):
+        user = User(name=f'Discord Player {idx}', email=f'discord{idx}@example.com', role=user_role)
+        if idx == 1:
+            user.discord_username = 'discord1'
+            user.discord_user_id = '111'
+        players.append(user)
+    session.add(tournament)
+    session.add_all(players)
+    session.flush()
+    entries = [TournamentPlayer(tournament_id=tournament.id, user_id=user.id) for user in players]
+    session.add_all(entries)
+    session.flush()
+    round_one = Round(tournament_id=tournament.id, number=1)
+    session.add(round_one)
+    session.flush()
+    matches = pair_round(tournament, round_one, session)
+    session.commit()
+
+    table = next(match.table_number for match in matches if players[0].id in {match.player1.user_id, match.player2.user_id})
+    response = client.post(
+        '/api/v1/discord/report-pairing',
+        json={
+            'discord_user_id': '111',
+            'tournament_id': tournament.id,
+            'table_number': table,
+            'player1_wins': 2,
+            'player2_wins': 1,
+            'draws': 0,
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 200
+    reported_match = session.query(Round).filter_by(tournament_id=tournament.id).one().matches[table - 1]
+    assert reported_match.completed is True
+    assert reported_match.result.player1_wins == 2
+    assert reported_match.result.player2_wins == 1
+
+    blocked_response = client.post(
+        '/api/v1/discord/report-pairing',
+        json={
+            'discord_user_id': '999',
+            'tournament_id': tournament.id,
+            'table_number': table,
+            'player1_wins': 2,
+            'player2_wins': 0,
+            'draws': 0,
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert blocked_response.status_code == 403

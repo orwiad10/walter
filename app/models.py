@@ -128,6 +128,24 @@ class User(db.Model, UserMixin):
     locked_at = db.Column(db.DateTime, nullable=True)
     lock_reason = db.Column(db.Text, nullable=True)
     color_mode = db.Column(db.String(10), nullable=False, default='light')
+    discord_username = db.Column(db.String(120), nullable=True)
+    discord_user_id = db.Column(db.String(32), unique=True, nullable=True)
+    discord_authorization_token_hash = db.Column(db.String(64), nullable=True)
+
+    @staticmethod
+    def hash_discord_authorization_token(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def set_discord_authorization_token(self, token):
+        self.discord_authorization_token_hash = self.hash_discord_authorization_token(token)
+
+    def check_discord_authorization_token(self, token):
+        if not self.discord_authorization_token_hash:
+            return False
+        return secrets.compare_digest(
+            self.discord_authorization_token_hash,
+            self.hash_discord_authorization_token(token),
+        )
 
     def set_password(self, pw, *, unlock=True):
         self.salt = 'werkzeug'

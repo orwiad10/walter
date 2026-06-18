@@ -23,6 +23,35 @@
 </section>
 
 <section class="panel-card">
+  <h3>Discord Bot Connection</h3>
+  <p class="muted">Add your Discord username, then generate a one-time pass and use it with <strong>/authorize</strong> in Discord before reporting tournament pairings with the bot.</p>
+  {% if new_discord_pass %}
+    <div class="flash success">
+      Copy this one-time Discord pass now. It will not be shown again:<br>
+      <code>{{ new_discord_pass }}</code>
+    </div>
+  {% endif %}
+  <form method="post" class="stacked-form">
+    <input type="hidden" name="action" value="discord_connection">
+    <label>Discord username
+      <input type="text" name="discord_username" maxlength="120" value="{{ current_user.discord_username or '' }}" placeholder="discord_username">
+    </label>
+    <p class="muted">
+      Status:
+      {% if current_user.discord_user_id %}
+        Connected to Discord user ID <code>{{ current_user.discord_user_id }}</code>.
+      {% else %}
+        Not connected.
+      {% endif %}
+    </p>
+    <div class="form-actions">
+      <button class="btn" type="submit">Save Discord Username</button>
+      <button class="btn btn-secondary" type="submit" name="generate_discord_pass" value="1">Generate One-Time Pass</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel-card">
   <h3>API Keys</h3>
   {% if current_user.has_permission('admin.api_keys') %}
     {% if new_api_key %}

@@ -424,6 +424,15 @@ def create_app():
                 db.session.execute(text("ALTER TABLE user ADD COLUMN color_mode VARCHAR(10) DEFAULT 'light'"))
                 db.session.execute(text("UPDATE user SET color_mode='light' WHERE color_mode IS NULL"))
                 db.session.commit()
+            if 'discord_username' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN discord_username VARCHAR(120)'))
+                db.session.commit()
+            if 'discord_user_id' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN discord_user_id VARCHAR(32)'))
+                db.session.commit()
+            if 'discord_authorization_token_hash' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN discord_authorization_token_hash VARCHAR(64)'))
+                db.session.commit()
 
         BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
         inspector = inspect(db.engine)
@@ -1805,6 +1814,9 @@ def create_app():
     def user_payload(user):
         return {'id': user.id, 'name': user.name, 'email': user.email or '', 'role': user.role.name if user.role else None, 'is_admin': bool(user.is_admin)}
 
+    def _normalize_discord_username(value):
+        return (value or '').strip().lstrip('@')
+
     def tournament_payload(t):
         return {'id': t.id, 'name': t.name, 'format': t.format, 'structure': t.structure, 'start_time': t.start_time.isoformat() if t.start_time else None, 'league_id': t.league_id, 'venue_id': t.venue_id}
 
@@ -1860,6 +1872,7 @@ def create_app():
     @login_required
     def user_settings():
         new_api_key = None
+        new_discord_pass = None
         if request.method == 'POST':
             action = request.form.get('action')
             if action == 'appearance':
@@ -1870,6 +1883,20 @@ def create_app():
                 db.session.commit()
                 flash('Settings saved.', 'success')
                 return redirect(url_for('user_settings'))
+            if action == 'discord_connection':
+                discord_username = _normalize_discord_username(request.form.get('discord_username'))
+                if len(discord_username) > 120:
+                    discord_username = discord_username[:120]
+                current_user.discord_username = discord_username or None
+                if request.form.get('generate_discord_pass') == '1':
+                    new_discord_pass = secrets.token_urlsafe(8)
+                    current_user.set_discord_authorization_token(new_discord_pass)
+                    current_user.discord_user_id = None
+                    flash('Discord connection pass generated. Use it with /authorize in Discord.', 'success')
+                else:
+                    flash('Discord settings saved.', 'success')
+                db.session.commit()
+                log_site('discord_settings_update', 'success', f'user_id={current_user.id}')
             if action == 'api_key':
                 if not current_user.has_permission('admin.api_keys'):
                     log_site('api_key_create', 'failure', 'missing admin.api_keys')
@@ -1881,7 +1908,13 @@ def create_app():
                 log_site('api_key_create', 'success', f'api_key_name={name}')
                 new_api_key = token
         keys = db.session.query(ApiKey).filter_by(user_id=current_user.id).order_by(ApiKey.created_at.desc()).all()
-        return render_template('user_settings.html', api_keys=keys, new_api_key=new_api_key, selected_color_mode=site_theme())
+        return render_template(
+            'user_settings.html',
+            api_keys=keys,
+            new_api_key=new_api_key,
+            new_discord_pass=new_discord_pass,
+            selected_color_mode=site_theme(),
+        )
 
     @app.route('/settings/api-keys/<int:key_id>/revoke', methods=['POST'])
     @login_required
@@ -2048,6 +2081,87 @@ def create_app():
             'tournament': tournament_payload(tournament),
             'round': round_payload(round_obj),
         })
+
+    @app.route('/api/v1/discord/authorize', methods=['POST'])
+    def api_discord_authorize():
+        require_api_permission('tournaments.manage')
+        data = request.get_json(silent=True) or {}
+        discord_user_id = str(data.get('discord_user_id') or '').strip()
+        discord_username = _normalize_discord_username(data.get('discord_username'))
+        one_time_pass = str(data.get('one_time_pass') or '').strip()
+        if not discord_user_id or not one_time_pass:
+            return _json_error('discord_user_id and one_time_pass are required')
+        user = None
+        for candidate in db.session.query(User).filter(User.discord_authorization_token_hash.isnot(None)).all():
+            if candidate.check_discord_authorization_token(one_time_pass):
+                user = candidate
+                break
+        if not user:
+            _api_log('discord.authorize', 'failure', 'invalid pass')
+            return _json_error('invalid or expired one-time pass', 403)
+        if not user.discord_username:
+            return _json_error('add your Discord username in Walter user settings before authorizing', 403)
+        if discord_username and user.discord_username.lower() != discord_username.lower():
+            return _json_error('Discord username does not match Walter user settings', 403)
+        existing = db.session.query(User).filter(User.discord_user_id == discord_user_id, User.id != user.id).first()
+        if existing:
+            return _json_error('Discord account is already connected to another Walter user', 409)
+        user.discord_user_id = discord_user_id
+        user.discord_authorization_token_hash = None
+        db.session.commit()
+        _api_log('discord.authorize', 'success', f'user_id={user.id}')
+        return jsonify({'authorized': True, 'user': user_payload(user)})
+
+    @app.route('/api/v1/discord/report-pairing', methods=['POST'])
+    def api_discord_report_pairing():
+        require_api_permission('tournaments.manage')
+        data = request.get_json(silent=True) or {}
+        discord_user_id = str(data.get('discord_user_id') or '').strip()
+        tournament_id = data.get('tournament_id')
+        table_number = data.get('table_number')
+        if not discord_user_id or tournament_id is None or table_number is None:
+            return _json_error('discord_user_id, tournament_id, and table_number are required')
+        user = db.session.query(User).filter_by(discord_user_id=discord_user_id).first()
+        if not user or not user.discord_username:
+            return _json_error('Discord account is not authorized with a Walter user that has a Discord username', 403)
+        tournament = db.session.get(Tournament, int(tournament_id))
+        if not tournament:
+            return _json_error('tournament not found', 404)
+        round_obj = (
+            db.session.query(Round)
+            .filter_by(tournament_id=tournament.id)
+            .order_by(Round.number.desc())
+            .first()
+        )
+        if not round_obj:
+            return _json_error('no active round found', 404)
+        match = db.session.query(Match).filter_by(round_id=round_obj.id, table_number=int(table_number)).first()
+        if not match:
+            return _json_error('table not found in the latest round', 404)
+        participant_ids = {
+            player.user_id for player in (match.player1, match.player2, match.player3, match.player4) if player
+        }
+        if user.id not in participant_ids:
+            return _json_error('only a player in this pairing can report it from Discord', 403)
+        next_round = db.session.query(Round).filter(Round.tournament_id == tournament.id, Round.number > round_obj.number).first()
+        if next_round:
+            return _json_error('cannot modify result after next round has been paired', 409)
+        if tournament.format.lower() == 'commander':
+            return _json_error('Commander pairing reports are not supported from Discord yet', 400)
+        try:
+            p1_wins = int(data.get('player1_wins', 0))
+            p2_wins = int(data.get('player2_wins', 0))
+            draws = int(data.get('draws', 0))
+        except (TypeError, ValueError):
+            return _json_error('wins and draws must be whole numbers')
+        if min(p1_wins, p2_wins, draws) < 0:
+            return _json_error('wins and draws cannot be negative')
+        match.result = MatchResult(player1_wins=p1_wins, player2_wins=p2_wins, draws=draws)
+        match.completed = True
+        db.session.commit()
+        log_tournament(tournament.id, 'discord_report', 'success', f'user_id={user.id}; match_id={match.id}')
+        _api_log('discord.report_pairing', 'success', f'tournament_id={tournament.id}; match_id={match.id}; user_id={user.id}')
+        return jsonify({'reported': True, 'match': match_payload(match), 'round': round_payload(round_obj)})
 
     @app.route('/api/v1/leagues/<int:league_id>', methods=['GET', 'PATCH', 'DELETE'])
     def api_league_detail(league_id):

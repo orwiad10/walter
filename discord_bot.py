@@ -1,4 +1,4 @@
-"""Read-only Discord bot for Walter tournament updates.
+"""Discord bot for Walter tournament updates and player result reporting.
 
 The bot talks to the Walter site through the API key exported by the startup
 scripts. It only calls read endpoints and exposes slash commands for standings
@@ -44,6 +44,9 @@ class WalterApiClient:
     async def get_json(self, path: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._get_json_sync, path)
 
+    async def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await asyncio.to_thread(self._post_json_sync, path, payload)
+
     def _get_json_sync(self, path: str) -> dict[str, Any]:
         url = f'{self.base_url}{path}'
         headers = {
@@ -63,6 +66,27 @@ class WalterApiClient:
         except error.URLError as exc:
             raise WalterApiError(f'Could not reach Walter API: {exc.reason}') from exc
 
+    def _post_json_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        import json
+
+        url = f'{self.base_url}{path}'
+        body = json.dumps(payload).encode('utf-8')
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'WalterDiscordBot/1.0',
+        }
+        api_request = request.Request(url, data=body, headers=headers, method='POST')
+        try:
+            with request.urlopen(api_request, timeout=10) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except error.HTTPError as exc:
+            detail = exc.read().decode('utf-8', errors='replace')
+            raise WalterApiError(f'Walter API returned HTTP {exc.code}: {detail}') from exc
+        except error.URLError as exc:
+            raise WalterApiError(f'Could not reach Walter API: {exc.reason}') from exc
+
     async def tournaments(self) -> dict[str, Any]:
         return await self.get_json('/api/v1/tournaments')
 
@@ -71,6 +95,31 @@ class WalterApiClient:
 
     async def latest_round(self, tournament_id: int) -> dict[str, Any]:
         return await self.get_json(f'/api/v1/tournaments/{tournament_id}/rounds/latest')
+
+    async def authorize_discord_user(self, discord_user_id: int, discord_username: str, one_time_pass: str) -> dict[str, Any]:
+        return await self.post_json('/api/v1/discord/authorize', {
+            'discord_user_id': str(discord_user_id),
+            'discord_username': discord_username,
+            'one_time_pass': one_time_pass,
+        })
+
+    async def report_pairing(
+        self,
+        discord_user_id: int,
+        tournament_id: int,
+        table_number: int,
+        player1_wins: int,
+        player2_wins: int,
+        draws: int,
+    ) -> dict[str, Any]:
+        return await self.post_json('/api/v1/discord/report-pairing', {
+            'discord_user_id': str(discord_user_id),
+            'tournament_id': tournament_id,
+            'table_number': table_number,
+            'player1_wins': player1_wins,
+            'player2_wins': player2_wins,
+            'draws': draws,
+        })
 
 
 def _truncate_lines(lines: list[str], limit: int = 1900) -> str:
@@ -215,6 +264,55 @@ async def pairings(interaction: discord.Interaction, tournament_id: int):
     await interaction.response.defer(thinking=True)
     try:
         await interaction.followup.send(format_pairings(await bot.api.latest_round(tournament_id)))
+    except WalterApiError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True)
+
+
+@bot.tree.command(name='authorize', description='Connect this Discord account to your Walter user with a one-time pass.')
+@app_commands.describe(one_time_pass='One-time pass generated from your Walter user settings page')
+async def authorize(interaction: discord.Interaction, one_time_pass: str):
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    username = interaction.user.name
+    try:
+        payload = await bot.api.authorize_discord_user(interaction.user.id, username, one_time_pass)
+        user = payload.get('user') or {}
+        await interaction.followup.send(f"Connected Discord to Walter user **{user.get('name', 'Unknown')}**.", ephemeral=True)
+    except WalterApiError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True)
+
+
+@bot.tree.command(name='report_pairing', description='Report your latest-round tournament pairing result.')
+@app_commands.describe(
+    tournament_id='Walter tournament ID',
+    table_number='Table number from the latest round pairings',
+    player1_wins='Wins for the first-listed player at the table',
+    player2_wins='Wins for the second-listed player at the table',
+    draws='Drawn games in the match',
+)
+async def report_pairing(
+    interaction: discord.Interaction,
+    tournament_id: int,
+    table_number: int,
+    player1_wins: int,
+    player2_wins: int,
+    draws: int = 0,
+):
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    try:
+        payload = await bot.api.report_pairing(
+            interaction.user.id,
+            tournament_id,
+            table_number,
+            player1_wins,
+            player2_wins,
+            draws,
+        )
+        match = payload.get('match') or {}
+        await interaction.followup.send(
+            f"Result reported for table {match.get('table_number', table_number)}: "
+            f"{player1_wins}-{player2_wins}-{draws}.",
+            ephemeral=True,
+        )
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 
