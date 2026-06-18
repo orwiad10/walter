@@ -1811,6 +1811,51 @@ def create_app():
     def league_payload(league):
         return {'id': league.id, 'name': league.name, 'start_date': league.start_date.isoformat() if league.start_date else None, 'end_date': league.end_date.isoformat() if league.end_date else None, 'is_cube_league': bool(league.is_cube_league)}
 
+    def standings_payload(t):
+        standings = compute_standings(t, db.session)
+        rows = []
+        for index, row in enumerate(standings, start=1):
+            tp = row['tp']
+            rows.append({
+                'rank': index,
+                'tournament_player_id': tp.id,
+                'user_id': tp.user_id,
+                'name': tp.user.name if tp.user else 'Unknown',
+                'points': row.get('points', 0),
+                'omw': row.get('omw', 0),
+                'gw': row.get('gw', 0),
+                'ogw': row.get('ogw', 0),
+                'dropped': bool(tp.dropped),
+            })
+        return rows
+
+    def match_payload(match):
+        players = []
+        for player in (match.player1, match.player2, match.player3, match.player4):
+            if not player:
+                continue
+            players.append({
+                'tournament_player_id': player.id,
+                'user_id': player.user_id,
+                'name': player.user.name if player.user else 'Unknown',
+                'dropped': bool(player.dropped),
+            })
+        return {
+            'id': match.id,
+            'table_number': match.table_number,
+            'players': players,
+            'is_bye': match.player2_id is None,
+            'completed': bool(match.completed),
+        }
+
+    def round_payload(round_obj):
+        matches = sorted(round_obj.matches, key=lambda match: match.table_number)
+        return {
+            'id': round_obj.id,
+            'number': round_obj.number,
+            'matches': [match_payload(match) for match in matches],
+        }
+
     @app.route('/settings', methods=['GET', 'POST'])
     @login_required
     def user_settings():
@@ -1953,6 +1998,56 @@ def create_app():
         else:
             _api_log('tournaments.get', 'success', f'tournament_id={tournament.id}')
         return jsonify(tournament_payload(tournament))
+
+    @app.route('/api/v1/tournaments/<int:tournament_id>/standings')
+    def api_tournament_standings(tournament_id):
+        require_api_permission('tournaments.manage')
+        tournament = db.session.get(Tournament, tournament_id)
+        if not tournament:
+            return _json_error('not found', 404)
+        _api_log('tournaments.standings', 'success', f'tournament_id={tournament.id}')
+        return jsonify({
+            'tournament': tournament_payload(tournament),
+            'standings': standings_payload(tournament),
+        })
+
+    @app.route('/api/v1/tournaments/<int:tournament_id>/rounds')
+    def api_tournament_rounds(tournament_id):
+        require_api_permission('tournaments.manage')
+        tournament = db.session.get(Tournament, tournament_id)
+        if not tournament:
+            return _json_error('not found', 404)
+        rounds = (
+            db.session.query(Round)
+            .filter_by(tournament_id=tournament.id)
+            .order_by(Round.number)
+            .all()
+        )
+        _api_log('tournaments.rounds', 'success', f'tournament_id={tournament.id}')
+        return jsonify({
+            'tournament': tournament_payload(tournament),
+            'rounds': [round_payload(round_obj) for round_obj in rounds],
+        })
+
+    @app.route('/api/v1/tournaments/<int:tournament_id>/rounds/latest')
+    def api_tournament_latest_round(tournament_id):
+        require_api_permission('tournaments.manage')
+        tournament = db.session.get(Tournament, tournament_id)
+        if not tournament:
+            return _json_error('not found', 404)
+        round_obj = (
+            db.session.query(Round)
+            .filter_by(tournament_id=tournament.id)
+            .order_by(Round.number.desc())
+            .first()
+        )
+        if not round_obj:
+            return _json_error('not found', 404)
+        _api_log('tournaments.rounds.latest', 'success', f'tournament_id={tournament.id}; round={round_obj.number}')
+        return jsonify({
+            'tournament': tournament_payload(tournament),
+            'round': round_payload(round_obj),
+        })
 
     @app.route('/api/v1/leagues/<int:league_id>', methods=['GET', 'PATCH', 'DELETE'])
     def api_league_detail(league_id):
