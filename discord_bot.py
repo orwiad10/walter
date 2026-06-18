@@ -29,6 +29,7 @@ BOT_API_BASE_URL = os.environ.get('BOT_API_BASE_URL', 'http://127.0.0.1:5000').s
 BOT_API_KEY = os.environ.get('BOT_API_KEY', '').strip()
 BOT_POLL_TOURNAMENT_ID = os.environ.get('BOT_POLL_TOURNAMENT_ID', '').strip()
 BOT_POLL_INTERVAL_SECONDS = int(os.environ.get('BOT_POLL_INTERVAL_SECONDS', '30') or 30)
+BOT_ANNOUNCE_READY = os.environ.get('BOT_ANNOUNCE_READY', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
 
 
 class WalterApiError(RuntimeError):
@@ -124,24 +125,48 @@ class WalterBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.api = WalterApiClient(BOT_API_BASE_URL, BOT_API_KEY)
         self._last_announced_round: int | None = None
+        self._ready_announced = False
 
     async def setup_hook(self):
-        await self.tree.sync()
+        synced_commands = await self.tree.sync()
+        print(f'Synced {len(synced_commands)} Discord slash command(s).')
         if BOT_CHANNEL_ID and BOT_POLL_TOURNAMENT_ID:
             self.loop.create_task(self._poll_pairings())
+        elif BOT_CHANNEL_ID:
+            print('BOT_CHANNEL_ID is configured, but BOT_POLL_TOURNAMENT_ID is not; automatic pairing posts are disabled.')
+        else:
+            print('BOT_CHANNEL_ID is not configured; the bot cannot post messages to a Discord channel.')
 
     async def on_ready(self):
         assert self.user is not None
         print(f'Logged in as {self.user} (ID: {self.user.id})')
+        print(f'Connected to {len(self.guilds)} Discord server(s).')
         print(f'Walter API: {BOT_API_BASE_URL}')
+
+        if BOT_CHANNEL_ID and BOT_ANNOUNCE_READY and not self._ready_announced:
+            channel = await self._get_messageable_channel(BOT_CHANNEL_ID)
+            if channel is not None:
+                await channel.send('Walter bot is online. Use `/tournaments`, `/standings`, or `/pairings` to get tournament updates.')
+                self._ready_announced = True
+
+    async def _get_messageable_channel(self, channel_id: str) -> discord.abc.Messageable | None:
+        try:
+            channel = self.get_channel(int(channel_id))
+            if channel is None:
+                channel = await self.fetch_channel(int(channel_id))
+        except (TypeError, ValueError, discord.DiscordException) as exc:
+            print(f'Could not resolve BOT_CHANNEL_ID={channel_id}: {exc}')
+            return None
+
+        if not isinstance(channel, discord.abc.Messageable):
+            print(f'Configured BOT_CHANNEL_ID={channel_id} is not messageable.')
+            return None
+        return channel
 
     async def _poll_pairings(self):
         await self.wait_until_ready()
-        channel = self.get_channel(int(BOT_CHANNEL_ID))
+        channel = await self._get_messageable_channel(BOT_CHANNEL_ID)
         if channel is None:
-            channel = await self.fetch_channel(int(BOT_CHANNEL_ID))
-        if not isinstance(channel, discord.abc.Messageable):
-            print(f'Configured BOT_CHANNEL_ID={BOT_CHANNEL_ID} is not messageable.')
             return
 
         tournament_id = int(BOT_POLL_TOURNAMENT_ID)
