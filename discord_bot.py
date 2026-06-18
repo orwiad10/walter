@@ -30,6 +30,7 @@ BOT_API_KEY = os.environ.get('BOT_API_KEY', '').strip()
 BOT_POLL_TOURNAMENT_ID = os.environ.get('BOT_POLL_TOURNAMENT_ID', '').strip()
 BOT_POLL_INTERVAL_SECONDS = int(os.environ.get('BOT_POLL_INTERVAL_SECONDS', '30') or 30)
 BOT_ANNOUNCE_READY = os.environ.get('BOT_ANNOUNCE_READY', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
+BOT_SYNC_GUILD_COMMANDS = os.environ.get('BOT_SYNC_GUILD_COMMANDS', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
 
 
 class WalterApiError(RuntimeError):
@@ -135,6 +136,10 @@ def _truncate_lines(lines: list[str], limit: int = 1900) -> str:
     return '\n'.join(output) or 'No data found.'
 
 
+def registered_command_names(tree: app_commands.CommandTree[Any]) -> list[str]:
+    return sorted(command.name for command in tree.get_commands())
+
+
 def format_standings(payload: dict[str, Any]) -> str:
     tournament = payload.get('tournament') or {}
     standings = payload.get('standings') or []
@@ -175,10 +180,12 @@ class WalterBot(discord.Client):
         self.api = WalterApiClient(BOT_API_BASE_URL, BOT_API_KEY)
         self._last_announced_round: int | None = None
         self._ready_announced = False
+        self._guild_commands_synced = False
 
     async def setup_hook(self):
         synced_commands = await self.tree.sync()
-        print(f'Synced {len(synced_commands)} Discord slash command(s).')
+        command_names = ', '.join(registered_command_names(self.tree))
+        print(f'Synced {len(synced_commands)} global Discord slash command(s): {command_names}')
         if BOT_CHANNEL_ID and BOT_POLL_TOURNAMENT_ID:
             self.loop.create_task(self._poll_pairings())
         elif BOT_CHANNEL_ID:
@@ -192,11 +199,25 @@ class WalterBot(discord.Client):
         print(f'Connected to {len(self.guilds)} Discord server(s).')
         print(f'Walter API: {BOT_API_BASE_URL}')
 
+        if BOT_SYNC_GUILD_COMMANDS and not self._guild_commands_synced:
+            await self._sync_guild_commands()
+
         if BOT_CHANNEL_ID and BOT_ANNOUNCE_READY and not self._ready_announced:
             channel = await self._get_messageable_channel(BOT_CHANNEL_ID)
             if channel is not None:
-                await channel.send('Walter bot is online. Use `/tournaments`, `/standings`, or `/pairings` to get tournament updates.')
+                await channel.send('Walter bot is online. Use `/tournaments`, `/standings`, `/pairings`, or `/connect` to get started.')
                 self._ready_announced = True
+
+    async def _sync_guild_commands(self):
+        command_names = ', '.join(registered_command_names(self.tree))
+        for guild in self.guilds:
+            try:
+                self.tree.copy_global_to(guild=guild)
+                synced_commands = await self.tree.sync(guild=guild)
+                print(f'Synced {len(synced_commands)} slash command(s) to guild {guild.id}: {command_names}')
+            except discord.DiscordException as exc:
+                print(f'Could not sync slash commands to guild {guild.id}: {exc}')
+        self._guild_commands_synced = True
 
     async def _get_messageable_channel(self, channel_id: str) -> discord.abc.Messageable | None:
         try:
