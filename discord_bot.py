@@ -268,9 +268,9 @@ async def pairings(interaction: discord.Interaction, tournament_id: int):
         await interaction.followup.send(str(exc), ephemeral=True)
 
 
-@bot.tree.command(name='authorize', description='Connect this Discord account to your Walter user with a one-time pass.')
+@bot.tree.command(name='connect', description='Connect this Discord account to your Walter user with a one-time pass.')
 @app_commands.describe(one_time_pass='One-time pass generated from your Walter user settings page')
-async def authorize(interaction: discord.Interaction, one_time_pass: str):
+async def connect(interaction: discord.Interaction, one_time_pass: str):
     await interaction.response.defer(thinking=True, ephemeral=True)
     username = interaction.user.name
     try:
