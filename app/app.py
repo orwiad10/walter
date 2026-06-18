@@ -2082,7 +2082,7 @@ def create_app():
             'round': round_payload(round_obj),
         })
 
-    @app.route('/api/v1/discord/authorize', methods=['POST'])
+    @app.route('/api/v1/discord/authorize', methods=['POST'], strict_slashes=False)
     def api_discord_authorize():
         require_api_permission('tournaments.manage')
         data = request.get_json(silent=True) or {}
@@ -2112,7 +2112,7 @@ def create_app():
         _api_log('discord.authorize', 'success', f'user_id={user.id}')
         return jsonify({'authorized': True, 'user': user_payload(user)})
 
-    @app.route('/api/v1/discord/report-pairing', methods=['POST'])
+    @app.route('/api/v1/discord/report-pairing', methods=['POST'], strict_slashes=False)
     def api_discord_report_pairing():
         require_api_permission('tournaments.manage')
         data = request.get_json(silent=True) or {}
