@@ -120,11 +120,17 @@ class WalterApiClient:
         return await self.get_json(f'/api/v1/tournaments/{tournament_id}/rounds/latest')
 
     async def authorize_discord_user(self, discord_user_id: int, discord_username: str, one_time_pass: str) -> dict[str, Any]:
-        return await self.post_json('/api/v1/discord/authorize', {
+        payload = {
             'discord_user_id': str(discord_user_id),
             'discord_username': discord_username,
             'one_time_pass': one_time_pass,
-        })
+        }
+        try:
+            return await self.post_json('/connect', payload)
+        except WalterApiError as exc:
+            if 'HTTP 405' not in str(exc):
+                raise
+            return await self.post_json('/api/v1/discord/authorize', payload)
 
     async def report_pairing(
         self,

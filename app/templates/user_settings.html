@@ -27,19 +27,20 @@
   <p class="muted">Add your Discord username, then generate a one-time pass and use it with <strong>/connect</strong> in Discord before reporting tournament pairings with the bot.</p>
   {% if new_discord_pass %}
     <div class="flash success">
-      Copy this one-time Discord pass now. It will not be shown again:<br>
-      <code>{{ new_discord_pass }}</code>
+      <strong>Copy this one-time Discord pass now. It will not be shown again:</strong><br>
+      <code class="one-time-discord-pass">{{ new_discord_pass }}</code>
     </div>
   {% endif %}
   <form method="post" class="stacked-form">
     <input type="hidden" name="action" value="discord_connection">
+    <p class="muted">Current Discord username: <strong>{{ current_user.discord_username or 'Not set' }}</strong></p>
     <label>Discord username
-      <input type="text" name="discord_username" maxlength="120" value="{{ current_user.discord_username or '' }}" placeholder="discord_username">
+      <input type="text" name="discord_username" maxlength="120" value="{{ current_user.discord_username or '' }}" placeholder="discord_username" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true">
     </label>
     <p class="muted">
       Status:
       {% if current_user.discord_user_id %}
-        Connected to Discord user ID <code>{{ current_user.discord_user_id }}</code>.
+        Connected as <strong>{{ current_user.discord_username or 'unknown username' }}</strong> to Discord user ID <code>{{ current_user.discord_user_id }}</code>.
       {% else %}
         Not connected.
       {% endif %}

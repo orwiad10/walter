@@ -236,3 +236,29 @@ def test_discord_report_pairing_requires_authorized_participant(client, session)
         headers={'Authorization': f'Bearer {token}'},
     )
     assert blocked_response.status_code == 403
+
+
+def test_discord_settings_show_pass_prominently_and_disable_password_managers(client, session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    user = User(email='discord-settings@example.com', name='Discord Settings', role=user_role)
+    user.set_password('secret')
+    session.add(user)
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/settings',
+            data={
+                'action': 'discord_connection',
+                'discord_username': 'waltersettings',
+                'generate_discord_pass': '1',
+            },
+        )
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'Current Discord username: <strong>waltersettings</strong>' in html
+    assert 'class="one-time-discord-pass"' in html
+    assert 'autocomplete="off"' in html
+    assert 'data-lpignore="true"' in html
