@@ -26,14 +26,15 @@ classifiers = [
     "Topic :: Utilities",
     "Typing :: Typed",
 ]
-dynamic = ["version", "dependencies"]
+dynamic = ["version"]
+dependencies = [
+    "aiohttp>=3.7.4,<4",
+    "audioop-lts; python_version>='3.13'",
+]
 
 [project.urls]
 Documentation = "https://discordpy.readthedocs.io/en/latest/"
 "Issue tracker" = "https://github.com/Rapptz/discord.py/issues"
-
-[tool.setuptools.dynamic]
-dependencies = { file = "requirements.txt" }
 
 [project.optional-dependencies]
 voice = [
