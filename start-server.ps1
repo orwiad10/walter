@@ -72,6 +72,12 @@ $BotRuntimeArgs = $cfg.bot_runtime_args
 $BotRuntimeLogFile = $cfg.bot_runtime_log_file
 $BotRuntimeErrorLogFile = $cfg.bot_runtime_error_log_file
 $BotToken = $cfg.bot_token
+$BotAppId = $cfg.bot_appid
+$BotPubKey = $cfg.bot_pubkey
+$BotClientId = $cfg.bot_client_id
+$BotSecretKey = $cfg.bot_secret_key
+$BotPermissionsInt = $cfg.bot_permissions_int
+$BotChannelId = $cfg.bot_channel_id
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 ######enable testing###########
@@ -130,6 +136,12 @@ $env:ACCOUNT_LOCKOUT_ATTEMPTS = $AccountLockoutAttempts
 $env:IP_BLACKLIST_ATTEMPTS = $IpBlacklistAttempts
 $env:PASSWORD_RESET_TTL_MINUTES = $PasswordResetTtlMinutes
 $env:BOT_TOKEN = $BotToken
+$env:BOT_APPID = $BotAppId
+$env:BOT_PUBKEY = $BotPubKey
+$env:BOT_CLIENT_ID = $BotClientId
+$env:BOT_SECRET_KEY = $BotSecretKey
+$env:BOT_PERMISSIONS_INT = $BotPermissionsInt
+$env:BOT_CHANNEL_ID = $BotChannelId
 
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 
