@@ -171,6 +171,15 @@ $env:MTG_LOG_DB_PATH = $LogDatabasePath
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
 
+# The vendored discord.py package is imported directly by discord_bot.py, so
+# make sure its third-party runtime dependency is present even if an existing
+# environment was created before aiohttp was added to requirements.txt.
+python -c "import aiohttp" 2>$null
+if($LASTEXITCODE -ne 0){
+    Write-Host "Installing missing Discord bot dependency aiohttp..."
+    python -m pip install 'aiohttp>=3.7.4,<4' | Out-Null
+}
+
 if($BotInstallEnabled){
     $botInstallTarget = $BotInstallPath
     if(-not [string]::IsNullOrEmpty($BotInstallExtras)){ $botInstallTarget = "$botInstallTarget[$BotInstallExtras]" }
