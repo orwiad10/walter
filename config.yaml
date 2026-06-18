@@ -9,7 +9,7 @@ flask_port: 5000
 last_table_number: 200
 # Optional production HTTPS settings. When tls_domain is set, start-server.sh
 # checks for a Let's Encrypt certificate and requests or renews it as needed.
-tls_domain: walter-pair.us
+# tls_domain: tournaments.example.com
 # Optional comma-separated certificate/server-name aliases, for example:
 # tls_additional_domains: www.tournaments.example.com
 # letsencrypt_email: admin@example.com
@@ -32,3 +32,24 @@ account_lockout_attempts: 3
 ip_blacklist_attempts: 10
 # Password reset links expire after this many minutes.
 password_reset_ttl_minutes: 60
+
+# Optional Walter bot install settings. Enable this to install the bundled
+# walter-bot package during start-server.* startup.
+bot_install_enabled: false
+bot_install_path: walter-bot
+bot_install_editable: true
+# Optional package extras without brackets, for example: voice,speed
+bot_install_extras: ""
+
+# Optional Walter bot runtime settings. Enable this to start a bot process after
+# Waitress starts. Configure exactly one of bot_runtime_module or
+# bot_runtime_script, then place any extra CLI flags in bot_runtime_args.
+bot_runtime_enabled: false
+bot_runtime_module: ""
+bot_runtime_script: ""
+bot_runtime_args: ""
+bot_runtime_log_file: walter-bot.log
+bot_runtime_error_log_file: walter-bot.err.log
+# Prefer setting this through a secret manager or environment override in
+# production; start-server.* exports it as BOT_TOKEN for the bot process.
+bot_token: ""

@@ -61,6 +61,17 @@ $AccountCreationInviteOnly = $cfg.account_creation_invite_only
 $AccountLockoutAttempts = $cfg.account_lockout_attempts
 $IpBlacklistAttempts = $cfg.ip_blacklist_attempts
 $PasswordResetTtlMinutes = $cfg.password_reset_ttl_minutes
+$BotInstallEnabled = $cfg.bot_install_enabled
+$BotInstallPath = $cfg.bot_install_path
+$BotInstallEditable = $cfg.bot_install_editable
+$BotInstallExtras = $cfg.bot_install_extras
+$BotRuntimeEnabled = $cfg.bot_runtime_enabled
+$BotRuntimeModule = $cfg.bot_runtime_module
+$BotRuntimeScript = $cfg.bot_runtime_script
+$BotRuntimeArgs = $cfg.bot_runtime_args
+$BotRuntimeLogFile = $cfg.bot_runtime_log_file
+$BotRuntimeErrorLogFile = $cfg.bot_runtime_error_log_file
+$BotToken = $cfg.bot_token
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 ######enable testing###########
@@ -78,6 +89,12 @@ if($null -eq $AccountCreationInviteOnly){ $AccountCreationInviteOnly = $false }
 if([string]::IsNullOrEmpty($AccountLockoutAttempts)){ $AccountLockoutAttempts = 3 }
 if([string]::IsNullOrEmpty($IpBlacklistAttempts)){ $IpBlacklistAttempts = 10 }
 if([string]::IsNullOrEmpty($PasswordResetTtlMinutes)){ $PasswordResetTtlMinutes = 60 }
+if($null -eq $BotInstallEnabled){ $BotInstallEnabled = $false }
+if([string]::IsNullOrEmpty($BotInstallPath)){ $BotInstallPath = "walter-bot" }
+if($null -eq $BotInstallEditable){ $BotInstallEditable = $true }
+if($null -eq $BotRuntimeEnabled){ $BotRuntimeEnabled = $false }
+if([string]::IsNullOrEmpty($BotRuntimeLogFile)){ $BotRuntimeLogFile = "walter-bot.log" }
+if([string]::IsNullOrEmpty($BotRuntimeErrorLogFile)){ $BotRuntimeErrorLogFile = "walter-bot.err.log" }
 
 #check if Flask/Waitress is already running and stop it if necessary
 $flaskpid = try{
@@ -112,6 +129,7 @@ $env:ACCOUNT_CREATION_INVITE_ONLY = $AccountCreationInviteOnly
 $env:ACCOUNT_LOCKOUT_ATTEMPTS = $AccountLockoutAttempts
 $env:IP_BLACKLIST_ATTEMPTS = $IpBlacklistAttempts
 $env:PASSWORD_RESET_TTL_MINUTES = $PasswordResetTtlMinutes
+$env:BOT_TOKEN = $BotToken
 
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 
@@ -131,6 +149,17 @@ $env:MTG_LOG_DB_PATH = $LogDatabasePath
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
 
+if($BotInstallEnabled){
+    $botInstallTarget = $BotInstallPath
+    if(-not [string]::IsNullOrEmpty($BotInstallExtras)){ $botInstallTarget = "$botInstallTarget[$BotInstallExtras]" }
+    Write-Host "Installing Walter bot package from $BotInstallPath..."
+    if($BotInstallEditable){
+        python -m pip install -e $botInstallTarget | Out-Null
+    } else {
+        python -m pip install $botInstallTarget | Out-Null
+    }
+}
+
 Write-Host "Initializing database..."
 python -m flask --app app.app db-init
 
@@ -143,6 +172,29 @@ $waitressErrorLog = Join-Path $PSScriptRoot "waitress-server.err.log"
 $waitressArgs = @("-m", "waitress", "--host=$FlaskIP", "--port=$FlaskPort", "app.app:app")
 Start-Process -NoNewWindow -FilePath "python" -ArgumentList $waitressArgs -RedirectStandardOutput $waitressLog -RedirectStandardError $waitressErrorLog
 Write-Host "Waitress server started. Logs: $waitressLog; errors: $waitressErrorLog"
+
+if($BotRuntimeEnabled){
+    if(-not [string]::IsNullOrEmpty($BotRuntimeModule) -and -not [string]::IsNullOrEmpty($BotRuntimeScript)){
+        Write-Error "Only one of bot_runtime_module or bot_runtime_script may be configured."
+        exit 1
+    }
+    if([string]::IsNullOrEmpty($BotRuntimeModule) -and [string]::IsNullOrEmpty($BotRuntimeScript)){
+        Write-Error "bot_runtime_enabled is true, but neither bot_runtime_module nor bot_runtime_script is configured."
+        exit 1
+    }
+    $botLog = Join-Path $PSScriptRoot $BotRuntimeLogFile
+    $botErrorLog = Join-Path $PSScriptRoot $BotRuntimeErrorLogFile
+    $botExtraArgs = @()
+    if(-not [string]::IsNullOrWhiteSpace($BotRuntimeArgs)){ $botExtraArgs = $BotRuntimeArgs -split ' ' }
+    if(-not [string]::IsNullOrEmpty($BotRuntimeModule)){
+        $botArgs = @("-m", $BotRuntimeModule) + $botExtraArgs
+        Start-Process -NoNewWindow -FilePath "python" -ArgumentList $botArgs -RedirectStandardOutput $botLog -RedirectStandardError $botErrorLog
+    } else {
+        $botArgs = @($BotRuntimeScript) + $botExtraArgs
+        Start-Process -NoNewWindow -FilePath "python" -ArgumentList $botArgs -RedirectStandardOutput $botLog -RedirectStandardError $botErrorLog
+    }
+    Write-Host "Walter bot started. Logs: $botLog; errors: $botErrorLog"
+}
 
 Start-Sleep -Seconds 3
 
