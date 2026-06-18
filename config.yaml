@@ -41,10 +41,11 @@ bot_install_editable: true
 # Optional package extras without brackets, for example: voice,speed
 bot_install_extras: ""
 
-# Optional Walter bot runtime settings. Enable this to start a bot process after
-# Waitress starts. Configure exactly one of bot_runtime_module or
-# bot_runtime_script, then place any extra CLI flags in bot_runtime_args.
-bot_runtime_enabled: false
+# Optional Walter bot runtime settings. Set bot_runtime_enabled to auto to
+# start a bot process whenever bot_runtime_module or bot_runtime_script is
+# configured. Configure exactly one runtime target, then place any extra CLI
+# flags in bot_runtime_args. Set bot_runtime_enabled to false to disable it.
+bot_runtime_enabled: auto
 bot_runtime_module: ""
 bot_runtime_script: ""
 bot_runtime_args: ""

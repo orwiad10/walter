@@ -514,7 +514,7 @@ BOT_INSTALL_ENABLED="${BOT_INSTALL_ENABLED:-false}"
 BOT_INSTALL_PATH="${BOT_INSTALL_PATH:-walter-bot}"
 BOT_INSTALL_EDITABLE="${BOT_INSTALL_EDITABLE:-true}"
 BOT_INSTALL_EXTRAS="${BOT_INSTALL_EXTRAS:-}"
-BOT_RUNTIME_ENABLED="${BOT_RUNTIME_ENABLED:-false}"
+BOT_RUNTIME_ENABLED="${BOT_RUNTIME_ENABLED:-auto}"
 BOT_RUNTIME_MODULE="${BOT_RUNTIME_MODULE:-}"
 BOT_RUNTIME_SCRIPT="${BOT_RUNTIME_SCRIPT:-}"
 BOT_RUNTIME_ARGS="${BOT_RUNTIME_ARGS:-}"
@@ -652,6 +652,19 @@ for pid in sorted(pids):
         pass
 PY
 
+should_start_bot_runtime() {
+  local mode="${BOT_RUNTIME_ENABLED,,}"
+
+  case "$mode" in
+    auto|"")
+      [[ -n "$BOT_RUNTIME_MODULE" || -n "$BOT_RUNTIME_SCRIPT" ]]
+      ;;
+    *)
+      is_truthy "$BOT_RUNTIME_ENABLED"
+      ;;
+  esac
+}
+
 printf 'Initializing database...\n'
 "$PYTHON_BIN" -m flask --app app.app db-init
 
@@ -663,7 +676,7 @@ nohup "$PYTHON_BIN" -m waitress --host="$FLASK_IP" --port="$FLASK_PORT" app.app:
 WAITRESS_PID=$!
 printf 'Waitress server started with PID %s. Logs: %s\n' "$WAITRESS_PID" "$SCRIPT_DIR/waitress-server.log"
 
-if is_truthy "$BOT_RUNTIME_ENABLED"; then
+if should_start_bot_runtime; then
   if [[ -n "$BOT_RUNTIME_MODULE" && -n "$BOT_RUNTIME_SCRIPT" ]]; then
     echo "Only one of bot_runtime_module or bot_runtime_script may be configured." >&2
     exit 1
