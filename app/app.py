@@ -1892,7 +1892,7 @@ def create_app():
                     new_discord_pass = secrets.token_urlsafe(8)
                     current_user.set_discord_authorization_token(new_discord_pass)
                     current_user.discord_user_id = None
-                    flash('Discord connection pass generated. Use it with /authorize in Discord.', 'success')
+                    flash('Discord connection pass generated. Use it with /connect in Discord.', 'success')
                 else:
                     flash('Discord settings saved.', 'success')
                 db.session.commit()
