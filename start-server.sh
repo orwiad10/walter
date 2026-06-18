@@ -678,6 +678,76 @@ for pid in sorted(pids):
         pass
 PY
 
+stop_existing_bot_runtime() {
+  [[ -n "$BOT_RUNTIME_MODULE" || -n "$BOT_RUNTIME_SCRIPT" ]] || return 0
+
+  printf 'Stopping existing Walter bot runtime if present...\n'
+  "$PYTHON_BIN" - "$BOT_RUNTIME_MODULE" "$BOT_RUNTIME_SCRIPT" <<'PY'
+import os
+import sys
+import time
+
+import psutil
+
+bot_module = sys.argv[1]
+bot_script = sys.argv[2]
+current_pid = os.getpid()
+script_basename = os.path.basename(bot_script) if bot_script else ''
+pids = set()
+
+for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+    try:
+        pid = proc.info['pid']
+        if pid == current_pid:
+            continue
+        cmdline = proc.info.get('cmdline') or []
+        if not cmdline:
+            continue
+        command_text = ' '.join(cmdline)
+        matches_module = bool(bot_module) and (
+            f'-m {bot_module}' in command_text or bot_module in cmdline
+        )
+        matches_script = bool(bot_script) and (
+            bot_script in cmdline or script_basename in [os.path.basename(arg) for arg in cmdline]
+        )
+        if matches_module or matches_script:
+            pids.add(pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        continue
+
+for pid in sorted(pids):
+    try:
+        proc = psutil.Process(pid)
+        print(f'Terminating Walter bot process {pid} ({proc.name()})')
+        proc.terminate()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+
+deadline = time.time() + 5
+while time.time() < deadline:
+    alive = []
+    for pid in pids:
+        try:
+            proc = psutil.Process(pid)
+            if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+                alive.append(proc)
+        except psutil.NoSuchProcess:
+            pass
+    if not alive:
+        break
+    time.sleep(0.2)
+
+for pid in sorted(pids):
+    try:
+        proc = psutil.Process(pid)
+        if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+            print(f'Force killing Walter bot process {pid} ({proc.name()})')
+            proc.kill()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+PY
+}
+
 should_start_bot_runtime() {
   local mode="${BOT_RUNTIME_ENABLED,,}"
 
@@ -690,6 +760,8 @@ should_start_bot_runtime() {
       ;;
   esac
 }
+
+stop_existing_bot_runtime
 
 printf 'Initializing database...\n'
 "$PYTHON_BIN" -m flask --app app.app db-init

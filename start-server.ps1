@@ -82,6 +82,7 @@ $BotClientId = $cfg.bot_client_id
 $BotSecretKey = $cfg.bot_secret_key
 $BotPermissionsInt = $cfg.bot_permissions_int
 $BotChannelId = $cfg.bot_channel_id
+$BotAnnounceReady = $cfg.bot_announce_ready
 $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_email, (ConvertTo-SecureString $cfg.admin_pass -AsPlainText -Force))
 
 ######enable testing###########
@@ -107,6 +108,7 @@ if([string]::IsNullOrEmpty($BotRuntimeLogFile)){ $BotRuntimeLogFile = "walter-bo
 if([string]::IsNullOrEmpty($BotRuntimeErrorLogFile)){ $BotRuntimeErrorLogFile = "walter-bot.err.log" }
 if([string]::IsNullOrEmpty($BotApiBaseUrl)){ $BotApiBaseUrl = "http://127.0.0.1:$FlaskPort" }
 if([string]::IsNullOrEmpty($BotPollIntervalSeconds)){ $BotPollIntervalSeconds = 30 }
+if($null -eq $BotAnnounceReady){ $BotAnnounceReady = $true }
 
 #check if Flask/Waitress is already running and stop it if necessary
 $flaskpid = try{
@@ -152,6 +154,7 @@ $env:BOT_CLIENT_ID = $BotClientId
 $env:BOT_SECRET_KEY = $BotSecretKey
 $env:BOT_PERMISSIONS_INT = $BotPermissionsInt
 $env:BOT_CHANNEL_ID = $BotChannelId
+$env:BOT_ANNOUNCE_READY = $BotAnnounceReady
 
 $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 
@@ -190,6 +193,26 @@ if($BotInstallEnabled){
         python -m pip install $botInstallTarget | Out-Null
     }
 }
+
+
+function Stop-ExistingBotRuntime {
+    if([string]::IsNullOrEmpty($BotRuntimeModule) -and [string]::IsNullOrEmpty($BotRuntimeScript)){ return }
+
+    Write-Host "Stopping existing Walter bot runtime if present..."
+    $scriptName = if([string]::IsNullOrEmpty($BotRuntimeScript)){ "" } else { [System.IO.Path]::GetFileName($BotRuntimeScript) }
+    Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'python3.exe'" | ForEach-Object {
+        $cmd = $_.CommandLine
+        if([string]::IsNullOrEmpty($cmd)){ return }
+        $matchesModule = (-not [string]::IsNullOrEmpty($BotRuntimeModule)) -and ($cmd -match [regex]::Escape("-m $BotRuntimeModule") -or $cmd -match [regex]::Escape($BotRuntimeModule))
+        $matchesScript = (-not [string]::IsNullOrEmpty($BotRuntimeScript)) -and ($cmd -match [regex]::Escape($BotRuntimeScript) -or $cmd -match [regex]::Escape($scriptName))
+        if($matchesModule -or $matchesScript){
+            Write-Host "Stopping Walter bot process $($_.ProcessId)"
+            Stop-Process -Id $_.ProcessId -Force -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Stop-ExistingBotRuntime
 
 Write-Host "Initializing database..."
 python -m flask --app app.app db-init
