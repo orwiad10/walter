@@ -53,3 +53,12 @@ bot_runtime_error_log_file: walter-bot.err.log
 # Prefer setting this through a secret manager or environment override in
 # production; start-server.* exports it as BOT_TOKEN for the bot process.
 bot_token: ""
+# Optional Discord application/runtime values exported for the bot process.
+# Keep secret values out of source control in production by overriding them
+# through environment variables or a secret manager.
+bot_appid: ""
+bot_pubkey: ""
+bot_client_id: ""
+bot_secret_key: ""
+bot_permissions_int: ""
+bot_channel_id: ""

@@ -66,6 +66,21 @@ You can still manage the Nginx config manually:
 
 The TLS template lives at `nginx/walter-tls.conf`. It serves HTTPS on port 443 only for configured hostnames, redirects HTTP traffic to the canonical `tls_domain`, rejects TLS handshakes for unknown/default hostnames, leaves `/.well-known/acme-challenge/` available on port 80 for Let's Encrypt renewals, enables TLS 1.2 and TLS 1.3, and uses origin cipher/curve settings that match Cloudflare's current origin connection behavior. TLS 1.2 includes `ECDHE-ECDSA-AES128-GCM-SHA256`, `ECDHE-ECDSA-CHACHA20-POLY1305`, `ECDHE-RSA-AES128-GCM-SHA256`, `ECDHE-RSA-CHACHA20-POLY1305`, `ECDHE-ECDSA-AES256-GCM-SHA384`, and `ECDHE-RSA-AES256-GCM-SHA384`; TLS 1.3 uses the OpenSSL defaults so compatible AES-GCM and ChaCha20-Poly1305 suites remain available. If your certificate lives somewhere other than `/etc/letsencrypt/live/<domain>`, pass `--cert-dir /path/to/live/certdir`; if your ACME challenge webroot differs, pass `--acme-webroot /path/to/webroot`. To include aliases such as `www.tournaments.example.com`, set `tls_additional_domains` in `config.yaml` or pass `--tls-additional-domains www.tournaments.example.com` to the installer; the certificate request and Nginx `server_name` list must match.
 
+
+## Walter bot configuration
+
+Discord application values such as the application ID, public key, client ID, OAuth secret, permissions integer, and target channel should be configured through `config.yaml` only when the bot runtime needs them. The startup scripts export these values to the bot process as environment variables. For production, prefer environment overrides or a secret manager for `bot_token` and `bot_secret_key`.
+
+```yaml
+bot_token: ""
+bot_appid: ""
+bot_pubkey: ""
+bot_client_id: ""
+bot_secret_key: ""
+bot_permissions_int: ""
+bot_channel_id: ""
+```
+
 ## Account verification and invites
 
 Public account registration sends a one-time 6-digit verification PIN through Mailgun before creating the user account. Set these values in `config.yaml` before enabling public self-service registration:

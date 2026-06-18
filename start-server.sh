@@ -468,6 +468,12 @@ keys = [
     'bot_runtime_log_file',
     'bot_runtime_error_log_file',
     'bot_token',
+    'bot_appid',
+    'bot_pubkey',
+    'bot_client_id',
+    'bot_secret_key',
+    'bot_permissions_int',
+    'bot_channel_id',
 ]
 
 for key in keys:
@@ -515,6 +521,12 @@ BOT_RUNTIME_ARGS="${BOT_RUNTIME_ARGS:-}"
 BOT_RUNTIME_LOG_FILE="${BOT_RUNTIME_LOG_FILE:-walter-bot.log}"
 BOT_RUNTIME_ERROR_LOG_FILE="${BOT_RUNTIME_ERROR_LOG_FILE:-walter-bot.err.log}"
 BOT_TOKEN="${BOT_TOKEN:-}"
+BOT_APPID="${BOT_APPID:-}"
+BOT_PUBKEY="${BOT_PUBKEY:-}"
+BOT_CLIENT_ID="${BOT_CLIENT_ID:-}"
+BOT_SECRET_KEY="${BOT_SECRET_KEY:-}"
+BOT_PERMISSIONS_INT="${BOT_PERMISSIONS_INT:-}"
+BOT_CHANNEL_ID="${BOT_CHANNEL_ID:-}"
 
 cd "$SCRIPT_DIR"
 
@@ -532,6 +544,12 @@ export ACCOUNT_LOCKOUT_ATTEMPTS
 export IP_BLACKLIST_ATTEMPTS
 export PASSWORD_RESET_TTL_MINUTES
 export BOT_TOKEN
+export BOT_APPID
+export BOT_PUBKEY
+export BOT_CLIENT_ID
+export BOT_SECRET_KEY
+export BOT_PERMISSIONS_INT
+export BOT_CHANNEL_ID
 
 ensure_letsencrypt_certificate
 
