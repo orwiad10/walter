@@ -451,6 +451,25 @@ class ArtistProfile(db.Model):
 
     venue = db.relationship('Venue', backref=db.backref('artists', cascade='all, delete-orphan'))
 
+class ApiLog(db.Model):
+    __bind_key__ = 'logs'
+    id = db.Column(db.Integer, primary_key=True)
+    method = db.Column(db.String(12), nullable=False)
+    path = db.Column(db.Text, nullable=False)
+    query_string = db.Column(db.Text, nullable=True)
+    status_code = db.Column(db.Integer, nullable=True)
+    request_headers = db.Column(db.Text, nullable=True)
+    request_body = db.Column(db.Text, nullable=True)
+    response_body = db.Column(db.Text, nullable=True)
+    error = db.Column(db.Text, nullable=True)
+    timestamp = db.Column(db.DateTime, default=utc_now)
+    duration_ms = db.Column(db.Integer, nullable=True)
+    api_key_id = db.Column(db.Integer, nullable=True)
+    api_user_id = db.Column(db.Integer, nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+
+
 class SiteLog(db.Model):
     __bind_key__ = 'logs'
     id = db.Column(db.Integer, primary_key=True)

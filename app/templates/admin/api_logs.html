@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>API Logs</h2>
+    <p class="page-description">Verbose request and response logs for API endpoints, including the legacy <code>/connect</code> endpoint.</p>
+  </div>
+</div>
+{% if logs %}
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Request</th>
+          <th>Status</th>
+          <th>User</th>
+          <th>IP</th>
+          <th>Duration</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for log in logs %}
+        <tr>
+          <td>{{ log.timestamp }}</td>
+          <td><code>{{ log.method }} {{ log.path }}{% if log.query_string %}?{{ log.query_string }}{% endif %}</code></td>
+          <td>{{ log.status_code or '-' }}</td>
+          <td>{% if log.api_user_id and users.get(log.api_user_id) %}{{ users.get(log.api_user_id).name }}{% elif log.api_user_id %}User #{{ log.api_user_id }}{% else %}-{% endif %}</td>
+          <td>{{ log.ip_address or '-' }}</td>
+          <td>{% if log.duration_ms is not none %}{{ log.duration_ms }} ms{% else %}-{% endif %}</td>
+          <td>
+            <details>
+              <summary>View</summary>
+              <p><strong>User agent:</strong> {{ log.user_agent or '-' }}</p>
+              <p><strong>API key ID:</strong> {{ log.api_key_id or '-' }}</p>
+              {% if log.error %}<p><strong>Error:</strong> {{ log.error }}</p>{% endif %}
+              <h4>Request headers</h4>
+              <pre>{{ log.request_headers or '' }}</pre>
+              <h4>Request body</h4>
+              <pre>{{ log.request_body or '' }}</pre>
+              <h4>Response body</h4>
+              <pre>{{ log.response_body or '' }}</pre>
+            </details>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="empty-state compact-empty">No API calls have been logged yet.</p>
+{% endif %}
+{% endblock %}
