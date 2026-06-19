@@ -1,4 +1,4 @@
-from app.models import ApiKey, ApiLog, League, MatchResult, Role, Round, SiteLog, Tournament, TournamentPlayer, User
+from app.models import ApiKey, ApiLog, League, LeaguePlayer, LeagueResult, MatchResult, Role, Round, SiteLog, Tournament, TournamentPlayer, User
 from app.pairing import pair_round
 
 
@@ -121,6 +121,38 @@ def test_api_key_can_read_tournament_standings_and_latest_round(client, session)
     assert len(latest_round['matches']) == 2
     assert latest_round['matches'][0]['table_number'] == 1
     assert len(latest_round['matches'][0]['players']) == 2
+
+
+def test_api_key_can_read_league_standings(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    league = League(name='API Standings League')
+    player_one = User(email='league-one@example.com', name='League One', role=user_role)
+    player_two = User(email='league-two@example.com', name='League Two', role=user_role)
+    tournament = Tournament(name='League Event', format='Draft', league=league)
+    session.add_all([league, player_one, player_two, tournament])
+    session.flush()
+    session.add_all([
+        LeaguePlayer(league_id=league.id, user_id=player_one.id),
+        LeaguePlayer(league_id=league.id, user_id=player_two.id),
+        LeagueResult(league_id=league.id, tournament_id=tournament.id, user_id=player_one.id, points=9, wins=3, draws=0, losses=0),
+        LeagueResult(league_id=league.id, tournament_id=tournament.id, user_id=player_two.id, points=3, wins=1, draws=0, losses=2),
+    ])
+    session.commit()
+
+    response = client.get(
+        f'/api/v1/leagues/{league.id}/standings',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['league']['name'] == 'API Standings League'
+    assert payload['standings'][0]['rank'] == 1
+    assert payload['standings'][0]['name'] == 'League One'
+    assert payload['standings'][0]['league_points'] == 9
+    assert payload['standings'][0]['wins'] == 3
+    assert payload['standings'][0]['played'] == 1
 
 
 def _admin_api_token(session):

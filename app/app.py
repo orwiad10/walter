@@ -1918,6 +1918,39 @@ def create_app():
             })
         return rows
 
+    def league_standings_payload(league):
+        league_players = db.session.query(LeaguePlayer).filter_by(league_id=league.id).all()
+        results = db.session.query(LeagueResult).filter_by(league_id=league.id).all()
+        results_by_player = {}
+        for result in results:
+            results_by_player.setdefault(result.user_id, []).append(result)
+
+        rows = []
+        for league_player in league_players:
+            player_results = sorted(
+                results_by_player.get(league_player.user_id, []),
+                key=lambda result: (result.points or 0, result.wins or 0, -(result.losses or 0)),
+                reverse=True,
+            )
+            played = len(player_results)
+            counted_count = math.ceil(played * 0.75) if played else 0
+            counted = player_results[:counted_count]
+            rows.append({
+                'user_id': league_player.user_id,
+                'name': league_player.user.name if league_player.user else 'Unknown',
+                'played': played,
+                'counted_count': counted_count,
+                'league_points': sum(result.points or 0 for result in counted),
+                'raw_points': sum(result.points or 0 for result in player_results),
+                'wins': sum(result.wins or 0 for result in counted),
+                'draws': sum(result.draws or 0 for result in counted),
+                'losses': sum(result.losses or 0 for result in counted),
+            })
+        rows.sort(key=lambda row: (-row['league_points'], -row['wins'], row['losses'], row['name'].lower()))
+        for index, row in enumerate(rows, start=1):
+            row['rank'] = index
+        return rows
+
     def match_payload(match):
         players = []
         for player in (match.player1, match.player2, match.player3, match.player4):
@@ -2258,6 +2291,18 @@ def create_app():
         log_tournament(tournament.id, 'discord_report', 'success', f'user_id={user.id}; match_id={match.id}')
         _api_log('discord.report_pairing', 'success', f'tournament_id={tournament.id}; match_id={match.id}; user_id={user.id}')
         return jsonify({'reported': True, 'match': match_payload(match), 'round': round_payload(round_obj)})
+
+    @app.route('/api/v1/leagues/<int:league_id>/standings')
+    def api_league_standings(league_id):
+        require_api_permission('tournaments.manage')
+        league = db.session.get(League, league_id)
+        if not league:
+            return _json_error('not found', 404)
+        _api_log('leagues.standings', 'success', f'league_id={league.id}')
+        return jsonify({
+            'league': league_payload(league),
+            'standings': league_standings_payload(league),
+        })
 
     @app.route('/api/v1/leagues/<int:league_id>', methods=['GET', 'PATCH', 'DELETE'])
     def api_league_detail(league_id):
