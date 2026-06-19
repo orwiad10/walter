@@ -84,3 +84,59 @@ def test_authorize_discord_user_falls_back_after_405(monkeypatch):
 
     assert asyncio.run(api.authorize_discord_user(123, 'walteruser', 'pass123')) == {'authorized': True}
     assert calls == ['/connect', '/api/v1/discord/authorize']
+
+
+def test_post_redirect_handler_preserves_connect_post_on_http_to_https_redirect():
+    import json
+    from urllib import request
+
+    body = json.dumps({'one_time_pass': 'pass123'}).encode('utf-8')
+    original = request.Request(
+        'http://walter-pair.us/connect',
+        data=body,
+        headers={
+            'Accept': 'application/json',
+            'Authorization': 'Bearer token',
+            'Content-Type': 'application/json',
+            'User-Agent': 'WalterDiscordBot/1.0',
+        },
+        method='POST',
+    )
+
+    redirected = discord_bot._PreservePostRedirectHandler().redirect_request(
+        original,
+        None,
+        301,
+        'Moved Permanently',
+        {},
+        'https://walter-pair.us/connect',
+    )
+
+    assert redirected is not None
+    assert redirected.full_url == 'https://walter-pair.us/connect'
+    assert redirected.get_method() == 'POST'
+    assert redirected.data == body
+    assert redirected.get_header('Content-type') == 'application/json'
+    assert redirected.get_header('Authorization') == 'Bearer token'
+
+
+def test_post_redirect_handler_rejects_cross_host_redirect():
+    from urllib import request
+
+    original = request.Request(
+        'http://walter-pair.us/connect',
+        data=b'{}',
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+
+    redirected = discord_bot._PreservePostRedirectHandler().redirect_request(
+        original,
+        None,
+        302,
+        'Found',
+        {},
+        'https://example.com/connect',
+    )
+
+    assert redirected is None
