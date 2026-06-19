@@ -136,7 +136,7 @@ def _admin_api_token(session):
 
 
 
-def test_connect_get_without_parameters_returns_status_for_bot_probe(client, session):
+def test_connect_get_without_parameters_rejects_anonymous_connection(client, session):
     token = _admin_api_token(session)
 
     response = client.get(
@@ -147,15 +147,13 @@ def test_connect_get_without_parameters_returns_status_for_bot_probe(client, ses
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 405
     assert response.get_json() == {
-        'ok': True,
-        'endpoint': '/connect',
-        'message': 'Use POST with discord_user_id and one_time_pass to connect a Discord account.',
+        'error': 'Use POST with discord_user_id, discord_username, and one_time_pass to connect a Discord account.',
     }
     api_log = session.query(ApiLog).filter_by(path='/connect').order_by(ApiLog.id.desc()).first()
     assert api_log is not None
-    assert api_log.status_code == 200
+    assert api_log.status_code == 405
 
 
 def test_discord_authorization_accepts_legacy_connect_endpoint(client, session):
@@ -215,7 +213,7 @@ def test_discord_authorization_logs_bot_username_for_invalid_pass(client, sessio
     assert 'discord_username=wrongpassuser' in site_log.error
 
 
-def test_discord_authorization_accepts_connect_query_parameters(client, session):
+def test_discord_authorization_rejects_connect_query_parameters(client, session):
     token = _admin_api_token(session)
     user_role = session.query(Role).filter_by(name='user').one()
     player = User(email='discord-connect-query@example.com', name='Discord Connect Query', role=user_role)
@@ -235,11 +233,36 @@ def test_discord_authorization_accepts_connect_query_parameters(client, session)
         headers={'Authorization': f'Bearer {token}'},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 405
     session.refresh(player)
-    assert player.discord_user_id == '3456789012'
-    assert player.discord_authorization_token_hash is None
+    assert player.discord_user_id is None
+    assert player.discord_authorization_token_hash is not None
 
+
+
+def test_discord_authorization_rejects_missing_discord_username(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    player = User(email='discord-missing-name@example.com', name='Discord Missing Name', role=user_role)
+    one_time_pass = 'missingname123'
+    player.discord_username = 'waltermissing'
+    player.set_discord_authorization_token(one_time_pass)
+    session.add(player)
+    session.commit()
+
+    response = client.post(
+        '/connect',
+        json={
+            'discord_user_id': '5678901234',
+            'one_time_pass': one_time_pass,
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {'error': 'discord_user_id, discord_username, and one_time_pass are required'}
+    session.refresh(player)
+    assert player.discord_user_id is None
 
 def test_discord_authorization_requires_username_and_one_time_pass(client, session):
     token = _admin_api_token(session)

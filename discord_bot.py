@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any
 from urllib import error, request
 
+
+def _bot_log(message: str) -> None:
+    print(message, flush=True)
+
 VENDORED_DISCORD_PATH = Path(__file__).resolve().parent / 'walter-bot'
 if VENDORED_DISCORD_PATH.is_dir():
     sys.path.insert(0, str(VENDORED_DISCORD_PATH))
@@ -119,12 +123,28 @@ class WalterApiClient:
     async def latest_round(self, tournament_id: int) -> dict[str, Any]:
         return await self.get_json(f'/api/v1/tournaments/{tournament_id}/rounds/latest')
 
-    async def authorize_discord_user(self, discord_user_id: int, discord_username: str, one_time_pass: str) -> dict[str, Any]:
+    async def authorize_discord_user(
+        self,
+        discord_user_id: int,
+        discord_username: str,
+        one_time_pass: str,
+        discord_display_name: str = '',
+        discord_global_name: str = '',
+    ) -> dict[str, Any]:
         payload = {
             'discord_user_id': str(discord_user_id),
             'discord_username': discord_username,
+            'discord_display_name': discord_display_name,
+            'discord_global_name': discord_global_name,
             'one_time_pass': one_time_pass,
         }
+        _bot_log(
+            'Discord connect request: '
+            f'discord_user_id={discord_user_id}; '
+            f'discord_username={discord_username or "<missing>"}; '
+            f'discord_display_name={discord_display_name or "<missing>"}; '
+            f'discord_global_name={discord_global_name or "<missing>"}'
+        )
         try:
             return await self.post_json('/connect', payload)
         except WalterApiError as exc:
@@ -335,8 +355,16 @@ async def pairings(interaction: discord.Interaction, tournament_id: int):
 async def connect(interaction: discord.Interaction, one_time_pass: str):
     await interaction.response.defer(thinking=True, ephemeral=True)
     username = interaction.user.name
+    display_name = getattr(interaction.user, 'display_name', '') or ''
+    global_name = getattr(interaction.user, 'global_name', '') or ''
     try:
-        payload = await bot.api.authorize_discord_user(interaction.user.id, username, one_time_pass)
+        payload = await bot.api.authorize_discord_user(
+            interaction.user.id,
+            username,
+            one_time_pass,
+            discord_display_name=display_name,
+            discord_global_name=global_name,
+        )
         user = payload.get('user') or {}
         await interaction.followup.send(f"Connected Discord to Walter user **{user.get('name', 'Unknown')}**.", ephemeral=True)
     except WalterApiError as exc:
