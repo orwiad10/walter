@@ -2167,7 +2167,23 @@ def create_app():
         discord_user_id = str(data.get('discord_user_id') or '').strip()
         discord_username = _normalize_discord_username(data.get('discord_username'))
         one_time_pass = str(data.get('one_time_pass') or '').strip()
+
+        def _discord_authorize_log_details(**extra):
+            details = {
+                'discord_user_id': discord_user_id,
+                'discord_username': discord_username,
+                **extra,
+            }
+            return '; '.join(f'{key}={value}' for key, value in details.items() if value not in (None, ''))
+
         if not discord_user_id or not one_time_pass:
+            if request.method == 'GET' and not request.values:
+                _api_log('discord.authorize', 'success', 'connect endpoint status')
+                return jsonify({
+                    'ok': True,
+                    'endpoint': '/connect',
+                    'message': 'Use POST with discord_user_id and one_time_pass to connect a Discord account.',
+                })
             return _json_error('discord_user_id and one_time_pass are required')
         user = None
         for candidate in db.session.query(User).filter(User.discord_authorization_token_hash.isnot(None)).all():
@@ -2175,7 +2191,7 @@ def create_app():
                 user = candidate
                 break
         if not user:
-            _api_log('discord.authorize', 'failure', 'invalid pass')
+            _api_log('discord.authorize', 'failure', _discord_authorize_log_details(error='invalid pass'))
             return _json_error('invalid or expired one-time pass', 403)
         if not user.discord_username:
             return _json_error('add your Discord username in Walter user settings before authorizing', 403)
@@ -2187,7 +2203,7 @@ def create_app():
         user.discord_user_id = discord_user_id
         user.discord_authorization_token_hash = None
         db.session.commit()
-        _api_log('discord.authorize', 'success', f'user_id={user.id}')
+        _api_log('discord.authorize', 'success', _discord_authorize_log_details(user_id=user.id))
         return jsonify({'authorized': True, 'user': user_payload(user)})
 
     @app.route('/api/v1/discord/report-pairing', methods=['POST'], strict_slashes=False)

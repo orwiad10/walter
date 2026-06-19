@@ -135,6 +135,29 @@ def _admin_api_token(session):
 
 
 
+
+def test_connect_get_without_parameters_returns_status_for_bot_probe(client, session):
+    token = _admin_api_token(session)
+
+    response = client.get(
+        '/connect',
+        headers={
+            'Authorization': f'Bearer {token}',
+            'User-Agent': 'WalterDiscordBot/1.0',
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'ok': True,
+        'endpoint': '/connect',
+        'message': 'Use POST with discord_user_id and one_time_pass to connect a Discord account.',
+    }
+    api_log = session.query(ApiLog).filter_by(path='/connect').order_by(ApiLog.id.desc()).first()
+    assert api_log is not None
+    assert api_log.status_code == 200
+
+
 def test_discord_authorization_accepts_legacy_connect_endpoint(client, session):
     token = _admin_api_token(session)
     user_role = session.query(Role).filter_by(name='user').one()
@@ -162,6 +185,34 @@ def test_discord_authorization_accepts_legacy_connect_endpoint(client, session):
     api_log = session.query(ApiLog).filter_by(path='/connect').order_by(ApiLog.id.desc()).first()
     assert api_log is not None
     assert api_log.status_code == 200
+    site_log = session.query(SiteLog).filter_by(action='api.discord.authorize').order_by(SiteLog.id.desc()).first()
+    assert site_log is not None
+    assert site_log.result == 'success'
+    assert f'user_id={player.id}' in site_log.error
+    assert 'discord_user_id=2345678901' in site_log.error
+    assert 'discord_username=walterconnect' in site_log.error
+
+
+def test_discord_authorization_logs_bot_username_for_invalid_pass(client, session):
+    token = _admin_api_token(session)
+
+    response = client.post(
+        '/connect',
+        json={
+            'discord_user_id': '4567890123',
+            'discord_username': 'wrongpassuser',
+            'one_time_pass': 'not-the-pass',
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 403
+    site_log = session.query(SiteLog).filter_by(action='api.discord.authorize').order_by(SiteLog.id.desc()).first()
+    assert site_log is not None
+    assert site_log.result == 'failure'
+    assert 'error=invalid pass' in site_log.error
+    assert 'discord_user_id=4567890123' in site_log.error
+    assert 'discord_username=wrongpassuser' in site_log.error
 
 
 def test_discord_authorization_accepts_connect_query_parameters(client, session):
