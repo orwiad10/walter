@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
-from urllib import error, request
+from urllib import error, parse, request
 
 
 def _bot_log(message: str) -> None:
@@ -63,6 +63,33 @@ def _format_http_error_detail(exc: error.HTTPError) -> str:
     return body or exc.reason or 'HTTP error'
 
 
+class _PreservePostRedirectHandler(request.HTTPRedirectHandler):
+    """Follow same-host redirects without converting JSON POSTs into GETs."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if code not in {301, 302, 303, 307, 308}:
+            return None
+
+        old = parse.urlsplit(req.full_url)
+        new = parse.urlsplit(newurl)
+        if (old.hostname or '').lower() != (new.hostname or '').lower():
+            return None
+
+        old_port = old.port or (443 if old.scheme == 'https' else 80)
+        new_port = new.port or (443 if new.scheme == 'https' else 80)
+        if old_port != new_port and not (old.scheme == 'http' and old_port == 80 and new.scheme == 'https' and new_port == 443):
+            return None
+
+        return request.Request(
+            newurl,
+            data=req.data,
+            headers=dict(req.header_items()),
+            origin_req_host=req.origin_req_host,
+            unverifiable=True,
+            method=req.get_method(),
+        )
+
+
 class WalterApiClient:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url.rstrip('/')
@@ -106,7 +133,8 @@ class WalterApiClient:
         }
         api_request = request.Request(url, data=body, headers=headers, method='POST')
         try:
-            with request.urlopen(api_request, timeout=10) as response:
+            opener = request.build_opener(_PreservePostRedirectHandler)
+            with opener.open(api_request, timeout=10) as response:
                 return json.loads(response.read().decode('utf-8'))
         except error.HTTPError as exc:
             detail = _format_http_error_detail(exc)
