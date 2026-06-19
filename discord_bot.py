@@ -145,6 +145,12 @@ class WalterApiClient:
     async def tournaments(self) -> dict[str, Any]:
         return await self.get_json('/api/v1/tournaments')
 
+    async def leagues(self) -> dict[str, Any]:
+        return await self.get_json('/api/v1/leagues')
+
+    async def league_standings(self, league_id: int) -> dict[str, Any]:
+        return await self.get_json(f'/api/v1/leagues/{league_id}/standings')
+
     async def standings(self, tournament_id: int) -> dict[str, Any]:
         return await self.get_json(f'/api/v1/tournaments/{tournament_id}/standings')
 
@@ -230,6 +236,22 @@ def format_standings(payload: dict[str, Any]) -> str:
     return _truncate_lines(lines)
 
 
+def format_league_standings(payload: dict[str, Any]) -> str:
+    league = payload.get('league') or {}
+    standings = payload.get('standings') or []
+    lines = [f"**League standings: {league.get('name', 'League')}**"]
+    if not standings:
+        lines.append('No league standings are available yet.')
+        return '\n'.join(lines)
+
+    for row in standings:
+        lines.append(
+            f"{row['rank']}. {row['name']} — {row['league_points']} pts "
+            f"({row['wins']}-{row['losses']}-{row['draws']}, {row['played']} events)"
+        )
+    return _truncate_lines(lines)
+
+
 def format_pairings(payload: dict[str, Any]) -> str:
     tournament = payload.get('tournament') or {}
     round_payload = payload.get('round') or {}
@@ -284,7 +306,7 @@ class WalterBot(discord.Client):
         if BOT_CHANNEL_ID and BOT_ANNOUNCE_READY and not self._ready_announced:
             channel = await self._get_messageable_channel(BOT_CHANNEL_ID)
             if channel is not None:
-                await channel.send('Walter bot is online. Use `/tournaments`, `/standings`, `/pairings`, or `/connect` to get started.')
+                await channel.send('Walter bot is online. Use `/tournaments`, `/leagues`, `/standings`, `/league_standings`, `/pairings`, or `/connect` to get started.')
                 self._ready_announced = True
 
     async def _sync_guild_commands(self):
@@ -354,6 +376,31 @@ async def tournaments(interaction: discord.Interaction):
         for tournament in tournaments_payload[:25]:
             lines.append(f"{tournament['id']}: {tournament['name']} ({tournament['format']})")
         await interaction.followup.send(_truncate_lines(lines), ephemeral=True)
+    except WalterApiError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True)
+
+
+@bot.tree.command(name='leagues', description='List Walter leagues.')
+async def leagues(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    try:
+        payload = await bot.api.leagues()
+        leagues_payload = payload.get('leagues') or []
+        lines = ['**Walter leagues**']
+        for league in leagues_payload[:25]:
+            league_type = 'cube league' if league.get('is_cube_league') else 'league'
+            lines.append(f"{league['id']}: {league['name']} ({league_type})")
+        await interaction.followup.send(_truncate_lines(lines), ephemeral=True)
+    except WalterApiError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True)
+
+
+@bot.tree.command(name='league_standings', description='Print league standings.')
+@app_commands.describe(league_id='Walter league ID')
+async def league_standings(interaction: discord.Interaction, league_id: int):
+    await interaction.response.defer(thinking=True)
+    try:
+        await interaction.followup.send(format_league_standings(await bot.api.league_standings(league_id)))
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 

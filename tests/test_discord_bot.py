@@ -15,6 +15,8 @@ def test_discord_bot_registers_all_expected_slash_commands():
         'connect',
         'pairings',
         'report_pairing',
+        'league_standings',
+        'leagues',
         'standings',
         'tournaments',
     }.issubset(command_names)
@@ -140,3 +142,23 @@ def test_post_redirect_handler_rejects_cross_host_redirect():
     )
 
     assert redirected is None
+
+
+def test_format_league_standings_includes_record_and_events():
+    payload = {
+        'league': {'name': 'Friday League'},
+        'standings': [{
+            'rank': 1,
+            'name': 'Player One',
+            'league_points': 9,
+            'wins': 3,
+            'losses': 1,
+            'draws': 0,
+            'played': 2,
+        }],
+    }
+
+    assert discord_bot.format_league_standings(payload) == (
+        '**League standings: Friday League**\n'
+        '1. Player One — 9 pts (3-1-0, 2 events)'
+    )
