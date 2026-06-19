@@ -1,4 +1,4 @@
-from app.models import ApiKey, League, MatchResult, Role, Round, SiteLog, Tournament, TournamentPlayer, User
+from app.models import ApiKey, ApiLog, League, MatchResult, Role, Round, SiteLog, Tournament, TournamentPlayer, User
 from app.pairing import pair_round
 
 
@@ -30,6 +30,12 @@ def test_admin_can_create_api_key_and_call_admin_api(client, session):
     assert create_response.get_json()['name'] == 'API League'
     assert session.query(League).filter_by(name='API League').one().is_cube_league
     assert session.query(SiteLog).filter_by(action='api.leagues.create', result='success').count() == 1
+    api_log = session.query(ApiLog).filter_by(path='/api/v1/leagues').one()
+    assert api_log.method == 'POST'
+    assert api_log.status_code == 201
+    assert 'API League' in api_log.request_body
+    assert 'API League' in api_log.response_body
+    assert '[redacted]' in api_log.request_headers
 
 
 def test_non_admin_cannot_create_api_key(client, session):
@@ -153,6 +159,36 @@ def test_discord_authorization_accepts_legacy_connect_endpoint(client, session):
     session.refresh(player)
     assert player.discord_user_id == '2345678901'
     assert player.discord_authorization_token_hash is None
+    api_log = session.query(ApiLog).filter_by(path='/connect').order_by(ApiLog.id.desc()).first()
+    assert api_log is not None
+    assert api_log.status_code == 200
+
+
+def test_discord_authorization_accepts_connect_query_parameters(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    player = User(email='discord-connect-query@example.com', name='Discord Connect Query', role=user_role)
+    one_time_pass = 'connectquery123'
+    player.discord_username = 'walterquery'
+    player.set_discord_authorization_token(one_time_pass)
+    session.add(player)
+    session.commit()
+
+    response = client.get(
+        '/connect',
+        query_string={
+            'discord_user_id': '3456789012',
+            'discord_username': 'walterquery',
+            'one_time_pass': one_time_pass,
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 200
+    session.refresh(player)
+    assert player.discord_user_id == '3456789012'
+    assert player.discord_authorization_token_hash is None
+
 
 def test_discord_authorization_requires_username_and_one_time_pass(client, session):
     token = _admin_api_token(session)

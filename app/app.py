@@ -34,6 +34,7 @@ import glob
 import secrets
 import csv
 import hashlib
+import time
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
@@ -404,6 +405,7 @@ def create_app():
             Vendor,
             ArtistProfile,
             ApiKey,
+            ApiLog,
             SiteLog,
             TournamentLog,
         )  # lazy import to avoid circular reference
@@ -474,6 +476,7 @@ def create_app():
         ApiKey.__table__.create(bind=db.engine, checkfirst=True)
 
         logs_engine = db.engines['logs']
+        ApiLog.__table__.create(bind=logs_engine, checkfirst=True)
         SiteLog.__table__.create(bind=logs_engine, checkfirst=True)
         logs_inspector = inspect(logs_engine)
         if 'site_log' in logs_inspector.get_table_names():
@@ -569,6 +572,7 @@ def create_app():
         DEFAULT_ROLE_PERMISSIONS,
         DEFAULT_ROLE_LEVELS,
         SiteLog,
+        ApiLog,
         TournamentLog,
         Message,
         Report,
@@ -1786,6 +1790,79 @@ def create_app():
     def _api_log(action, result, error=None):
         _safe_log_site(f'api.{action}', result, error)
 
+    def _is_api_logging_request():
+        return request.path.startswith('/api/') or request.path.rstrip('/') == '/connect'
+
+    def _redacted_api_headers():
+        headers = {}
+        sensitive = {'authorization', 'cookie', 'set-cookie', 'x-api-key'}
+        for key, value in request.headers.items():
+            headers[key] = '[redacted]' if key.lower() in sensitive else value
+        return headers
+
+    def _decode_body(data):
+        if not data:
+            return ''
+        text_value = data.decode('utf-8', errors='replace')
+        max_len = 20000
+        if len(text_value) > max_len:
+            return text_value[:max_len] + f'… [truncated {len(text_value) - max_len} chars]'
+        return text_value
+
+    def _safe_api_log_entry(response=None, error=None):
+        if not getattr(request, '_walter_api_log_enabled', False):
+            return
+        try:
+            response_body = ''
+            status_code = getattr(response, 'status_code', None)
+            if response is not None and not response.direct_passthrough:
+                response_body = _decode_body(response.get_data())
+            duration_ms = int((time.monotonic() - getattr(request, '_walter_api_started_at', time.monotonic())) * 1000)
+            user = None
+            api_key = None
+            try:
+                user, api_key = _api_current_user()
+            except Exception:
+                db.session.rollback()
+            entry = ApiLog(
+                method=request.method,
+                path=request.path,
+                query_string=request.query_string.decode('utf-8', errors='replace'),
+                status_code=status_code,
+                request_headers=json.dumps(_redacted_api_headers(), sort_keys=True),
+                request_body=_decode_body(getattr(request, '_walter_api_request_body', b'')),
+                response_body=response_body,
+                error=str(error) if error else None,
+                duration_ms=duration_ms,
+                api_key_id=api_key.id if api_key else None,
+                api_user_id=user.id if user else None,
+                ip_address=_client_ip(),
+                user_agent=request.headers.get('User-Agent', ''),
+            )
+            db.session.add(entry)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Unable to write API log entry for %s %s', request.method, request.path)
+
+    @app.before_request
+    def capture_api_log_request():
+        if not _is_api_logging_request():
+            return
+        request._walter_api_log_enabled = True
+        request._walter_api_started_at = time.monotonic()
+        request._walter_api_request_body = request.get_data(cache=True)
+
+    @app.after_request
+    def capture_api_log_response(response):
+        _safe_api_log_entry(response=response)
+        return response
+
+    @app.teardown_request
+    def capture_api_log_exception(exc):
+        if exc is not None:
+            _safe_api_log_entry(error=exc)
+
     def _api_current_user():
         auth = request.headers.get('Authorization', '')
         token = ''
@@ -2082,11 +2159,11 @@ def create_app():
             'round': round_payload(round_obj),
         })
 
-    @app.route('/connect', methods=['POST'], strict_slashes=False)
+    @app.route('/connect', methods=['GET', 'POST'], strict_slashes=False)
     @app.route('/api/v1/discord/authorize', methods=['POST'], strict_slashes=False)
     def api_discord_authorize():
         require_api_permission('tournaments.manage')
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(silent=True) or request.values.to_dict()
         discord_user_id = str(data.get('discord_user_id') or '').strip()
         discord_username = _normalize_discord_username(data.get('discord_username'))
         one_time_pass = str(data.get('one_time_pass') or '').strip()
@@ -5035,6 +5112,15 @@ def create_app():
             return redirect(url_for('permissions'))
         roles = db.session.query(Role).order_by(Role.level, Role.name).all()
         return render_template('admin/permissions.html', roles=roles, permission_groups=PERMISSION_GROUPS)
+
+    @app.route('/admin/api-logs')
+    def admin_api_logs():
+        require_admin()
+        log_site('view_api_logs', 'success')
+        logs = db.session.query(ApiLog).order_by(ApiLog.timestamp.desc()).limit(500).all()
+        user_ids = {log.api_user_id for log in logs if log.api_user_id}
+        users = {u.id: u for u in db.session.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
+        return render_template('admin/api_logs.html', logs=logs, users=users)
 
     @app.route('/admin/logs')
     def site_logs():
