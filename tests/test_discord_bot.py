@@ -62,6 +62,8 @@ def test_authorize_discord_user_uses_connect_endpoint_first(monkeypatch):
     assert calls == [('/connect', {
         'discord_user_id': '123',
         'discord_username': 'walteruser',
+        'discord_display_name': '',
+        'discord_global_name': '',
         'one_time_pass': 'pass123',
     })]
 
