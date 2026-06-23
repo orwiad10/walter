@@ -1,4 +1,22 @@
-from app.models import ApiKey, ApiLog, League, LeaguePlayer, LeagueResult, MatchResult, Role, Round, SiteLog, Tournament, TournamentPlayer, User
+from datetime import date
+
+from app.models import (
+    ApiKey,
+    ApiLog,
+    League,
+    LeagueCube,
+    LeaguePlayDate,
+    LeaguePlayDateCube,
+    LeaguePlayer,
+    LeagueResult,
+    MatchResult,
+    Role,
+    Round,
+    SiteLog,
+    Tournament,
+    TournamentPlayer,
+    User,
+)
 from app.pairing import pair_round
 
 
@@ -167,6 +185,33 @@ def _admin_api_token(session):
 
 
 
+def test_api_key_can_list_cube_league_play_dates_for_discord_poll(client, session):
+    token = _admin_api_token(session)
+    league = League(name='API Cube Dates', is_cube_league=True)
+    cube = LeagueCube(
+        league=league,
+        cube_cobra_url='https://cubecobra.com/cube/overview/alpha',
+        title='Alpha Cube',
+    )
+    first = LeaguePlayDate(league=league, play_date=date(2026, 7, 1), is_active=True)
+    second = LeaguePlayDate(league=league, play_date=date(2026, 7, 8), is_active=False)
+    session.add_all([league, cube, first, second])
+    session.flush()
+    session.add(LeaguePlayDateCube(play_date_id=first.id, cube_id=cube.id))
+    session.commit()
+
+    response = client.get(
+        f'/api/v1/leagues/{league.id}/play-dates',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['league']['name'] == 'API Cube Dates'
+    assert payload['play_dates'] == [
+        {'id': first.id, 'play_date': '2026-07-01', 'is_active': True, 'available_cube_count': 1},
+        {'id': second.id, 'play_date': '2026-07-08', 'is_active': False, 'available_cube_count': 0},
+    ]
 
 def test_connect_get_without_parameters_rejects_anonymous_connection(client, session):
     token = _admin_api_token(session)

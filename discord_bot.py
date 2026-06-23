@@ -152,6 +152,9 @@ class WalterApiClient:
     async def league_standings(self, league_id: int) -> dict[str, Any]:
         return await self.get_json(f'/api/v1/leagues/{league_id}/standings')
 
+    async def league_play_dates(self, league_id: int) -> dict[str, Any]:
+        return await self.get_json(f'/api/v1/leagues/{league_id}/play-dates')
+
     async def standings(self, tournament_id: int) -> dict[str, Any]:
         return await self.get_json(f'/api/v1/tournaments/{tournament_id}/standings')
 
@@ -277,6 +280,24 @@ def format_league_standings(payload: dict[str, Any]) -> str:
             f"{row['rank']}. {row['name']} — {row['league_points']} pts "
             f"({row['wins']}-{row['losses']}-{row['draws']}, {row['played']} events)"
         )
+    return _truncate_lines(lines)
+
+
+def format_league_play_dates(payload: dict[str, Any]) -> str:
+    league = payload.get('league') or {}
+    play_dates = payload.get('play_dates') or []
+    lines = [
+        f"**Play dates for {league.get('name', 'League')}**",
+        'Use the play date ID with `/cube_poll league_id:<league id> play_date_id:<play date id>`.',
+    ]
+    if not play_dates:
+        lines.append('No play dates are configured for this league.')
+        return '\n'.join(lines)
+
+    for play_date in play_dates:
+        status = 'active' if play_date.get('is_active') else 'inactive'
+        cube_count = play_date.get('available_cube_count', 0)
+        lines.append(f"{play_date['id']}: {play_date['play_date']} ({status}, {cube_count} cube(s))")
     return _truncate_lines(lines)
 
 
@@ -487,6 +508,19 @@ async def leagues(interaction: discord.Interaction):
             league_type = 'cube league' if league.get('is_cube_league') else 'league'
             lines.append(f"{league['id']}: {league['name']} ({league_type})")
         await interaction.followup.send(_truncate_lines(lines), ephemeral=True)
+    except WalterApiError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True)
+
+
+@bot.tree.command(name='league_play_dates', description='List cube league play dates for /cube_poll.')
+@app_commands.describe(league_id='Walter cube league ID')
+async def league_play_dates(interaction: discord.Interaction, league_id: int):
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    try:
+        await interaction.followup.send(
+            format_league_play_dates(await bot.api.league_play_dates(league_id)),
+            ephemeral=True,
+        )
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 

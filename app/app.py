@@ -2307,6 +2307,33 @@ def create_app():
             'standings': league_standings_payload(league),
         })
 
+
+    def league_play_date_payload(play_date):
+        return {
+            'id': play_date.id,
+            'play_date': play_date.play_date.isoformat(),
+            'is_active': bool(play_date.is_active),
+            'available_cube_count': len(play_date.available_cubes),
+        }
+
+    @app.route('/api/v1/leagues/<int:league_id>/play-dates')
+    def api_league_play_dates(league_id):
+        require_api_permission('tournaments.manage')
+        league = db.session.get(League, league_id)
+        if not league or not league.is_cube_league:
+            return _json_error('cube league not found', 404)
+        play_dates = (
+            db.session.query(LeaguePlayDate)
+            .filter_by(league_id=league.id)
+            .order_by(LeaguePlayDate.play_date, LeaguePlayDate.id)
+            .all()
+        )
+        _api_log('leagues.play_dates', 'success', f'league_id={league.id}')
+        return jsonify({
+            'league': league_payload(league),
+            'play_dates': [league_play_date_payload(play_date) for play_date in play_dates],
+        })
+
     def cube_vote_poll_payload(league, play_date):
         available_links = sorted(play_date.available_cubes, key=lambda link: link.cube.title.lower())
         totals = {
