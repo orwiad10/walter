@@ -37,6 +37,7 @@ BOT_POLL_INTERVAL_SECONDS = int(os.environ.get('BOT_POLL_INTERVAL_SECONDS', '30'
 BOT_ANNOUNCE_READY = os.environ.get('BOT_ANNOUNCE_READY', 'false').strip().lower() not in {'0', 'false', 'no', 'off'}
 BOT_SYNC_GUILD_COMMANDS = os.environ.get('BOT_SYNC_GUILD_COMMANDS', 'false').strip().lower() not in {'0', 'false', 'no', 'off'}
 BOT_CLEAR_GUILD_COMMANDS = os.environ.get('BOT_CLEAR_GUILD_COMMANDS', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
+CUBE_POLL_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
 
 
 class WalterApiError(RuntimeError):
@@ -204,6 +205,33 @@ class WalterApiClient:
             'draws': draws,
         })
 
+    async def cube_vote_poll(self, league_id: int, play_date_id: int) -> dict[str, Any]:
+        return await self.get_json(f'/api/v1/leagues/{league_id}/cube-votes/{play_date_id}')
+
+    async def register_cube_poll(self, league_id: int, play_date_id: int, channel_id: int, message_id: int) -> dict[str, Any]:
+        return await self.post_json('/api/v1/discord/cube-polls', {
+            'league_id': league_id,
+            'play_date_id': play_date_id,
+            'channel_id': str(channel_id),
+            'message_id': str(message_id),
+        })
+
+    async def submit_cube_vote(
+        self,
+        discord_user_id: int,
+        league_id: int,
+        play_date_id: int,
+        cube_id: int,
+        selected: bool,
+    ) -> dict[str, Any]:
+        return await self.post_json('/api/v1/discord/cube-vote', {
+            'discord_user_id': str(discord_user_id),
+            'league_id': league_id,
+            'play_date_id': play_date_id,
+            'cube_id': cube_id,
+            'selected': selected,
+        })
+
 
 def _truncate_lines(lines: list[str], limit: int = 1900) -> str:
     output: list[str] = []
@@ -271,14 +299,35 @@ def format_pairings(payload: dict[str, Any]) -> str:
     return _truncate_lines(lines)
 
 
+def format_cube_poll(payload: dict[str, Any]) -> str:
+    league = payload.get('league') or {}
+    play_date = payload.get('play_date') or {}
+    cubes = (payload.get('cubes') or [])[:len(CUBE_POLL_EMOJIS)]
+    lines = [
+        f"**Cube vote: {league.get('name', 'League')} — {play_date.get('play_date', 'play date')}**",
+        'React to vote. Connected Discord accounts mirror Walter cube voting; each reaction is one vote (up to 3 total votes on Walter).',
+    ]
+    if not cubes:
+        lines.append('No cubes are available for this play date.')
+        return '\n'.join(lines)
+    for index, cube in enumerate(cubes):
+        lines.append(f"{CUBE_POLL_EMOJIS[index]} **{cube.get('title', 'Cube')}** — {cube.get('votes', 0)} vote(s)")
+        if cube.get('cube_cobra_url'):
+            lines.append(f"   {cube['cube_cobra_url']}")
+    return _truncate_lines(lines)
+
+
 class WalterBot(discord.Client):
     def __init__(self):
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        intents.reactions = True
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.api = WalterApiClient(BOT_API_BASE_URL, BOT_API_KEY)
         self._last_announced_round: int | None = None
         self._ready_announced = False
         self._guild_commands_synced = False
+        self._cube_polls: dict[int, dict[str, Any]] = {}
 
     async def setup_hook(self):
         synced_commands = await self.tree.sync()
@@ -361,6 +410,53 @@ class WalterBot(discord.Client):
             except Exception as exc:
                 print(f'Pairing poll failed: {exc}')
             await asyncio.sleep(max(BOT_POLL_INTERVAL_SECONDS, 10))
+
+    async def _refresh_cube_poll_message(self, message_id: int):
+        metadata = self._cube_polls.get(message_id)
+        if not metadata:
+            return
+        try:
+            payload = await self.api.cube_vote_poll(metadata['league_id'], metadata['play_date_id'])
+            message = metadata.get('message')
+            if message is None:
+                channel = await self._get_messageable_channel(str(metadata['channel_id']))
+                if channel is None or not hasattr(channel, 'fetch_message'):
+                    return
+                message = await channel.fetch_message(message_id)
+                metadata['message'] = message
+            await message.edit(content=format_cube_poll(payload))
+        except Exception as exc:
+            print(f'Cube poll refresh failed for message {message_id}: {exc}')
+
+    async def _poll_cube_vote_updates(self, message_id: int):
+        while not self.is_closed() and message_id in self._cube_polls:
+            await self._refresh_cube_poll_message(message_id)
+            await asyncio.sleep(max(BOT_POLL_INTERVAL_SECONDS, 10))
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        await self._handle_cube_vote_reaction(payload, True)
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        await self._handle_cube_vote_reaction(payload, False)
+
+    async def _handle_cube_vote_reaction(self, payload: discord.RawReactionActionEvent, selected: bool):
+        if payload.user_id == (self.user.id if self.user else None):
+            return
+        metadata = self._cube_polls.get(payload.message_id)
+        if not metadata:
+            return
+        emoji = str(payload.emoji)
+        cube_ids = metadata.get('cube_ids') or []
+        if emoji not in CUBE_POLL_EMOJIS:
+            return
+        index = CUBE_POLL_EMOJIS.index(emoji)
+        if index >= len(cube_ids):
+            return
+        try:
+            await self.api.submit_cube_vote(payload.user_id, metadata['league_id'], metadata['play_date_id'], cube_ids[index], selected)
+            await self._refresh_cube_poll_message(payload.message_id)
+        except WalterApiError as exc:
+            print(f'Could not mirror Discord cube vote for user {payload.user_id}: {exc}')
 
 
 bot = WalterBot()
@@ -478,6 +574,41 @@ async def report_pairing(
             f"{player1_wins}-{player2_wins}-{draws}.",
             ephemeral=True,
         )
+    except WalterApiError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True)
+
+
+@bot.tree.command(name='cube_poll', description='Post and pin a Discord mirror of a Walter cube vote.')
+@app_commands.describe(
+    league_id='Walter cube league ID',
+    play_date_id='Walter league play date ID for the cube vote',
+)
+async def cube_poll(interaction: discord.Interaction, league_id: int, play_date_id: int):
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    try:
+        payload = await bot.api.cube_vote_poll(league_id, play_date_id)
+        cubes = (payload.get('cubes') or [])[:len(CUBE_POLL_EMOJIS)]
+        if not cubes:
+            await interaction.followup.send('That cube vote does not have any cubes to poll.', ephemeral=True)
+            return
+        message = await interaction.channel.send(format_cube_poll(payload))
+        for emoji in CUBE_POLL_EMOJIS[:len(cubes)]:
+            await message.add_reaction(emoji)
+        try:
+            await message.pin(reason='Walter cube vote poll')
+        except discord.DiscordException as exc:
+            await interaction.followup.send(f'Posted the poll, but could not pin it: {exc}', ephemeral=True)
+        else:
+            await interaction.followup.send('Posted and pinned the cube vote poll.', ephemeral=True)
+        bot._cube_polls[message.id] = {
+            'league_id': league_id,
+            'play_date_id': play_date_id,
+            'channel_id': message.channel.id,
+            'message': message,
+            'cube_ids': [cube['id'] for cube in cubes],
+        }
+        await bot.api.register_cube_poll(league_id, play_date_id, message.channel.id, message.id)
+        bot.loop.create_task(bot._poll_cube_vote_updates(message.id))
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 

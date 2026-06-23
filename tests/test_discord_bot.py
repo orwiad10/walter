@@ -13,6 +13,7 @@ def test_discord_bot_registers_all_expected_slash_commands():
 
     assert {
         'connect',
+        'cube_poll',
         'pairings',
         'report_pairing',
         'league_standings',
@@ -162,3 +163,20 @@ def test_format_league_standings_includes_record_and_events():
         '**League standings: Friday League**\n'
         '1. Player One — 9 pts (3-1-0, 2 events)'
     )
+
+
+def test_format_cube_poll_includes_options_and_vote_totals():
+    payload = {
+        'league': {'name': 'Cube League'},
+        'play_date': {'play_date': '2026-07-01'},
+        'cubes': [
+            {'title': 'Alpha Cube', 'votes': 2, 'cube_cobra_url': 'https://cubecobra.com/cube/alpha'},
+            {'title': 'Beta Cube', 'votes': 1, 'cube_cobra_url': 'https://cubecobra.com/cube/beta'},
+        ],
+    }
+
+    formatted = discord_bot.format_cube_poll(payload)
+
+    assert '**Cube vote: Cube League — 2026-07-01**' in formatted
+    assert '1️⃣ **Alpha Cube** — 2 vote(s)' in formatted
+    assert '2️⃣ **Beta Cube** — 1 vote(s)' in formatted
