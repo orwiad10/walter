@@ -517,6 +517,7 @@ def create_app():
         from .models import (
             LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult,
             LeagueCube, LeaguePlayDate, LeaguePlayDateCube, LeagueCubeVote,
+            LeagueCubeDiscordPoll,
         )
 
         League.__table__.create(bind=db.engine, checkfirst=True)
@@ -532,6 +533,7 @@ def create_app():
         LeaguePlayDate.__table__.create(bind=db.engine, checkfirst=True)
         LeaguePlayDateCube.__table__.create(bind=db.engine, checkfirst=True)
         LeagueCubeVote.__table__.create(bind=db.engine, checkfirst=True)
+        LeagueCubeDiscordPoll.__table__.create(bind=db.engine, checkfirst=True)
 
         media_engine = db.engines['media']
         LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
@@ -586,6 +588,7 @@ def create_app():
         LeaguePlayDate,
         LeaguePlayDateCube,
         LeagueCubeVote,
+        LeagueCubeDiscordPoll,
         BadLoginAttempt,
         BlacklistedIP,
         PasswordResetToken,
@@ -2303,6 +2306,108 @@ def create_app():
             'league': league_payload(league),
             'standings': league_standings_payload(league),
         })
+
+    def cube_vote_poll_payload(league, play_date):
+        available_links = sorted(play_date.available_cubes, key=lambda link: link.cube.title.lower())
+        totals = {
+            cube_id: total or 0
+            for cube_id, total in (
+                db.session.query(
+                    LeagueCubeVote.cube_id,
+                    db.func.coalesce(db.func.sum(LeagueCubeVote.votes), 0),
+                )
+                .filter(LeagueCubeVote.play_date_id == play_date.id)
+                .group_by(LeagueCubeVote.cube_id)
+                .all()
+            )
+        }
+        return {
+            'league': league_payload(league),
+            'play_date': {'id': play_date.id, 'play_date': play_date.play_date.isoformat(), 'is_active': bool(play_date.is_active)},
+            'cubes': [
+                {
+                    'id': link.cube.id,
+                    'title': link.cube.title,
+                    'cube_cobra_url': link.cube.cube_cobra_url,
+                    'image_url': link.cube.image_url,
+                    'votes': totals.get(link.cube.id, 0),
+                }
+                for link in available_links
+            ],
+        }
+
+    @app.route('/api/v1/leagues/<int:league_id>/cube-votes/<int:play_date_id>')
+    def api_cube_vote_poll(league_id, play_date_id):
+        require_api_permission('tournaments.manage')
+        league = db.session.get(League, league_id)
+        play_date = db.session.get(LeaguePlayDate, play_date_id)
+        if not league or not league.is_cube_league or not play_date or play_date.league_id != league.id:
+            return _json_error('cube vote not found', 404)
+        return jsonify(cube_vote_poll_payload(league, play_date))
+
+    @app.route('/api/v1/discord/cube-polls', methods=['POST'], strict_slashes=False)
+    def api_discord_cube_poll_register():
+        require_api_permission('tournaments.manage')
+        data = request.get_json(silent=True) or {}
+        league_id = data.get('league_id')
+        play_date_id = data.get('play_date_id')
+        channel_id = str(data.get('channel_id') or '').strip()
+        message_id = str(data.get('message_id') or '').strip()
+        if not league_id or not play_date_id or not channel_id or not message_id:
+            return _json_error('league_id, play_date_id, channel_id, and message_id are required')
+        league = db.session.get(League, int(league_id))
+        play_date = db.session.get(LeaguePlayDate, int(play_date_id))
+        if not league or not league.is_cube_league or not play_date or play_date.league_id != league.id:
+            return _json_error('cube vote not found', 404)
+        poll = db.session.query(LeagueCubeDiscordPoll).filter_by(message_id=message_id).first()
+        if not poll:
+            poll = LeagueCubeDiscordPoll(message_id=message_id)
+            db.session.add(poll)
+        poll.league_id = league.id
+        poll.play_date_id = play_date.id
+        poll.channel_id = channel_id
+        db.session.commit()
+        return jsonify({'registered': True, 'poll': {'message_id': poll.message_id}})
+
+    @app.route('/api/v1/discord/cube-vote', methods=['POST'], strict_slashes=False)
+    def api_discord_cube_vote():
+        require_api_permission('tournaments.manage')
+        data = request.get_json(silent=True) or {}
+        discord_user_id = str(data.get('discord_user_id') or '').strip()
+        league_id = data.get('league_id')
+        play_date_id = data.get('play_date_id')
+        cube_id = data.get('cube_id')
+        selected = bool(data.get('selected'))
+        if not discord_user_id or not league_id or not play_date_id or not cube_id:
+            return _json_error('discord_user_id, league_id, play_date_id, and cube_id are required')
+        user = db.session.query(User).filter_by(discord_user_id=discord_user_id).first()
+        if not user:
+            return _json_error('Discord account is not connected to Walter', 403)
+        league = db.session.get(League, int(league_id))
+        play_date = db.session.get(LeaguePlayDate, int(play_date_id))
+        cube_id = int(cube_id)
+        if not league or not league.is_cube_league or not play_date or play_date.league_id != league.id:
+            return _json_error('cube vote not found', 404)
+        if cube_id not in {link.cube_id for link in play_date.available_cubes}:
+            return _json_error('cube is not on this ballot', 404)
+        vote = db.session.query(LeagueCubeVote).filter_by(play_date_id=play_date.id, cube_id=cube_id, user_id=user.id).first()
+        if selected:
+            other_votes = (
+                db.session.query(db.func.coalesce(db.func.sum(LeagueCubeVote.votes), 0))
+                .filter(LeagueCubeVote.play_date_id == play_date.id, LeagueCubeVote.user_id == user.id, LeagueCubeVote.cube_id != cube_id)
+                .scalar()
+                or 0
+            )
+            if other_votes >= 3:
+                return _json_error('use no more than 3 total votes for this play date', 409)
+            if not vote:
+                vote = LeagueCubeVote(league_id=league.id, play_date_id=play_date.id, cube_id=cube_id, user_id=user.id)
+                db.session.add(vote)
+            vote.votes = 1
+        elif vote:
+            db.session.delete(vote)
+        db.session.commit()
+        return jsonify(cube_vote_poll_payload(league, play_date))
 
     @app.route('/api/v1/leagues/<int:league_id>', methods=['GET', 'PATCH', 'DELETE'])
     def api_league_detail(league_id):

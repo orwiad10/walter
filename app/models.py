@@ -721,6 +721,18 @@ class LeagueCubeVote(db.Model):
     __table_args__ = (UniqueConstraint('play_date_id', 'cube_id', 'user_id', name='_league_cube_vote_uc'),)
 
 
+class LeagueCubeDiscordPoll(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    league_id = db.Column(db.Integer, db.ForeignKey('league.id'), nullable=False)
+    play_date_id = db.Column(db.Integer, db.ForeignKey('league_play_date.id'), nullable=False)
+    channel_id = db.Column(db.String(32), nullable=False)
+    message_id = db.Column(db.String(32), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    league = db.relationship('League', backref=db.backref('cube_discord_polls', cascade='all, delete-orphan'))
+    play_date = db.relationship('LeaguePlayDate', backref=db.backref('discord_polls', cascade='all, delete-orphan'))
+
+
 class LostFoundItem(db.Model):
     __bind_key__ = 'media'
     id = db.Column(db.Integer, primary_key=True)
