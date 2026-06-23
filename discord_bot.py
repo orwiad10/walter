@@ -219,6 +219,9 @@ class WalterApiClient:
             'message_id': str(message_id),
         })
 
+    async def cube_poll_by_message(self, message_id: int) -> dict[str, Any]:
+        return await self.get_json(f'/api/v1/discord/cube-polls/{message_id}')
+
     async def submit_cube_vote(
         self,
         discord_user_id: int,
@@ -432,8 +435,33 @@ class WalterBot(discord.Client):
                 print(f'Pairing poll failed: {exc}')
             await asyncio.sleep(max(BOT_POLL_INTERVAL_SECONDS, 10))
 
-    async def _refresh_cube_poll_message(self, message_id: int):
+    def _cache_cube_poll_metadata(self, poll_payload: dict[str, Any], message: Any | None = None) -> dict[str, Any]:
+        poll = poll_payload.get('poll') or {}
+        cube_vote = poll_payload.get('cube_vote') or {}
+        cubes = (cube_vote.get('cubes') or [])[:len(CUBE_POLL_EMOJIS)]
+        metadata = {
+            'league_id': poll['league_id'],
+            'play_date_id': poll['play_date_id'],
+            'channel_id': int(poll['channel_id']),
+            'cube_ids': [cube['id'] for cube in cubes],
+        }
+        if message is not None:
+            metadata['message'] = message
+        self._cube_polls[int(poll['message_id'])] = metadata
+        return metadata
+
+    async def _metadata_for_cube_poll_message(self, message_id: int) -> dict[str, Any] | None:
         metadata = self._cube_polls.get(message_id)
+        if metadata:
+            return metadata
+        try:
+            return self._cache_cube_poll_metadata(await self.api.cube_poll_by_message(message_id))
+        except WalterApiError as exc:
+            print(f'Could not load Discord cube poll metadata for message {message_id}: {exc}')
+            return None
+
+    async def _refresh_cube_poll_message(self, message_id: int):
+        metadata = await self._metadata_for_cube_poll_message(message_id)
         if not metadata:
             return
         try:
@@ -463,7 +491,7 @@ class WalterBot(discord.Client):
     async def _handle_cube_vote_reaction(self, payload: discord.RawReactionActionEvent, selected: bool):
         if payload.user_id == (self.user.id if self.user else None):
             return
-        metadata = self._cube_polls.get(payload.message_id)
+        metadata = await self._metadata_for_cube_poll_message(payload.message_id)
         if not metadata:
             return
         emoji = str(payload.emoji)
@@ -634,14 +662,9 @@ async def cube_poll(interaction: discord.Interaction, league_id: int, play_date_
             await interaction.followup.send(f'Posted the poll, but could not pin it: {exc}', ephemeral=True)
         else:
             await interaction.followup.send('Posted and pinned the cube vote poll.', ephemeral=True)
-        bot._cube_polls[message.id] = {
-            'league_id': league_id,
-            'play_date_id': play_date_id,
-            'channel_id': message.channel.id,
-            'message': message,
-            'cube_ids': [cube['id'] for cube in cubes],
-        }
-        await bot.api.register_cube_poll(league_id, play_date_id, message.channel.id, message.id)
+        poll_payload = await bot.api.register_cube_poll(league_id, play_date_id, message.channel.id, message.id)
+        poll_payload['cube_vote'] = payload
+        bot._cache_cube_poll_metadata(poll_payload, message)
         bot.loop.create_task(bot._poll_cube_vote_updates(message.id))
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)

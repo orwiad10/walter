@@ -2372,6 +2372,25 @@ def create_app():
             return _json_error('cube vote not found', 404)
         return jsonify(cube_vote_poll_payload(league, play_date))
 
+    def discord_cube_poll_payload(poll):
+        return {
+            'poll': {
+                'league_id': poll.league_id,
+                'play_date_id': poll.play_date_id,
+                'channel_id': poll.channel_id,
+                'message_id': poll.message_id,
+            },
+            'cube_vote': cube_vote_poll_payload(poll.league, poll.play_date),
+        }
+
+    @app.route('/api/v1/discord/cube-polls/<message_id>')
+    def api_discord_cube_poll(message_id):
+        require_api_permission('tournaments.manage')
+        poll = db.session.query(LeagueCubeDiscordPoll).filter_by(message_id=str(message_id)).first()
+        if not poll:
+            return _json_error('Discord cube poll not found', 404)
+        return jsonify(discord_cube_poll_payload(poll))
+
     @app.route('/api/v1/discord/cube-polls', methods=['POST'], strict_slashes=False)
     def api_discord_cube_poll_register():
         require_api_permission('tournaments.manage')
@@ -2394,7 +2413,7 @@ def create_app():
         poll.play_date_id = play_date.id
         poll.channel_id = channel_id
         db.session.commit()
-        return jsonify({'registered': True, 'poll': {'message_id': poll.message_id}})
+        return jsonify({'registered': True, **discord_cube_poll_payload(poll)})
 
     @app.route('/api/v1/discord/cube-vote', methods=['POST'], strict_slashes=False)
     def api_discord_cube_vote():

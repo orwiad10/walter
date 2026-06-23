@@ -198,3 +198,16 @@ def test_format_league_play_dates_shows_ids_for_cube_poll():
     assert '/cube_poll league_id:<league id> play_date_id:<play date id>' in formatted
     assert '42: 2026-07-01 (active, 3 cube(s))' in formatted
     assert '43: 2026-07-08 (inactive, 1 cube(s))' in formatted
+
+
+def test_cache_cube_poll_metadata_uses_registered_poll_payload():
+    payload = {
+        'poll': {'league_id': 7, 'play_date_id': 42, 'channel_id': '12345', 'message_id': '67890'},
+        'cube_vote': {'cubes': [{'id': 111}, {'id': 222}]},
+    }
+    client = discord_bot.WalterBot()
+
+    metadata = client._cache_cube_poll_metadata(payload)
+
+    assert metadata == {'league_id': 7, 'play_date_id': 42, 'channel_id': 12345, 'cube_ids': [111, 222]}
+    assert client._cube_polls[67890] == metadata
