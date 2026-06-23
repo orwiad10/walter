@@ -213,6 +213,54 @@ def test_api_key_can_list_cube_league_play_dates_for_discord_poll(client, sessio
         {'id': second.id, 'play_date': '2026-07-08', 'is_active': False, 'available_cube_count': 0},
     ]
 
+def test_api_key_can_fetch_registered_discord_cube_poll(client, session):
+    token = _admin_api_token(session)
+    league = League(name='API Cube Poll Lookup', is_cube_league=True)
+    cube = LeagueCube(
+        league=league,
+        cube_cobra_url='https://cubecobra.com/cube/overview/lookup',
+        title='Lookup Cube',
+    )
+    play_date = LeaguePlayDate(league=league, play_date=date(2026, 7, 1), is_active=True)
+    session.add_all([league, cube, play_date])
+    session.flush()
+    session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+    session.commit()
+
+    register_response = client.post(
+        '/api/v1/discord/cube-polls',
+        json={
+            'league_id': league.id,
+            'play_date_id': play_date.id,
+            'channel_id': '12345',
+            'message_id': '67890',
+        },
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert register_response.status_code == 200
+    registered_payload = register_response.get_json()
+    assert registered_payload['registered'] is True
+    assert registered_payload['poll'] == {
+        'league_id': league.id,
+        'play_date_id': play_date.id,
+        'channel_id': '12345',
+        'message_id': '67890',
+    }
+    assert registered_payload['cube_vote']['cubes'][0]['id'] == cube.id
+
+    lookup_response = client.get(
+        '/api/v1/discord/cube-polls/67890',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert lookup_response.status_code == 200
+    lookup_payload = lookup_response.get_json()
+    assert lookup_payload['poll'] == registered_payload['poll']
+    assert lookup_payload['cube_vote']['league']['name'] == 'API Cube Poll Lookup'
+    assert lookup_payload['cube_vote']['cubes'][0]['title'] == 'Lookup Cube'
+
+
 def test_connect_get_without_parameters_rejects_anonymous_connection(client, session):
     token = _admin_api_token(session)
 
