@@ -16,6 +16,7 @@ def test_discord_bot_registers_all_expected_slash_commands():
         'cube_poll',
         'pairings',
         'report_pairing',
+        'league_play_dates',
         'league_standings',
         'leagues',
         'standings',
@@ -180,3 +181,20 @@ def test_format_cube_poll_includes_options_and_vote_totals():
     assert '**Cube vote: Cube League — 2026-07-01**' in formatted
     assert '1️⃣ **Alpha Cube** — 2 vote(s)' in formatted
     assert '2️⃣ **Beta Cube** — 1 vote(s)' in formatted
+
+
+def test_format_league_play_dates_shows_ids_for_cube_poll():
+    payload = {
+        'league': {'id': 7, 'name': 'Cube League'},
+        'play_dates': [
+            {'id': 42, 'play_date': '2026-07-01', 'is_active': True, 'available_cube_count': 3},
+            {'id': 43, 'play_date': '2026-07-08', 'is_active': False, 'available_cube_count': 1},
+        ],
+    }
+
+    formatted = discord_bot.format_league_play_dates(payload)
+
+    assert '**Play dates for Cube League**' in formatted
+    assert '/cube_poll league_id:<league id> play_date_id:<play date id>' in formatted
+    assert '42: 2026-07-01 (active, 3 cube(s))' in formatted
+    assert '43: 2026-07-08 (inactive, 1 cube(s))' in formatted
