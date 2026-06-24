@@ -38,8 +38,6 @@ import time
 import urllib.parse
 import urllib.request
 
-import qrcode
-
 from collections import OrderedDict
 from urllib.parse import urlparse
 from html.parser import HTMLParser
@@ -1407,6 +1405,8 @@ def create_app():
 
     @app.route('/t/<int:tid>/join-qr.png')
     def tournament_join_qr(tid):
+        import qrcode
+
         from .models import Tournament
         t = db.session.get(Tournament, tid)
         if not t:
