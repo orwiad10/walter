@@ -361,10 +361,20 @@ install_python_package_support() {
   fi
 }
 
+venv_python_supported() {
+  [[ -x "$VENV_DIR/bin/python" ]] || return 1
+  "$VENV_DIR/bin/python" -c 'import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] <= (3, 12) else 1)' >/dev/null 2>&1
+}
+
 ensure_venv() {
   if [[ -x "$VENV_DIR/bin/python" ]]; then
-    PYTHON_BIN="$VENV_DIR/bin/python"
-    return 0
+    if venv_python_supported; then
+      PYTHON_BIN="$VENV_DIR/bin/python"
+      return 0
+    fi
+
+    echo "Existing virtual environment uses an unsupported Python version; recreating it with $PYTHON_BIN." >&2
+    rm -rf "$VENV_DIR"
   fi
 
   if ! "$PYTHON_BIN" -m venv "$VENV_DIR"; then
