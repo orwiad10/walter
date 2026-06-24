@@ -765,6 +765,32 @@ def test_duplicate_booth_numbers_are_blocked_across_artists_and_vendors(client, 
     assert session.query(ArtistProfile).filter_by(name='Duplicate Artist').first() is None
 
 
+def test_tournament_join_link_uses_local_qr_image(client, session):
+    tournament = Tournament(name='Local QR Event', format='Constructed')
+    session.add(tournament)
+    session.commit()
+
+    response = client.get(f'/t/{tournament.id}/join-link')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert f'src="/t/{tournament.id}/join-qr.png"' in html
+    assert 'api.qrserver.com' not in html
+
+
+def test_tournament_join_qr_returns_png(client, session):
+    tournament = Tournament(name='PNG QR Event', format='Constructed')
+    session.add(tournament)
+    session.commit()
+
+    response = client.get(f'/t/{tournament.id}/join-qr.png')
+
+    assert response.status_code == 200
+    assert response.mimetype == 'image/png'
+    assert response.data.startswith(b'\x89PNG\r\n\x1a\n')
+    assert len(response.data) > 100
+
+
 def test_player_join_qr_only_visible_to_tournament_managers(client, session):
     manager_role = session.query(Role).filter_by(name='manager').one()
     user_role = session.query(Role).filter_by(name='user').one()
