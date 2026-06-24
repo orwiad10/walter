@@ -37,6 +37,9 @@ import hashlib
 import time
 import urllib.parse
 import urllib.request
+
+import qrcode
+
 from collections import OrderedDict
 from urllib.parse import urlparse
 from html.parser import HTMLParser
@@ -1391,7 +1394,7 @@ def create_app():
         if not t:
             abort(404)
         join_url = url_for('tournament_join_link', tid=tid, _external=True)
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=320x320&data={join_url}"
+        qr_url = url_for('tournament_join_qr', tid=tid)
         is_player = False
         if current_user.is_authenticated:
             is_player = (
@@ -1401,6 +1404,27 @@ def create_app():
                 is not None
             )
         return render_template('tournament/join_link.html', t=t, join_url=join_url, qr_url=qr_url, is_player=is_player)
+
+    @app.route('/t/<int:tid>/join-qr.png')
+    def tournament_join_qr(tid):
+        from .models import Tournament
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        join_url = url_for('tournament_join_link', tid=tid, _external=True)
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(join_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color='black', back_color='white')
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png', max_age=3600)
 
     @app.route('/logout')
     @login_required
