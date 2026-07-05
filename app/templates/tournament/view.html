@@ -100,6 +100,7 @@
         {% if can_view_player_decks %}<a class="btn ghost" href="{{ url_for('tournament_decklists', tid=t.id) }}">Player Deck Lists</a>{% endif %}
         <a class="btn ghost" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
       {% endif %}
+      {% if t.format == 'Draft' and is_player and not (current_user.is_authenticated and current_user.has_permission('tournaments.manage')) %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
     </div>
   </section>
 </section>
