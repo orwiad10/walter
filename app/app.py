@@ -1126,7 +1126,7 @@ def create_app():
         invite_token = request.values.get('invite', '').strip()
         invite = _valid_registration_invite(invite_token)
         mode = registration_mode()
-        if request.method == 'GET' and mode == 'closed' and not invite:
+        if request.method == 'GET' and mode == 'closed':
             flash('Registration is currently closed. Contact an administrator for access.', 'error')
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
@@ -1148,7 +1148,7 @@ def create_app():
                 log_site('register', 'failure', 'email exists')
                 return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
             mode = registration_mode()
-            if mode == 'closed' and not invite:
+            if mode == 'closed':
                 flash('Registration is currently closed.', 'error')
                 log_site('register', 'failure', 'registration closed')
                 return redirect(url_for('register'))
@@ -1162,7 +1162,7 @@ def create_app():
                     flash("Selected tournament was not found", "error")
                     log_site('register', 'failure', 'invalid tournament selection')
                     return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
-            if mode == 'invite_only' and not invite and not selected_tournament:
+            if mode == 'invite_only' and not invite:
                 flash('Account creation is invite only. Use the invite link sent by an administrator.', 'error')
                 log_site('register', 'failure', 'invite required')
                 return redirect(url_for('register'))
@@ -1181,7 +1181,7 @@ def create_app():
                 verification_token_hash=_hash_registration_token(verification_token),
                 invite_id=invite.id if invite else None,
                 tournament_id=selected_tournament.id if selected_tournament else None,
-                tournament_passcode=None,
+                tournament_passcode=tournament_passcode if selected_tournament else None,
                 expires_at=datetime.utcnow() + timedelta(minutes=app.config.get('REGISTRATION_PIN_TTL_MINUTES', 15)),
             )
             pending.set_password(password)
@@ -1237,6 +1237,11 @@ def create_app():
         db.session.add(u)
         db.session.flush()
         if selected_tournament:
+            if selected_tournament.passcode and pending.tournament_passcode != selected_tournament.passcode:
+                db.session.rollback()
+                flash("Tournament passcode changed. Please register again.", "error")
+                log_site('register_verify', 'failure', 'invalid pending tournament passcode')
+                return redirect(url_for('register', tournament_id=selected_tournament.id))
             db.session.add(TournamentPlayer(tournament_id=selected_tournament.id, user_id=u.id))
         if pending.invite:
             pending.invite.used_at = datetime.utcnow()
@@ -1312,6 +1317,9 @@ def create_app():
                 db.session.commit()
                 login_user(u)
                 try:
+                    if not u.public_key or not u.private_key_encrypted:
+                        u.generate_keys(password)
+                        db.session.commit()
                     priv_pem = u.decrypt_private_key(password)
                     if priv_pem:
                         session['private_key'] = base64.b64encode(priv_pem).decode()
@@ -1401,7 +1409,7 @@ def create_app():
                 .first()
                 is not None
             )
-        return render_template('tournament/join_link.html', t=t, join_url=join_url, qr_url=qr_url, is_player=is_player)
+        return render_template('tournament/join_link.html', t=t, join_url=join_url, qr_url=qr_url, is_player=is_player, registration_mode=registration_mode())
 
     @app.route('/t/<int:tid>/join-qr.png')
     def tournament_join_qr(tid):
@@ -1498,15 +1506,23 @@ def create_app():
         encrypted_key = message.sender_key_encrypted if for_sender else message.key_encrypted
         if not encrypted_key:
             return None
+        aes_key = None
+        for algorithm in (hashes.SHA256(), hashes.SHA1()):
+            try:
+                aes_key = private_key.decrypt(
+                    encrypted_key,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=algorithm),
+                        algorithm=algorithm,
+                        label=None,
+                    ),
+                )
+                break
+            except Exception:
+                continue
+        if not aes_key:
+            return None
         try:
-            aes_key = private_key.decrypt(
-                encrypted_key,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None,
-                ),
-            )
             aesgcm = AESGCM(aes_key)
             title = aesgcm.decrypt(message.title_nonce, message.title_encrypted, None).decode()
             body = aesgcm.decrypt(message.body_nonce, message.body_encrypted, None).decode()

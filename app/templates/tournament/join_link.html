@@ -19,7 +19,7 @@
   {% else %}
     <div class="join-qr-actions">
       <a class="btn" href="{{ url_for('login', next=url_for('tournament_join_link', tid=t.id)) }}">I already have an account</a>
-      <a class="btn" href="{{ url_for('register', tournament_id=t.id, passcode=t.passcode, next=url_for('tournament_join_link', tid=t.id)) }}">Create account & join</a>
+      {% if registration_mode == 'open' %}<a class="btn" href="{{ url_for('register', tournament_id=t.id, passcode=t.passcode, next=url_for('tournament_join_link', tid=t.id)) }}">Create account & join</a>{% elif registration_mode == 'invite_only' %}<p>Account creation is invite only. Ask an administrator for an email invite.</p>{% else %}<p>Registration is closed.</p>{% endif %}
     </div>
   {% endif %}
 
