@@ -302,12 +302,17 @@ escape_sed_replacement() {
 }
 
 render_config() {
-  local escaped_domain escaped_server_names escaped_cert_dir escaped_acme_webroot escaped_flask_ip escaped_flask_port
+  local escaped_domain escaped_server_names escaped_cert_dir escaped_acme_webroot escaped_flask_ip escaped_flask_port upstream_flask_ip
+  upstream_flask_ip="$FLASK_IP"
+  if [[ "$upstream_flask_ip" == "0.0.0.0" || "$upstream_flask_ip" == "::" || "$upstream_flask_ip" == "[::]" ]]; then
+    upstream_flask_ip="127.0.0.1"
+  fi
+
   escaped_domain="$(escape_sed_replacement "$TLS_DOMAIN")"
   escaped_server_names="$(escape_sed_replacement "${SERVER_NAMES:-$TLS_DOMAIN}")"
   escaped_cert_dir="$(escape_sed_replacement "$CERT_DIR")"
   escaped_acme_webroot="$(escape_sed_replacement "$ACME_WEBROOT")"
-  escaped_flask_ip="$(escape_sed_replacement "$FLASK_IP")"
+  escaped_flask_ip="$(escape_sed_replacement "$upstream_flask_ip")"
   escaped_flask_port="$(escape_sed_replacement "$FLASK_PORT")"
 
   GENERATED_CONFIG="$(mktemp)"

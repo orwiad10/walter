@@ -95,7 +95,7 @@ if([string]::IsNullOrEmpty($DatabasePath)){ $DatabasePath = $DefaultDb }
 if([string]::IsNullOrEmpty($LogDatabasePath)){ $LogDatabasePath = $DefaultLogDb }
 if([string]::IsNullOrEmpty($FlaskSecret)){ $FlaskSecret = "dev-secret-change-me" }
 if([string]::IsNullOrEmpty($PasswordSeed)){ $PasswordSeed = "dev-password-seed-change-me" }
-if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "127.0.0.1" }
+if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "0.0.0.0" }
 if([string]::IsNullOrEmpty($FlaskPort)){ $FlaskPort = 5000 }
 if([string]::IsNullOrEmpty($RegistrationPinTtlMinutes)){ $RegistrationPinTtlMinutes = 15 }
 if($null -eq $AccountCreationInviteOnly){ $AccountCreationInviteOnly = $false }
@@ -266,5 +266,24 @@ if(Test-BotRuntimeShouldStart){
 
 Start-Sleep -Seconds 3
 
+function Get-AppUrlHost {
+    param([string]$HostName)
+
+    # 0.0.0.0 and :: are bind addresses, not browsable destinations. When the
+    # app listens on every interface, show the primary IPv4 address instead.
+    if([string]::IsNullOrWhiteSpace($HostName) -or $HostName -eq "0.0.0.0" -or $HostName -eq "::" -or $HostName -eq "[::]"){
+        $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -notlike "169.254.*" -and $_.IPAddress -ne "127.0.0.1" } |
+            Sort-Object InterfaceMetric |
+            Select-Object -First 1 -ExpandProperty IPAddress
+        if([string]::IsNullOrWhiteSpace($ip)){ return "127.0.0.1" }
+        return $ip
+    }
+
+    return $HostName
+}
+
 #open the browser to the Flask app
-Start-Process "http://$($FlaskIP):$($FlaskPort)/"
+$AppUrlHost = Get-AppUrlHost $FlaskIP
+Start-Process "http://$($AppUrlHost):$($FlaskPort)/"
+Write-Host "Application URL: http://$($AppUrlHost):$($FlaskPort)/"

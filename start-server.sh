@@ -510,7 +510,7 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
 ADMIN_PASS="${ADMIN_PASS:-admin123}"
 FLASK_SECRET="${FLASK_SECRET:-dev-secret-change-me}"
 PASSWORD_SEED="${PASSWORD_SEED:-dev-password-seed-change-me}"
-FLASK_IP="${FLASK_IP:-127.0.0.1}"
+FLASK_IP="${FLASK_IP:-0.0.0.0}"
 FLASK_PORT="${FLASK_PORT:-5000}"
 TLS_DOMAIN="${TLS_DOMAIN:-}"
 TLS_CERT_DIR="${TLS_CERT_DIR:-}"
@@ -811,7 +811,31 @@ fi
 
 sleep 3
 
-APP_URL="http://${FLASK_IP}:${FLASK_PORT}/"
+display_host_for_url() {
+  local host="$1"
+
+  # 0.0.0.0 and :: are bind addresses, not browsable destinations. When the
+  # app listens on every interface, show the primary address this machine uses
+  # for outbound LAN/Internet traffic instead.
+  if [[ "$host" == "0.0.0.0" || "$host" == "::" || "$host" == "[::]" || -z "$host" ]]; then
+    if command -v ip >/dev/null 2>&1; then
+      ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'
+      return
+    fi
+    if command -v hostname >/dev/null 2>&1; then
+      hostname -I 2>/dev/null | awk '{print $1}'
+      return
+    fi
+    printf '127.0.0.1\n'
+    return
+  fi
+
+  printf '%s\n' "$host"
+}
+
+APP_HOST="$(display_host_for_url "$FLASK_IP")"
+APP_HOST="${APP_HOST:-127.0.0.1}"
+APP_URL="http://${APP_HOST}:${FLASK_PORT}/"
 if command -v xdg-open >/dev/null 2>&1; then
   xdg-open "$APP_URL" >/dev/null 2>&1 || true
 elif command -v open >/dev/null 2>&1; then
