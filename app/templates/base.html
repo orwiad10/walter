@@ -48,7 +48,7 @@
           <li class="nav-item has-dropdown">
             <button class="nav-link" type="button" data-dropdown-toggle aria-expanded="false">Admin</button>
             <div class="dropdown-menu" role="menu">
-              {% if current_user.has_permission('venues.manage') or current_user.is_authenticated %}
+              {% if current_user.has_permission('venues.manage') %}
               <a class="dropdown-item" href="{{ url_for('venue_management') }}">Venues</a>
               {% endif %}
               {% if current_user.has_permission('users.manage') %}

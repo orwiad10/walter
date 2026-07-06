@@ -554,3 +554,43 @@ def test_invalid_site_theme_falls_back_to_light(client, session):
     assert response.status_code == 200
     assert b'data-theme="light"' in response.data
     assert session.get(SiteSetting, 'site_theme').value == 'light'
+
+def test_regular_user_cannot_access_admin_management_surfaces(client, session):
+    from app.models import Role, User, Venue, Vendor, ArtistProfile, Tournament, TournamentPlayer
+
+    user_role = session.query(Role).filter_by(name='user').one()
+    user = User(email='regular-venue@example.com', name='Regular Venue User', role=user_role)
+    user.set_password('secret')
+    venue = Venue(name='Public Venue', notes='Open play area')
+    vendor = Vendor(name='Sleeve Seller', venue=venue, services_provided='Sleeves and deck boxes')
+    artist = ArtistProfile(name='Token Artist', venue=venue, services_provided='Token sketches')
+    tournament = Tournament(name='Venue Event', format='Constructed', venue=venue)
+    session.add_all([user, venue, vendor, artist, tournament])
+    session.flush()
+    session.add(TournamentPlayer(tournament_id=tournament.id, user_id=user.id))
+    session.commit()
+
+    assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
+
+    home = client.get('/').get_data(as_text=True)
+    assert 'data-dropdown-toggle aria-expanded="false">Admin</button>' not in home
+    assert 'Registration Invites' not in home
+    assert 'Site Settings' not in home
+
+    assert client.get('/admin/site-settings').status_code == 403
+    assert client.get('/admin/registration-invites').status_code == 403
+    assert client.post('/admin/registration-invites', data={'email': 'invitee@example.com'}).status_code == 403
+    assert client.get('/admin/venues/vendors').status_code == 403
+    assert client.get('/admin/venues/artists').status_code == 403
+
+    venue_page = client.get(f'/admin/venues/{venue.id}')
+    assert venue_page.status_code == 200
+    html = venue_page.get_data(as_text=True)
+    assert 'Sleeve Seller' in html
+    assert 'Sleeves and deck boxes' in html
+    assert 'Token Artist' in html
+    assert 'Token sketches' in html
+    assert 'Vendor Management' not in html
+    assert 'Artist Profiles' not in html
+    assert 'Lost &amp; Found' not in html
+    assert 'Bulk Add Tournaments' not in html

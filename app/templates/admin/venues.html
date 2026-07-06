@@ -2,14 +2,16 @@
 {% block content %}
 <section class="page-header">
   <div class="page-header__title">
-    <span class="eyebrow">Admin</span>
-    <h2>Venue Management</h2>
-    <p class="page-description">Create venues, open each venue workspace, and manage venue assets.</p>
+    <span class="eyebrow">{% if can_manage_venues %}Admin{% else %}Venue{% endif %}</span>
+    <h2>{% if can_manage_venues %}Venue Management{% else %}Venues{% endif %}</h2>
+    <p class="page-description">{% if can_manage_venues %}Create venues, open each venue workspace, and manage venue assets.{% else %}View venue details and the services available at each venue.{% endif %}</p>
   </div>
+  {% if can_manage_venues %}
   <div class="page-header__actions">
     <a class="btn secondary" href="{{ url_for('vendor_management') }}">Vendor Management</a>
     <a class="btn secondary" href="{{ url_for('artist_management') }}">Artist Profiles</a>
   </div>
+  {% endif %}
 </section>
 {% if can_manage_venues %}
 <section class="panel-card">
@@ -52,19 +54,19 @@
             <div>
               <h4>Artists</h4>
               {% if venue.artists %}
-              <table class="table compact-table"><tbody>{% for artist in venue.artists %}<tr><td><a href="{{ url_for('artist_management') }}#artist-{{ artist.id }}">{{ artist.name }}</a></td><td>{{ artist.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+              <table class="table compact-table"><tbody>{% for artist in venue.artists %}<tr><td>{{ artist.name }}</td><td>{{ artist.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
               {% else %}<p class="empty-state compact-empty">No artists.</p>{% endif %}
             </div>
             <div>
               <h4>Vendors</h4>
               {% if venue.vendors %}
-              <table class="table compact-table"><tbody>{% for vendor in venue.vendors %}<tr><td><a href="{{ url_for('vendor_management') }}#vendor-{{ vendor.id }}">{{ vendor.name }}</a></td><td>{{ vendor.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+              <table class="table compact-table"><tbody>{% for vendor in venue.vendors %}<tr><td>{{ vendor.name }}</td><td>{{ vendor.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
               {% else %}<p class="empty-state compact-empty">No vendors.</p>{% endif %}
             </div>
             <div>
               <h4>Tournaments</h4>
               {% if venue.tournaments %}
-              <table class="table compact-table"><tbody>{% for tournament in venue.tournaments %}<tr><td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td><td>{{ tournament.start_time or '-' }}</td></tr>{% endfor %}</tbody></table><div class="form-actions"><a class="btn secondary" href="{{ url_for('venue_detail', venue_id=venue.id) }}">Manage tournament list</a> <a class="btn secondary" href="{{ url_for('lost_and_found', venue_id=venue.id) }}">Lost &amp; Found</a></div>
+              <table class="table compact-table"><tbody>{% for tournament in venue.tournaments %}<tr><td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td><td>{{ tournament.start_time or '-' }}</td></tr>{% endfor %}</tbody></table>{% if can_manage_venues %}<div class="form-actions"><a class="btn secondary" href="{{ url_for('venue_detail', venue_id=venue.id) }}">Manage tournament list</a> <a class="btn secondary" href="{{ url_for('lost_and_found', venue_id=venue.id) }}">Lost &amp; Found</a></div>{% endif %}
               {% else %}<p class="empty-state compact-empty">No tournaments.</p>{% endif %}
             </div>
           </div>

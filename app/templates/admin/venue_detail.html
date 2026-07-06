@@ -2,15 +2,17 @@
 {% block content %}
 <section class="page-header">
   <div class="page-header__title">
-    <span class="eyebrow">Venue Management</span>
+    <span class="eyebrow">Venue</span>
     <h2>{{ venue.name }}</h2>
-    <p class="page-description">Manage this venue's tournaments, artists, and vendors from one place.</p>
+    <p class="page-description">View this venue's tournaments, artists, vendors, and available services.</p>
   </div>
   <div class="page-header__actions">
     <a class="btn secondary" href="{{ url_for('venue_management') }}">All Venues</a>
+    {% if current_user.has_permission('venues.manage') %}
     <a class="btn secondary" href="{{ url_for('vendor_management') }}">Vendors</a>
     <a class="btn secondary" href="{{ url_for('artist_management') }}">Artists</a>
     <a class="btn secondary" href="{{ url_for('lost_and_found', venue_id=venue.id) }}">Lost &amp; Found</a>
+    {% endif %}
   </div>
 </section>
 
@@ -87,13 +89,13 @@
     <div>
       <h4>Artists</h4>
       {% if venue.artists %}
-      <table class="table compact-table"><tbody>{% for artist in venue.artists %}<tr><td><a href="{{ url_for('artist_management') }}#artist-{{ artist.id }}">{{ artist.name }}</a></td><td>{{ artist.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+      <table class="table compact-table"><thead><tr><th>Name</th><th>Booth</th><th>Services</th></tr></thead><tbody>{% for artist in venue.artists %}<tr><td>{{ artist.name }}</td><td>{{ artist.booth_number or '-' }}</td><td>{{ artist.services_provided or '-' }}</td></tr>{% endfor %}</tbody></table>
       {% else %}<p class="empty-state compact-empty">No artists.</p>{% endif %}
     </div>
     <div>
       <h4>Vendors</h4>
       {% if venue.vendors %}
-      <table class="table compact-table"><tbody>{% for vendor in venue.vendors %}<tr><td><a href="{{ url_for('vendor_management') }}#vendor-{{ vendor.id }}">{{ vendor.name }}</a></td><td>{{ vendor.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
+      <table class="table compact-table"><thead><tr><th>Name</th><th>Booth</th><th>Services</th></tr></thead><tbody>{% for vendor in venue.vendors %}<tr><td>{{ vendor.name }}</td><td>{{ vendor.booth_number or '-' }}</td><td>{{ vendor.services_provided or '-' }}</td></tr>{% endfor %}</tbody></table>
       {% else %}<p class="empty-state compact-empty">No vendors.</p>{% endif %}
     </div>
   </div>

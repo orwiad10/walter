@@ -2454,3 +2454,49 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
   font-weight: 800;
   letter-spacing: 0.08em;
 }
+
+.players-roster-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
+  gap:16px;
+}
+.player-roster-card {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  padding:16px;
+  border:1px solid rgba(148, 163, 184, 0.28);
+  border-radius:var(--radius-md);
+  background:var(--brand-surface);
+  box-shadow:var(--shadow-soft);
+}
+.player-roster-card__header {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+}
+.player-roster-card__header h4 { margin:0; }
+.player-roster-card__deck,
+.player-replace-form {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+.player-roster-card .deck-status {
+  display:inline-flex;
+  border-radius:999px;
+  padding:4px 10px;
+  font-size:0.82rem;
+  font-weight:700;
+  background:rgba(245, 158, 11, 0.14);
+  color:#92400e;
+}
+.player-roster-card .deck-status-submitted {
+  background:rgba(34, 197, 94, 0.16);
+  color:var(--dark-green);
+}
+.deck-submitted-at { color:var(--muted-text); font-size:0.9rem; }
+.player-replace-details summary { cursor:pointer; font-weight:700; }
+.player-replace-details select { min-width:180px; }
