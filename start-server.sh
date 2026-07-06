@@ -814,18 +814,10 @@ sleep 3
 display_host_for_url() {
   local host="$1"
 
-  # 0.0.0.0 and :: are bind addresses, not browsable destinations. When the
-  # app listens on every interface, show the primary address this machine uses
-  # for outbound LAN/Internet traffic instead.
-  if [[ "$host" == "0.0.0.0" || "$host" == "::" || "$host" == "[::]" || -z "$host" ]]; then
-    if command -v ip >/dev/null 2>&1; then
-      ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}'
-      return
-    fi
-    if command -v hostname >/dev/null 2>&1; then
-      hostname -I 2>/dev/null | awk '{print $1}'
-      return
-    fi
+  # Use the configured Flask host exactly as provided in config.yaml so the
+  # startup output and browser launch match the configured bind address. Only
+  # fall back when the config value is empty.
+  if [[ -z "$host" ]]; then
     printf '127.0.0.1\n'
     return
   fi
