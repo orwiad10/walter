@@ -180,13 +180,13 @@ $env:MTG_LOG_DB_PATH = $LogDatabasePath
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
 
-# The vendored discord.py package is imported directly by discord_bot.py, so
-# make sure its third-party runtime dependency is present even if an existing
-# environment was created before aiohttp was added to requirements.txt.
-python -c "import aiohttp" 2>$null
+# Make sure runtime imports used by optional/lazy routes are present even when
+# an existing environment was created before a dependency was added to
+# requirements.txt or a previous dependency install was interrupted.
+python -c "import aiohttp; import qrcode; from PIL import Image" 2>$null
 if($LASTEXITCODE -ne 0){
-    Write-Host "Installing missing Discord bot dependency aiohttp..."
-    python -m pip install 'aiohttp>=3.7.4,<4' | Out-Null
+    Write-Host "Installing missing runtime dependencies..."
+    python -m pip install 'aiohttp>=3.7.4,<4' 'qrcode[pil]==8.2' | Out-Null
 }
 
 if($BotInstallEnabled){
@@ -270,8 +270,9 @@ function Get-AppUrlHost {
     param([string]$HostName)
 
     # Use the configured Flask host exactly as provided in config.yaml so the
-    # startup output and browser launch match the configured bind address. Only
-    # fall back when the config value is empty.
+    # startup output and browser launch match the configured bind address. Do
+    # not replace a configured public address with a detected LAN address here;
+    # only fall back when the config value is empty.
     if([string]::IsNullOrWhiteSpace($HostName)){ return "127.0.0.1" }
 
     return $HostName
