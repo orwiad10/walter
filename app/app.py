@@ -4466,6 +4466,7 @@ def create_app():
     @app.route('/admin/venues/vendors', methods=['GET', 'POST'])
     @login_required
     def vendor_management():
+        require_permission('venues.manage')
         venue_query = db.session.query(Venue).order_by(Venue.name)
         if not current_user.has_permission('venues.manage'):
             visible_ids = venue_ids_for_user(current_user)
@@ -4528,6 +4529,7 @@ def create_app():
     @app.route('/admin/venues/artists', methods=['GET', 'POST'])
     @login_required
     def artist_management():
+        require_permission('venues.manage')
         venue_query = db.session.query(Venue).order_by(Venue.name)
         if not current_user.has_permission('venues.manage'):
             visible_ids = venue_ids_for_user(current_user)

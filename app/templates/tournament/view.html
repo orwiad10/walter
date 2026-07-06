@@ -557,55 +557,44 @@ Sideboard
 
 <section class="panel-card">
 <div class="section-heading"><div><h3>Players ({{ players|length }})</h3><p>Registered player roster and deck submission status.</p></div></div>
-<table class="players-table">
-  <thead>
-    <tr>
-      <th>Player</th>
-      {% if can_view_player_decks %}
-      <th>Deck</th>
-      {% endif %}
-      {% if current_user.has_permission('tournaments.manage') %}<th>Admin</th>{% endif %}
-    </tr>
-  </thead>
-  <tbody>
+<div class="players-roster-grid">
   {% for p in players %}
-    <tr>
-      <td>{{ p.user.name }}</td>
+  {% set deck = p.deck %}
+  <article class="player-roster-card">
+    <div class="player-roster-card__header">
+      <h4>{{ p.user.name }}</h4>
       {% if can_view_player_decks %}
-      {% set deck = p.deck %}
-      <td class="player-deck-cell">
-        {% if deck %}
-        <div class="player-deck-actions">
-          <a class="btn" href="{{ url_for('view_player_deck', tid=t.id, player_id=p.id) }}">View Deck</a>
-          <span class="deck-counts">Main {{ deck.total_mainboard() }} · Side {{ deck.total_sideboard() }}</span>
-          <span class="deck-status {% if deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
-            {% if deck.is_submitted %}
-              Submitted{% if deck.submitted_at %} {{ deck.submitted_at }}{% endif %}
-            {% else %}
-              Not submitted
-            {% endif %}
-          </span>
-        </div>
-        {% else %}
-        <span class="deck-status deck-status-draft">No deck submitted</span>
-        {% endif %}
-      </td>
+      <span class="deck-status {% if deck and deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
+        {% if deck and deck.is_submitted %}Deck submitted{% elif deck %}Deck not submitted{% else %}No deck submitted{% endif %}
+      </span>
       {% endif %}
-      {% if current_user.has_permission('tournaments.manage') %}
-      <td>
-        <form method="post" action="{{ url_for('replace_tournament_player', tid=t.id, player_id=p.id) }}" class="inline-form">
-          <select name="replacement_user_id" required>
-            <option value="">Replace with...</option>
-            {% for user in available_users %}<option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}
-          </select>
-          <button class="btn ghost" type="submit">Replace</button>
-        </form>
-      </td>
+    </div>
+    {% if can_view_player_decks %}
+    <div class="player-roster-card__deck">
+      {% if deck %}
+      <span class="deck-counts">Main {{ deck.total_mainboard() }} · Side {{ deck.total_sideboard() }}</span>
+      {% if deck.submitted_at and deck.is_submitted %}<span class="deck-submitted-at">Submitted {{ deck.submitted_at }}</span>{% endif %}
+      <a class="btn secondary" href="{{ url_for('view_player_deck', tid=t.id, player_id=p.id) }}">View Deck</a>
+      {% else %}
+      <span class="empty-state compact-empty">Awaiting deck list.</span>
       {% endif %}
-    </tr>
+    </div>
+    {% endif %}
+    {% if current_user.has_permission('tournaments.manage') %}
+    <details class="player-replace-details">
+      <summary>Replace player</summary>
+      <form method="post" action="{{ url_for('replace_tournament_player', tid=t.id, player_id=p.id) }}" class="inline-form player-replace-form">
+        <select name="replacement_user_id" required>
+          <option value="">Choose replacement...</option>
+          {% for user in available_users %}<option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}
+        </select>
+        <button class="btn ghost" type="submit">Replace</button>
+      </form>
+    </details>
+    {% endif %}
+  </article>
   {% endfor %}
-  </tbody>
-</table>
+</div>
 </section>
 
 {% endblock %}
