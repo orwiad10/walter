@@ -606,15 +606,17 @@ export MTG_LOG_DB_PATH="$LOG_DB_FILE"
 printf 'Installing dependencies...\n'
 "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS_FILE" >/dev/null
 
-# The vendored discord.py package is imported directly by discord_bot.py, so
-# make sure its third-party runtime dependency is present even if an existing
-# virtualenv was created before aiohttp was added to requirements.txt.
+# Make sure runtime imports used by optional/lazy routes are present even when
+# an existing virtualenv was created before a dependency was added to
+# requirements.txt or a previous dependency install was interrupted.
 if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
 import aiohttp  # noqa: F401
+import qrcode  # noqa: F401
+from PIL import Image  # noqa: F401
 PY
 then
-  printf 'Installing missing Discord bot dependency aiohttp...\n'
-  "$PYTHON_BIN" -m pip install 'aiohttp>=3.7.4,<4' >/dev/null
+  printf 'Installing missing runtime dependencies...\n'
+  "$PYTHON_BIN" -m pip install 'aiohttp>=3.7.4,<4' 'qrcode[pil]==8.2' >/dev/null
 fi
 
 if is_truthy "$BOT_INSTALL_ENABLED"; then
@@ -815,7 +817,8 @@ display_host_for_url() {
   local host="$1"
 
   # Use the configured Flask host exactly as provided in config.yaml so the
-  # startup output and browser launch match the configured bind address. Only
+  # startup output and browser launch match the configured bind address. Do not
+  # replace a configured public address with a detected LAN address here; only
   # fall back when the config value is empty.
   if [[ -z "$host" ]]; then
     printf '127.0.0.1\n'
