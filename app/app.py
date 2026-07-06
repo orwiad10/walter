@@ -817,7 +817,8 @@ def create_app():
     @app.route('/home')
     @login_required
     def login_home():
-        active_count = db.session.query(Tournament).filter(Tournament.ended_at.is_(None)).count()
+        tournaments = db.session.query(Tournament).all()
+        active_count = sum(1 for tournament in tournaments if not tournament_is_complete(tournament))
         my_tournament_count = db.session.query(TournamentPlayer).filter_by(user_id=current_user.id).count()
         my_league_count = db.session.query(LeaguePlayer).filter_by(user_id=current_user.id).count()
         return render_template(

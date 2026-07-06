@@ -3,7 +3,7 @@ import random
 from itertools import product
 
 from app.app import db
-from app.models import Tournament, User, TournamentPlayer, Role, Round, MatchResult, Venue, SiteLog, TournamentLog
+from app.models import Tournament, User, TournamentPlayer, Role, Round, Match, MatchResult, Venue, SiteLog, TournamentLog
 from app.pairing import pair_round, compute_standings, draft_seating_tables, seeded_cut_pairs
 from datetime import datetime
 
@@ -816,3 +816,48 @@ def test_player_join_qr_only_visible_to_tournament_managers(client, session):
         assert response.status_code == 200
         html = response.get_data(as_text=True)
         assert 'Player Join QR' in html
+
+
+def test_home_active_count_matches_active_tournament_page_for_legacy_completed_tournaments(session, client):
+    role_admin = session.query(Role).filter_by(name='admin').first()
+    role_user = session.query(Role).filter_by(name='user').first()
+    admin = User(email='legacy-admin@example.com', name='Legacy Admin', role=role_admin, is_admin=True)
+    admin.set_password('secret')
+    tournament = Tournament(name='Legacy Completed Event', format='Constructed', rounds_override=1)
+    session.add_all([admin, tournament])
+    session.commit()
+
+    player_one = User(email='legacy-player-one@example.com', name='Legacy Player One', role=role_user)
+    player_two = User(email='legacy-player-two@example.com', name='Legacy Player Two', role=role_user)
+    session.add_all([player_one, player_two])
+    session.commit()
+
+    tournament_player_one = TournamentPlayer(tournament_id=tournament.id, user_id=player_one.id)
+    tournament_player_two = TournamentPlayer(tournament_id=tournament.id, user_id=player_two.id)
+    session.add_all([tournament_player_one, tournament_player_two])
+    session.commit()
+
+    result = MatchResult(player1_wins=2, player2_wins=0)
+    round_one = Round(tournament_id=tournament.id, number=1)
+    session.add_all([result, round_one])
+    session.commit()
+    session.add(Match(
+        round_id=round_one.id,
+        player1_id=tournament_player_one.id,
+        player2_id=tournament_player_two.id,
+        table_number=1,
+        completed=True,
+        result_id=result.id,
+    ))
+    session.commit()
+
+    assert tournament.ended_at is None
+    assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+
+    home_response = client.get('/home')
+    active_response = client.get('/')
+
+    assert home_response.status_code == 200
+    assert active_response.status_code == 200
+    assert b'<span>Active tournaments</span><strong>0</strong>' in home_response.data
+    assert b'Legacy Completed Event' not in active_response.data
