@@ -555,6 +555,37 @@ def test_invalid_site_theme_falls_back_to_light(client, session):
     assert b'data-theme="light"' in response.data
     assert session.get(SiteSetting, 'site_theme').value == 'light'
 
+
+def test_non_admin_with_admin_permissions_cannot_access_site_admin_surfaces(client, session):
+    from app.models import RegistrationInvite, SiteSetting
+
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    manager_perms = manager_role.permissions_dict()
+    manager_perms['admin.site_settings'] = True
+    manager_role.permissions = json.dumps(manager_perms)
+    manager = User(email='manager-site-admin@example.com', name='Manager Site Admin', role=manager_role)
+    manager.set_password('secret')
+    session.add(manager)
+    session.commit()
+
+    assert client.post('/login', data={'email': manager.email, 'password': 'secret'}).status_code == 302
+
+    home = client.get('/').get_data(as_text=True)
+    assert 'data-dropdown-toggle aria-expanded="false">Admin</button>' not in home
+    assert 'Site Settings' not in home
+    assert 'Registration Invites' not in home
+
+    assert client.get('/admin/site-settings').status_code == 403
+    assert client.post(
+        '/admin/site-settings',
+        data={'action': 'settings', 'registration_mode': 'closed', 'site_theme': 'dark'},
+    ).status_code == 403
+    assert session.get(SiteSetting, 'registration_mode') is None
+    assert client.get('/admin/registration-invites').status_code == 403
+    assert client.post('/admin/registration-invites', data={'email': 'invitee@example.com'}).status_code == 403
+    assert session.query(RegistrationInvite).count() == 0
+
+
 def test_regular_user_cannot_access_admin_management_surfaces(client, session):
     from app.models import Role, User, Venue, Vendor, ArtistProfile, Tournament, TournamentPlayer
 

@@ -2827,6 +2827,11 @@ def create_app():
     def require_admin():
         require_permission('admin.panel')
 
+    def require_site_admin():
+        if not current_user.is_authenticated or not current_user.is_admin:
+            log_site('unauthorized_access', 'failure', 'site_admin')
+            abort(403)
+
     def venue_ids_for_user(user):
         if not user or not getattr(user, 'is_authenticated', False):
             return set()
@@ -5182,7 +5187,7 @@ def create_app():
     @app.route('/admin/site-settings', methods=['GET', 'POST'])
     @login_required
     def site_settings():
-        require_permission('admin.site_settings')
+        require_site_admin()
         if request.method == 'POST':
             action = request.form.get('action')
             if action == 'settings':
@@ -5209,7 +5214,7 @@ def create_app():
     @app.route('/admin/registration-invites', methods=['GET', 'POST'])
     @login_required
     def admin_registration_invites():
-        require_permission('admin.site_settings')
+        require_site_admin()
         if request.method == 'POST':
             email = request.form.get('email', '').strip().lower()
             if not email:
@@ -5242,7 +5247,7 @@ def create_app():
     @app.route('/admin/registration-invites/<int:invite_id>/revoke', methods=['POST'])
     @login_required
     def revoke_registration_invite(invite_id):
-        require_permission('admin.site_settings')
+        require_site_admin()
         invite = db.session.get(RegistrationInvite, invite_id)
         if not invite:
             abort(404)
