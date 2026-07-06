@@ -269,16 +269,10 @@ Start-Sleep -Seconds 3
 function Get-AppUrlHost {
     param([string]$HostName)
 
-    # 0.0.0.0 and :: are bind addresses, not browsable destinations. When the
-    # app listens on every interface, show the primary IPv4 address instead.
-    if([string]::IsNullOrWhiteSpace($HostName) -or $HostName -eq "0.0.0.0" -or $HostName -eq "::" -or $HostName -eq "[::]"){
-        $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.IPAddress -notlike "169.254.*" -and $_.IPAddress -ne "127.0.0.1" } |
-            Sort-Object InterfaceMetric |
-            Select-Object -First 1 -ExpandProperty IPAddress
-        if([string]::IsNullOrWhiteSpace($ip)){ return "127.0.0.1" }
-        return $ip
-    }
+    # Use the configured Flask host exactly as provided in config.yaml so the
+    # startup output and browser launch match the configured bind address. Only
+    # fall back when the config value is empty.
+    if([string]::IsNullOrWhiteSpace($HostName)){ return "127.0.0.1" }
 
     return $HostName
 }
