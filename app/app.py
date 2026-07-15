@@ -4280,19 +4280,19 @@ def create_app():
         current_tournaments = (
             db.session.query(Tournament)
             .filter(Tournament.venue_id == venue.id)
-            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .order_by(Tournament.start_time.is_(None), Tournament.start_time.desc(), Tournament.created_at.desc())
             .all()
         )
         available_tournaments = (
             db.session.query(Tournament)
             .filter(or_(Tournament.venue_id.is_(None), Tournament.venue_id != venue.id))
-            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .order_by(Tournament.start_time.is_(None), Tournament.start_time.desc(), Tournament.created_at.desc())
             .all()
         )
         unassigned_tournaments = (
             db.session.query(Tournament)
             .filter(Tournament.venue_id.is_(None))
-            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .order_by(Tournament.start_time.is_(None), Tournament.start_time.desc(), Tournament.created_at.desc())
             .all()
         )
         return render_template(
@@ -5629,7 +5629,7 @@ def create_app():
             db.session.query(TournamentPlayer)
             .join(Tournament)
             .filter(TournamentPlayer.user_id == current_user.id)
-            .order_by(Tournament.start_time.desc().nullslast(), Tournament.created_at.desc())
+            .order_by(Tournament.start_time.is_(None), Tournament.start_time.desc(), Tournament.created_at.desc())
             .all()
         )
         active_entries = [entry for entry in entries if not tournament_is_complete(entry.tournament)]

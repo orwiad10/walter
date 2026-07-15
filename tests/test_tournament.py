@@ -2,10 +2,27 @@ import json
 import random
 from itertools import product
 
+from sqlalchemy import select
+from sqlalchemy.dialects import mysql
+
 from app.app import db
 from app.models import Tournament, User, TournamentPlayer, Role, Round, Match, MatchResult, Venue, SiteLog, TournamentLog
 from app.pairing import pair_round, compute_standings, draft_seating_tables, seeded_cut_pairs
 from datetime import datetime
+
+
+def test_my_tournaments_query_uses_mysql_portable_null_ordering():
+    statement = (
+        select(TournamentPlayer)
+        .join(Tournament)
+        .filter(TournamentPlayer.user_id == 1)
+        .order_by(Tournament.start_time.is_(None), Tournament.start_time.desc(), Tournament.created_at.desc())
+    )
+
+    compiled = str(statement.compile(dialect=mysql.dialect()))
+
+    assert 'NULLS LAST' not in compiled
+    assert 'tournament.start_time IS NULL' in compiled
 
 
 def test_tournament_create_pairing_standings(session):
