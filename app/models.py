@@ -7,11 +7,33 @@ import os
 import json
 import secrets
 import hashlib
+import hmac
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from werkzeug.security import check_password_hash, generate_password_hash
+from flask import current_app
+
+
+def _token_hash_secret(purpose):
+    secret = None
+    try:
+        secret = current_app.config.get('SECRET_KEY')
+    except RuntimeError:
+        secret = None
+    secret = secret or os.environ.get('SECRET_KEY') or os.environ.get('PASSWORD_SEED')
+    if not secret:
+        secret = 'walter-development-token-hash-key'
+    return f'{purpose}:{secret}'.encode()
+
+
+def _hmac_token_digest(token, purpose):
+    return hmac.new(_token_hash_secret(purpose), token.encode(), hashlib.sha256).hexdigest()
+
+
+def _legacy_token_digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
 
 # Permission groups and default role permissions
 PERMISSION_GROUPS = {
@@ -134,7 +156,11 @@ class User(db.Model, UserMixin):
 
     @staticmethod
     def hash_discord_authorization_token(token):
-        return hashlib.sha256(token.encode()).hexdigest()
+        return _hmac_token_digest(token, 'discord-authorization')
+
+    @staticmethod
+    def legacy_discord_authorization_token_hash(token):
+        return _legacy_token_digest(token)
 
     def set_discord_authorization_token(self, token):
         self.discord_authorization_token_hash = self.hash_discord_authorization_token(token)
@@ -142,9 +168,10 @@ class User(db.Model, UserMixin):
     def check_discord_authorization_token(self, token):
         if not self.discord_authorization_token_hash:
             return False
-        return secrets.compare_digest(
-            self.discord_authorization_token_hash,
-            self.hash_discord_authorization_token(token),
+        token_hash = self.hash_discord_authorization_token(token)
+        legacy_hash = self.legacy_discord_authorization_token_hash(token)
+        return secrets.compare_digest(self.discord_authorization_token_hash, token_hash) or secrets.compare_digest(
+            self.discord_authorization_token_hash, legacy_hash
         )
 
     def set_password(self, pw, *, unlock=True):
@@ -230,7 +257,11 @@ class ApiKey(db.Model):
 
     @staticmethod
     def hash_token(token):
-        return hashlib.sha256(token.encode()).hexdigest()
+        return _hmac_token_digest(token, 'api-key')
+
+    @staticmethod
+    def legacy_hash_token(token):
+        return _legacy_token_digest(token)
 
     @classmethod
     def create_token(cls):

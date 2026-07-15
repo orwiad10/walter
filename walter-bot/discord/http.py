@@ -657,7 +657,7 @@ class HTTPClient:
 
                 try:
                     async with self.__session.request(method, url, **kwargs) as response:
-                        _log.debug('%s %s with %s has returned %s', method, url, kwargs.get('data'), response.status)
+                        _log.debug('%s %s has returned %s', method, url, response.status)
 
                         # even errors have text involved in them so this is safe to call
                         data = await json_or_text(response)
