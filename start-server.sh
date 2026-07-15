@@ -601,12 +601,13 @@ printf 'Installing dependencies...\n'
 # requirements.txt or a previous dependency install was interrupted.
 if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
 import aiohttp  # noqa: F401
+import pymysql  # noqa: F401
 import qrcode  # noqa: F401
 from PIL import Image  # noqa: F401
 PY
 then
   printf 'Installing missing runtime dependencies...\n'
-  "$PYTHON_BIN" -m pip install 'aiohttp>=3.7.4,<4' 'qrcode[pil]==8.2' >/dev/null
+  "$PYTHON_BIN" -m pip install 'aiohttp>=3.7.4,<4' 'PyMySQL==1.1.2' 'qrcode[pil]==8.2' >/dev/null
 fi
 
 if is_truthy "$BOT_INSTALL_ENABLED"; then
