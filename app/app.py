@@ -68,6 +68,7 @@ CUBE_PREVIEW_IMAGE_HOSTS = {
     'cubecobra.com',
     'scryfall.io',
 }
+UNLIMITED_LOGIN_SESSION_DAYS = 36500
 
 MAJOR_60_CARD_FORMATS = [
     'Standard',
@@ -242,6 +243,8 @@ def create_app():
     app.config['ACCOUNT_LOCKOUT_ATTEMPTS'] = int(os.environ.get('ACCOUNT_LOCKOUT_ATTEMPTS', '3') or '3')
     app.config['IP_BLACKLIST_ATTEMPTS'] = int(os.environ.get('IP_BLACKLIST_ATTEMPTS', '10') or '10')
     app.config['PASSWORD_RESET_TTL_MINUTES'] = int(os.environ.get('PASSWORD_RESET_TTL_MINUTES', '60') or '60')
+    # Keep user login sessions effectively unlimited unless they explicitly log out.
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=UNLIMITED_LOGIN_SESSION_DAYS)
 
     last_table_env = os.environ.get('MTG_LAST_TABLE_NUMBER', '').strip()
     if last_table_env:
@@ -1323,7 +1326,8 @@ def create_app():
                 u.failed_login_count = 0
                 u.lock_reason = None
                 db.session.commit()
-                login_user(u)
+                session.permanent = True
+                login_user(u, remember=True, duration=timedelta(days=UNLIMITED_LOGIN_SESSION_DAYS))
                 try:
                     if not u.public_key or not u.private_key_encrypted:
                         u.generate_keys(password)

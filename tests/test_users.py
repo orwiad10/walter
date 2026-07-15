@@ -1,4 +1,6 @@
 import json
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
@@ -210,6 +212,27 @@ def test_invite_only_registration_blocks_public_tournament_registration(client, 
     assert response.headers['Location'].endswith('/register')
     assert session.query(User).filter_by(email='invited@example.com').first() is None
 
+
+
+def test_successful_login_uses_effectively_unlimited_session_cookie(client, session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    user = User(email='persistent@example.com', name='Persistent User', role=user_role)
+    user.set_password('secret')
+    session.add(user)
+    session.commit()
+
+    response = client.post('/login', data={'email': user.email, 'password': 'secret'})
+
+    assert response.status_code == 302
+    cookie_headers = response.headers.getlist('Set-Cookie')
+    assert any(header.startswith('remember_token=') for header in cookie_headers)
+    session_cookie = next(header for header in cookie_headers if header.startswith('session='))
+    remember_cookie = next(header for header in cookie_headers if header.startswith('remember_token='))
+    session_expiry = parsedate_to_datetime(session_cookie.split('Expires=', 1)[1].split(';', 1)[0])
+    remember_expiry = parsedate_to_datetime(remember_cookie.split('Expires=', 1)[1].split(';', 1)[0])
+    now = datetime.now(timezone.utc)
+    assert (session_expiry - now).days >= 36499
+    assert (remember_expiry - now).days >= 36499
 
 def test_account_locks_after_three_bad_passwords(client, session, app):
     app.config['ACCOUNT_LOCKOUT_ATTEMPTS'] = 3
