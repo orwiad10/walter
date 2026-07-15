@@ -1,13 +1,14 @@
 import io
 import json
 import os
-import sqlite3
 import tempfile
 import zipfile
-from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 
 ATOMIC_CARDS_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"
 CURRENT_SCHEMA_VERSION = "3"
@@ -19,106 +20,97 @@ def _normalize_name(name: str) -> str:
     return normalized
 
 
-def ensure_directory(path: str) -> None:
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
+def _engine(database_url: str) -> Engine:
+    if not database_url:
+        raise ValueError('CARD_DATABASE_URL is required.')
+    return create_engine(database_url, pool_pre_ping=True, future=True)
 
 
-def _ensure_schema(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS cards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            search_name TEXT NOT NULL,
-            normalized_name TEXT NOT NULL UNIQUE,
-            is_land INTEGER NOT NULL DEFAULT 0,
-            is_basic_land INTEGER NOT NULL DEFAULT 0,
-            is_standard_banned INTEGER NOT NULL DEFAULT 0,
-            is_vintage_restricted INTEGER NOT NULL DEFAULT 0,
-            type_line TEXT,
-            primary_type TEXT
+def _ensure_schema(engine: Engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS cards (
+                    id INTEGER NOT NULL AUTO_INCREMENT,
+                    name VARCHAR(255) NOT NULL,
+                    search_name VARCHAR(255) NOT NULL,
+                    normalized_name VARCHAR(255) NOT NULL,
+                    is_land BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_basic_land BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_standard_banned BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_vintage_restricted BOOLEAN NOT NULL DEFAULT FALSE,
+                    type_line TEXT NULL,
+                    primary_type VARCHAR(120) NULL,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uq_cards_name (name),
+                    UNIQUE KEY uq_cards_normalized_name (normalized_name),
+                    KEY idx_cards_search_name (search_name)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
         )
-        """
-    )
-    columns = {
-        row[1]
-        for row in connection.execute("PRAGMA table_info(cards)").fetchall()
-    }
-    extra_columns = {
-        'is_land': 'INTEGER NOT NULL DEFAULT 0',
-        'is_basic_land': 'INTEGER NOT NULL DEFAULT 0',
-        'is_standard_banned': 'INTEGER NOT NULL DEFAULT 0',
-        'is_vintage_restricted': 'INTEGER NOT NULL DEFAULT 0',
-        'type_line': 'TEXT',
-        'primary_type': 'TEXT',
-    }
-    for column, definition in extra_columns.items():
-        if column not in columns:
-            connection.execute(f"ALTER TABLE cards ADD COLUMN {column} {definition}")
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_cards_search_name ON cards(search_name)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_cards_normalized_name ON cards(normalized_name)"
-    )
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS card_faces (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            card_id INTEGER NOT NULL,
-            face_normalized_name TEXT NOT NULL,
-            UNIQUE(card_id, face_normalized_name),
-            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS card_faces (
+                    id INTEGER NOT NULL AUTO_INCREMENT,
+                    card_id INTEGER NOT NULL,
+                    face_normalized_name VARCHAR(255) NOT NULL,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uq_card_faces_card_face (card_id, face_normalized_name),
+                    UNIQUE KEY uq_card_faces_face (face_normalized_name),
+                    KEY idx_card_faces_card (card_id),
+                    CONSTRAINT fk_card_faces_card_id
+                        FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
         )
-        """
-    )
-    connection.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_card_faces_face ON card_faces(face_normalized_name)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_card_faces_card ON card_faces(card_id)"
-    )
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS metadata (
+                    `key` VARCHAR(100) NOT NULL,
+                    value VARCHAR(255) NOT NULL,
+                    PRIMARY KEY (`key`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
         )
-        """
-    )
 
 
-def _get_schema_version(connection: sqlite3.Connection) -> Optional[str]:
-    try:
+def _get_schema_version(engine: Engine) -> Optional[str]:
+    with engine.connect() as connection:
         row = connection.execute(
-            "SELECT value FROM metadata WHERE key = 'schema_version' LIMIT 1"
+            text("SELECT value FROM metadata WHERE `key` = 'schema_version' LIMIT 1")
         ).fetchone()
-    except sqlite3.OperationalError:
-        return None
     return row[0] if row else None
 
 
-def _set_schema_version(connection: sqlite3.Connection, version: str) -> None:
+def _set_schema_version(connection, version: str) -> None:
     connection.execute(
-        "INSERT OR REPLACE INTO metadata(key, value) VALUES ('schema_version', ?)",
-        (version,),
+        text(
+            """
+            INSERT INTO metadata(`key`, value) VALUES ('schema_version', :version)
+            ON DUPLICATE KEY UPDATE value = VALUES(value)
+            """
+        ),
+        {'version': version},
     )
 
 
-def populate_card_database(path: str, card_records: Iterable[Union[str, Dict[str, Any]]]) -> None:
-    ensure_directory(path)
-    connection = sqlite3.connect(path)
-    try:
-        _ensure_schema(connection)
-        current_version = _get_schema_version(connection)
+def populate_card_database(database_url: str, card_records: Iterable[Union[str, Dict[str, Any]]]) -> None:
+    engine = _engine(database_url)
+    _ensure_schema(engine)
+    current_version = _get_schema_version(engine)
+    with engine.begin() as connection:
         if current_version == CURRENT_SCHEMA_VERSION:
-            existing = connection.execute("SELECT COUNT(*) FROM cards").fetchone()
+            existing = connection.execute(text("SELECT COUNT(*) FROM cards")).fetchone()
             if existing and existing[0]:
                 return
-        connection.execute("DELETE FROM card_faces")
-        connection.execute("DELETE FROM cards")
+        connection.execute(text("DELETE FROM card_faces"))
+        connection.execute(text("DELETE FROM cards"))
         for record in card_records:
             if isinstance(record, str):
                 name = record
@@ -131,33 +123,44 @@ def populate_card_database(path: str, card_records: Iterable[Union[str, Dict[str
                 continue
             search_name = name.lower()
             normalized = _normalize_name(name)
-            is_land = int(bool(metadata.get('is_land')))
-            is_basic_land = int(bool(metadata.get('is_basic_land')))
-            is_standard_banned = int(bool(metadata.get('is_standard_banned')))
-            is_vintage_restricted = int(bool(metadata.get('is_vintage_restricted')))
-            type_line = metadata.get('type_line')
-            primary_type = metadata.get('primary_type')
-            cursor = connection.execute(
-                """
-                INSERT OR REPLACE INTO cards(
-                    name, search_name, normalized_name,
-                    is_land, is_basic_land, is_standard_banned, is_vintage_restricted,
-                    type_line, primary_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    name,
-                    search_name,
-                    normalized,
-                    is_land,
-                    is_basic_land,
-                    is_standard_banned,
-                    is_vintage_restricted,
-                    type_line,
-                    primary_type,
+            params = {
+                'name': name,
+                'search_name': search_name,
+                'normalized_name': normalized,
+                'is_land': bool(metadata.get('is_land')),
+                'is_basic_land': bool(metadata.get('is_basic_land')),
+                'is_standard_banned': bool(metadata.get('is_standard_banned')),
+                'is_vintage_restricted': bool(metadata.get('is_vintage_restricted')),
+                'type_line': metadata.get('type_line'),
+                'primary_type': metadata.get('primary_type'),
+            }
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO cards(
+                        name, search_name, normalized_name,
+                        is_land, is_basic_land, is_standard_banned, is_vintage_restricted,
+                        type_line, primary_type
+                    ) VALUES (
+                        :name, :search_name, :normalized_name,
+                        :is_land, :is_basic_land, :is_standard_banned, :is_vintage_restricted,
+                        :type_line, :primary_type
+                    )
+                    ON DUPLICATE KEY UPDATE
+                        id = LAST_INSERT_ID(id),
+                        name = VALUES(name),
+                        search_name = VALUES(search_name),
+                        is_land = VALUES(is_land),
+                        is_basic_land = VALUES(is_basic_land),
+                        is_standard_banned = VALUES(is_standard_banned),
+                        is_vintage_restricted = VALUES(is_vintage_restricted),
+                        type_line = VALUES(type_line),
+                        primary_type = VALUES(primary_type)
+                    """
                 ),
+                params,
             )
-            card_id = cursor.lastrowid
+            card_id = connection.execute(text("SELECT LAST_INSERT_ID()")).scalar_one()
             face_names = metadata.get('face_names') or []
             seen_faces = set()
             for face in face_names:
@@ -165,14 +168,16 @@ def populate_card_database(path: str, card_records: Iterable[Union[str, Dict[str
                 if not normalized_face or normalized_face in seen_faces:
                     continue
                 connection.execute(
-                    "INSERT OR IGNORE INTO card_faces(card_id, face_normalized_name) VALUES (?, ?)",
-                    (card_id, normalized_face),
+                    text(
+                        """
+                        INSERT IGNORE INTO card_faces(card_id, face_normalized_name)
+                        VALUES (:card_id, :face_normalized_name)
+                        """
+                    ),
+                    {'card_id': card_id, 'face_normalized_name': normalized_face},
                 )
                 seen_faces.add(normalized_face)
         _set_schema_version(connection, CURRENT_SCHEMA_VERSION)
-        connection.commit()
-    finally:
-        connection.close()
 
 
 def _read_atomic_cards_from_zip(path: str) -> List[Dict[str, Any]]:
@@ -250,13 +255,11 @@ def _card_database_request(url: str) -> Request:
     return Request(url, headers={'User-Agent': CARD_DB_USER_AGENT})
 
 
-def build_card_database(path: str, source_url: Optional[str] = None) -> None:
-    ensure_directory(path)
+def build_card_database(database_url: str, source_url: Optional[str] = None) -> None:
     url = source_url or ATOMIC_CARDS_URL
     request = _card_database_request(url)
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         temp_name = tmp.name
-        # _card_database_request only permits absolute https URLs.
         with urlopen(request) as response:  # nosec B310
             while True:
                 chunk = response.read(1024 * 1024)
@@ -265,7 +268,7 @@ def build_card_database(path: str, source_url: Optional[str] = None) -> None:
                 tmp.write(chunk)
     try:
         card_records = _read_atomic_cards_from_zip(temp_name)
-        populate_card_database(path, card_records)
+        populate_card_database(database_url, card_records)
     finally:
         try:
             os.unlink(temp_name)
@@ -273,125 +276,120 @@ def build_card_database(path: str, source_url: Optional[str] = None) -> None:
             pass
 
 
-def ensure_card_database(path: str, source_url: Optional[str] = None) -> str:
-    rebuild = False
-    if not os.path.exists(path) or os.path.getsize(path) == 0:
-        rebuild = True
-    else:
-        connection = sqlite3.connect(path)
-        try:
-            _ensure_schema(connection)
-            version = _get_schema_version(connection)
-            if version != CURRENT_SCHEMA_VERSION:
-                rebuild = True
-        finally:
-            connection.close()
-    if rebuild:
-        build_card_database(path, source_url=source_url)
-    return path
+def ensure_card_database(database_url: str, source_url: Optional[str] = None) -> str:
+    engine = _engine(database_url)
+    _ensure_schema(engine)
+    version = _get_schema_version(engine)
+    existing = 0
+    with engine.connect() as connection:
+        existing = connection.execute(text("SELECT COUNT(*) FROM cards")).scalar_one()
+    if version != CURRENT_SCHEMA_VERSION or not existing:
+        build_card_database(database_url, source_url=source_url)
+    return database_url
 
 
-@contextmanager
-def open_card_database(path: str):
-    connection = sqlite3.connect(path)
-    try:
-        yield connection
-    finally:
-        connection.close()
-
-
-def _lookup_card_with_connection(connection: sqlite3.Connection, normalized: str) -> Optional[str]:
+def _lookup_card_with_engine(engine: Engine, normalized: str) -> Optional[str]:
     if not normalized:
         return None
-    row = connection.execute(
-        "SELECT name FROM cards WHERE normalized_name = ? LIMIT 1",
-        (normalized,),
-    ).fetchone()
-    if row:
-        return row[0]
-    row = connection.execute(
-        """
-        SELECT cards.name
-        FROM card_faces
-        JOIN cards ON card_faces.card_id = cards.id
-        WHERE card_faces.face_normalized_name = ?
-        LIMIT 1
-        """,
-        (normalized,),
-    ).fetchone()
+    with engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT name FROM cards WHERE normalized_name = :normalized LIMIT 1"),
+            {'normalized': normalized},
+        ).fetchone()
+        if row:
+            return row[0]
+        row = connection.execute(
+            text(
+                """
+                SELECT cards.name
+                FROM card_faces
+                JOIN cards ON card_faces.card_id = cards.id
+                WHERE card_faces.face_normalized_name = :normalized
+                LIMIT 1
+                """
+            ),
+            {'normalized': normalized},
+        ).fetchone()
     if row:
         return row[0]
     return None
 
 
-def search_cards(path: str, query: str, limit: int = 20) -> List[str]:
+def search_cards(database_url: str, query: str, limit: int = 20) -> List[str]:
     if not query:
         return []
     normalized_query = query.strip().lower()
     if not normalized_query:
         return []
+    engine = _engine(database_url)
+    _ensure_schema(engine)
     pattern = f"%{normalized_query}%"
-    with open_card_database(path) as connection:
-        _ensure_schema(connection)
+    with engine.connect() as connection:
         rows = connection.execute(
-            "SELECT name FROM cards WHERE search_name LIKE ? ORDER BY name LIMIT ?",
-            (pattern, limit),
+            text("SELECT name FROM cards WHERE search_name LIKE :pattern ORDER BY name LIMIT :limit"),
+            {'pattern': pattern, 'limit': int(limit)},
         ).fetchall()
     return [row[0] for row in rows]
 
 
-def lookup_card(path: str, name: str) -> Optional[str]:
-    normalized = _normalize_name(name)
-    if not normalized:
-        return None
-    with open_card_database(path) as connection:
-        _ensure_schema(connection)
-        return _lookup_card_with_connection(connection, normalized)
+def lookup_card(database_url: str, name: str) -> Optional[str]:
+    engine = _engine(database_url)
+    _ensure_schema(engine)
+    return _lookup_card_with_engine(engine, _normalize_name(name or ''))
 
 
-def canonicalize_names(path: str, names: Iterable[str]) -> List[Optional[str]]:
-    with open_card_database(path) as connection:
-        _ensure_schema(connection)
-        results = []
-        for name in names:
-            normalized = _normalize_name(name)
-            canonical = _lookup_card_with_connection(connection, normalized)
-            results.append(canonical)
-    return results
+def canonicalize_names(database_url: str, names: Sequence[str]) -> List[Optional[str]]:
+    engine = _engine(database_url)
+    _ensure_schema(engine)
+    return [_lookup_card_with_engine(engine, _normalize_name(name or '')) for name in names]
 
 
-def get_card_metadata(path: str, names: Sequence[str]) -> Dict[str, Dict[str, bool]]:
+def get_card_metadata(database_url: str, names: Sequence[str]) -> Dict[str, Dict[str, Any]]:
     if not names:
         return {}
-    unique_names = list(dict.fromkeys(names))
-    with open_card_database(path) as connection:
-        _ensure_schema(connection)
-        connection.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS requested_card_names (name TEXT PRIMARY KEY)"
-        )
-        connection.execute("DELETE FROM requested_card_names")
-        connection.executemany(
-            "INSERT OR IGNORE INTO requested_card_names(name) VALUES (?)",
-            ((name,) for name in unique_names),
-        )
-        rows = connection.execute(
-            """
-            SELECT cards.name, cards.is_land, cards.is_basic_land,
-                   cards.is_standard_banned, cards.is_vintage_restricted,
-                   cards.type_line, cards.primary_type
-            FROM cards
-            INNER JOIN requested_card_names requested
-                ON requested.name = cards.name
-            """
-        ).fetchall()
-    metadata: Dict[str, Dict[str, bool]] = {}
-    for row in rows:
-        metadata[row[0]] = {
-            'is_land': bool(row[1]),
-            'is_basic_land': bool(row[2]),
-            'is_standard_banned': bool(row[3]),
-            'is_vintage_restricted': bool(row[4]),
-            'type_line': row[5],
-            'primary_type': row[6],
-        }
-    return metadata
+    engine = _engine(database_url)
+    _ensure_schema(engine)
+    normalized_names = [_normalize_name(name or '') for name in names]
+    result: Dict[str, Dict[str, Any]] = {}
+    with engine.connect() as connection:
+        for original, normalized in zip(names, normalized_names):
+            if not normalized:
+                continue
+            row = connection.execute(
+                text(
+                    """
+                    SELECT name, is_land, is_basic_land, is_standard_banned,
+                           is_vintage_restricted, type_line, primary_type
+                    FROM cards
+                    WHERE normalized_name = :normalized
+                    LIMIT 1
+                    """
+                ),
+                {'normalized': normalized},
+            ).fetchone()
+            if not row:
+                row = connection.execute(
+                    text(
+                        """
+                        SELECT cards.name, cards.is_land, cards.is_basic_land,
+                               cards.is_standard_banned, cards.is_vintage_restricted,
+                               cards.type_line, cards.primary_type
+                        FROM card_faces
+                        JOIN cards ON card_faces.card_id = cards.id
+                        WHERE card_faces.face_normalized_name = :normalized
+                        LIMIT 1
+                        """
+                    ),
+                    {'normalized': normalized},
+                ).fetchone()
+            if row:
+                result[original] = {
+                    'name': row[0],
+                    'is_land': bool(row[1]),
+                    'is_basic_land': bool(row[2]),
+                    'is_standard_banned': bool(row[3]),
+                    'is_vintage_restricted': bool(row[4]),
+                    'type_line': row[5],
+                    'primary_type': row[6],
+                }
+    return result

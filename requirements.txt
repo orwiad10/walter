@@ -9,3 +9,4 @@ qrcode[pil]==8.2
 waitress==3.0.2
 aiohttp>=3.7.4,<4
 audioop-lts; python_version>='3.13'
+PyMySQL==1.1.2

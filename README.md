@@ -1,4 +1,4 @@
-# MTG Tournament Swiss App (Flask + SQLite)
+# MTG Tournament Swiss App (Flask + MySQL)
 
 ## Quickstart
 1) Modify config.yaml

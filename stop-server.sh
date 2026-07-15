@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bash script to stop the MTG Tournament Swiss App.
 # Terminates the Flask server process and reports whether the configured
-# SQLite database is still held open by a Python process.
+# database is still held open by a Python process.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -152,7 +152,7 @@ import yaml
 with open(sys.argv[1], 'r', encoding='utf-8') as f:
     cfg = yaml.safe_load(f) or {}
 
-for key in ('flask_port', 'db_file'):
+for key in ('flask_port',):
     value = cfg.get(key, '')
     if value is None:
         value = ''

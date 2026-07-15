@@ -1,6 +1,5 @@
 # PowerShell script to stop the MTG Tournament Swiss App.
-# Terminates the Flask server process and any python process holding
-# an open handle to the SQLite database using native PowerShell.
+# Terminates the Flask server process using native PowerShell.
 
 # Load settings from YAML config
 $configPath = Join-Path $PSScriptRoot 'config.yaml'
@@ -25,8 +24,6 @@ print(json.dumps(data))
 }
 
 $flaskPort = $cfg.flask_port
-$dbPath = Join-Path $PSScriptRoot $cfg.db_file
-
 Write-Host "Stopping server on port $flaskPort"
 
 # Kill flask process listening on the configured port
