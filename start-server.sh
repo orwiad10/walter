@@ -443,8 +443,11 @@ with open(sys.argv[1], 'r', encoding='utf-8') as f:
     cfg = yaml.safe_load(f) or {}
 
 keys = [
-    'db_file',
-    'log_db_file',
+    'database_url',
+    'log_database_url',
+    'media_database_url',
+    'card_database_url',
+    'media_storage_dir',
     'admin_email',
     'admin_pass',
     'flask_secret',
@@ -501,11 +504,11 @@ for key in keys:
 PY
 )"
 
-DEFAULT_DB_FILE="mtg_tournament.db"
-DEFAULT_LOG_DB_FILE="mtg_tournament_logs.db"
-
-DB_FILE="${DB_FILE:-$DEFAULT_DB_FILE}"
-LOG_DB_FILE="${LOG_DB_FILE:-$DEFAULT_LOG_DB_FILE}"
+DATABASE_URL="${DATABASE_URL:-mysql+pymysql://walter:walter@127.0.0.1:3306/walter?charset=utf8mb4}"
+LOG_DATABASE_URL="${LOG_DATABASE_URL:-mysql+pymysql://walter:walter@127.0.0.1:3306/walter_logs?charset=utf8mb4}"
+MEDIA_DATABASE_URL="${MEDIA_DATABASE_URL:-mysql+pymysql://walter:walter@127.0.0.1:3306/walter_media?charset=utf8mb4}"
+CARD_DATABASE_URL="${CARD_DATABASE_URL:-mysql+pymysql://walter:walter@127.0.0.1:3306/walter_cards?charset=utf8mb4}"
+MEDIA_STORAGE_DIR="${MEDIA_STORAGE_DIR:-instance/media}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
 ADMIN_PASS="${ADMIN_PASS:-admin123}"
 FLASK_SECRET="${FLASK_SECRET:-dev-secret-change-me}"
@@ -584,24 +587,11 @@ export BOT_CLEAR_GUILD_COMMANDS
 
 ensure_letsencrypt_certificate
 
-TIMESTAMP="$(date +%Y%m%d%H%M%S)"
-
-if [[ "$DB_FILE" == "$DEFAULT_DB_FILE" ]]; then
-  DB_FILE="mtg_tournament_${TIMESTAMP}.db"
-  LOG_DB_FILE="mtg_tournament_logs_${TIMESTAMP}.db"
-elif [[ "$LOG_DB_FILE" == "$DEFAULT_LOG_DB_FILE" ]]; then
-  DB_DIR="$(dirname "$DB_FILE")"
-  DB_BASE="$(basename "$DB_FILE")"
-  DB_BASE="${DB_BASE%.*}"
-  if [[ -z "$DB_DIR" || "$DB_DIR" == "." ]]; then
-    LOG_DB_FILE="${DB_BASE}_logs.db"
-  else
-    LOG_DB_FILE="$DB_DIR/${DB_BASE}_logs.db"
-  fi
-fi
-
-export MTG_DB_PATH="$DB_FILE"
-export MTG_LOG_DB_PATH="$LOG_DB_FILE"
+export DATABASE_URL
+export LOG_DATABASE_URL
+export MEDIA_DATABASE_URL
+export CARD_DATABASE_URL
+export MEDIA_STORAGE_DIR
 
 printf 'Installing dependencies...\n'
 "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS_FILE" >/dev/null

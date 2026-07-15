@@ -7,6 +7,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import pytest
+from sqlalchemy import create_engine, text
 from app.app import create_app, db
 from app.models import Role, DEFAULT_ROLE_PERMISSIONS, DEFAULT_ROLE_LEVELS
 from app import card_db
@@ -54,15 +55,29 @@ SAMPLE_CARDS = [
 
 @pytest.fixture
 def app(tmp_path, monkeypatch):
-    # use temporary SQLite databases for testing
-    monkeypatch.setenv("MTG_DB_PATH", str(tmp_path / "test.db"))
-    monkeypatch.setenv("MTG_LOG_DB_PATH", str(tmp_path / "test_logs.db"))
-    card_db_path = tmp_path / "cards.db"
-    monkeypatch.setenv("MTG_CARD_DB_PATH", str(card_db_path))
-    card_db.populate_card_database(str(card_db_path), SAMPLE_CARDS)
+    base_url = os.environ.get("TEST_DATABASE_URL", "mysql+pymysql://walter:walter@127.0.0.1:3306/walter_test?charset=utf8mb4")
+    log_url = os.environ.get("TEST_LOG_DATABASE_URL", "mysql+pymysql://walter:walter@127.0.0.1:3306/walter_test_logs?charset=utf8mb4")
+    media_url = os.environ.get("TEST_MEDIA_DATABASE_URL", "mysql+pymysql://walter:walter@127.0.0.1:3306/walter_test_media?charset=utf8mb4")
+    card_url = os.environ.get("TEST_CARD_DATABASE_URL", "mysql+pymysql://walter:walter@127.0.0.1:3306/walter_test_cards?charset=utf8mb4")
+    monkeypatch.setenv("DATABASE_URL", base_url)
+    monkeypatch.setenv("LOG_DATABASE_URL", log_url)
+    monkeypatch.setenv("MEDIA_DATABASE_URL", media_url)
+    monkeypatch.setenv("CARD_DATABASE_URL", card_url)
+    monkeypatch.setenv("MEDIA_STORAGE_DIR", str(tmp_path / "media"))
+    try:
+        for url in (base_url, log_url, media_url, card_url):
+            engine = create_engine(url, pool_pre_ping=True, future=True)
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+    except Exception as exc:
+        pytest.skip(f"MySQL test databases are unavailable: {exc}")
+    card_db.populate_card_database(card_url, SAMPLE_CARDS)
     application = create_app()
     application.config['TESTING'] = True
     with application.app_context():
+        db.drop_all()
+        db.drop_all(bind_key="logs")
+        db.drop_all(bind_key="media")
         db.create_all()
         # set up default roles
         for name, perms in DEFAULT_ROLE_PERMISSIONS.items():

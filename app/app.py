@@ -206,33 +206,30 @@ def extract_provided_tournament_name(name):
 
 def create_app():
     app = Flask(__name__)
-    db_file = os.environ.get('MTG_DB_PATH', 'mtg_tournament.db')
-    log_db_file = os.environ.get('MTG_LOG_DB_PATH', db_file.replace('.db', '_logs.db'))
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_file}'
+    default_database_url = 'mysql+pymysql://walter:walter@127.0.0.1:3306/walter?charset=utf8mb4'
+    database_url = os.environ.get('DATABASE_URL', default_database_url)
+    log_database_url = os.environ.get(
+        'LOG_DATABASE_URL',
+        database_url.rsplit('/', 1)[0] + '/walter_logs?charset=utf8mb4',
+    )
+    media_database_url = os.environ.get(
+        'MEDIA_DATABASE_URL',
+        database_url.rsplit('/', 1)[0] + '/walter_media?charset=utf8mb4',
+    )
+    card_database_url = os.environ.get(
+        'CARD_DATABASE_URL',
+        database_url.rsplit('/', 1)[0] + '/walter_cards?charset=utf8mb4',
+    )
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     os.makedirs(app.instance_path, exist_ok=True)
-    db_base = os.path.splitext(os.path.basename(db_file))[0]
-    media_dir = os.path.join(app.instance_path, db_base)
+    media_dir = os.environ.get('MEDIA_STORAGE_DIR', os.path.join(app.instance_path, 'media'))
     os.makedirs(media_dir, exist_ok=True)
-    media_pattern = os.path.join(app.instance_path, f"{db_base}_media_*.db")
-    existing_media = sorted(glob.glob(media_pattern))
-    if existing_media:
-        media_db_path = existing_media[-1]
-    else:
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-        media_db_filename = f"{db_base}_media_{timestamp}.db"
-        media_db_path = os.path.join(app.instance_path, media_db_filename)
-    if not os.path.exists(media_db_path):
-        open(media_db_path, 'a').close()
     app.config['SQLALCHEMY_BINDS'] = {
-        'logs': f'sqlite:///{log_db_file}',
-        'media': f'sqlite:///{media_db_path}',
+        'logs': log_database_url,
+        'media': media_database_url,
     }
     app.config['MEDIA_STORAGE_DIR'] = media_dir
-    app.config['MEDIA_DB_PATH'] = media_db_path
-    card_db_path = os.environ.get('MTG_CARD_DB_PATH')
-    if not card_db_path:
-        card_db_path = os.path.join(app.instance_path, f"{db_base}_cards.db")
-    app.config['CARD_DB_PATH'] = card_db_path
+    app.config['CARD_DATABASE_URL'] = card_database_url
     app.config['CARD_DB_URL'] = os.environ.get('MTG_CARD_DB_URL', card_db.ATOMIC_CARDS_URL)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', 'dev-secret-change-me')
@@ -257,7 +254,7 @@ def create_app():
         app.config['LAST_TABLE_NUMBER'] = None
 
     try:
-        card_db.ensure_card_database(card_db_path, source_url=app.config['CARD_DB_URL'])
+        card_db.ensure_card_database(card_database_url, source_url=app.config['CARD_DB_URL'])
     except Exception as exc:  # pragma: no cover - startup fetch errors are logged
         app.logger.warning('Unable to prepare card database: %s', exc)
 
@@ -288,8 +285,13 @@ def create_app():
     # absent to keep backwards compatibility without requiring manual
     # migrations.
     with app.app_context():
-        inspector = inspect(db.engine)
-        if 'tournament' in inspector.get_table_names():
+        try:
+            inspector = inspect(db.engine)
+            table_names = inspector.get_table_names()
+        except SQLAlchemyError as exc:
+            app.logger.warning('Unable to inspect MySQL database for startup upgrades: %s', exc)
+            table_names = []
+        if 'tournament' in table_names:
             columns = [c['name'] for c in inspector.get_columns('tournament')]
             if 'start_time' not in columns:
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN start_time DATETIME'))
@@ -343,7 +345,7 @@ def create_app():
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN manually_completed BOOLEAN DEFAULT 0'))
                 db.session.execute(text('UPDATE tournament SET manually_completed=0 WHERE manually_completed IS NULL'))
                 db.session.commit()
-        if 'user' in inspector.get_table_names():
+        if 'user' in table_names:
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'break_end' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN break_end DATETIME'))
@@ -359,12 +361,12 @@ def create_app():
                 db.session.execute(text('ALTER TABLE user ADD COLUMN last_name VARCHAR(80)'))
                 db.session.execute(text("UPDATE user SET last_name=trim(CASE WHEN instr(name, ' ') = 0 THEN '' ELSE substr(name, instr(name, ' ') + 1) END) WHERE last_name IS NULL"))
                 db.session.commit()
-        if 'message' in inspector.get_table_names():
+        if 'message' in table_names:
             columns = [c['name'] for c in inspector.get_columns('message')]
             if 'sender_key_encrypted' not in columns:
                 db.session.execute(text('ALTER TABLE message ADD COLUMN sender_key_encrypted BLOB'))
                 db.session.commit()
-        if 'role' in inspector.get_table_names():
+        if 'role' in table_names:
             columns = [c['name'] for c in inspector.get_columns('role')]
             if 'level' not in columns:
                 db.session.execute(text('ALTER TABLE role ADD COLUMN level INTEGER DEFAULT 500'))
@@ -411,7 +413,7 @@ def create_app():
             TournamentLog,
         )  # lazy import to avoid circular reference
 
-        if 'user' in inspector.get_table_names():
+        if 'user' in table_names:
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'failed_login_count' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN failed_login_count INTEGER DEFAULT 0'))
@@ -437,9 +439,11 @@ def create_app():
                 db.session.execute(text('ALTER TABLE user ADD COLUMN discord_authorization_token_hash VARCHAR(64)'))
                 db.session.commit()
 
-        BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
-        inspector = inspect(db.engine)
-        if 'bad_login_attempt' in inspector.get_table_names():
+        if table_names:
+            BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
+            inspector = inspect(db.engine)
+            table_names = inspector.get_table_names()
+        if 'bad_login_attempt' in table_names:
             columns = [c['name'] for c in inspector.get_columns('bad_login_attempt')]
             if 'email' not in columns:
                 db.session.execute(text('ALTER TABLE bad_login_attempt ADD COLUMN email VARCHAR(255)'))
@@ -467,101 +471,104 @@ def create_app():
                 )
                 db.session.commit()
 
-        BlacklistedIP.__table__.create(bind=db.engine, checkfirst=True)
-        PasswordResetToken.__table__.create(bind=db.engine, checkfirst=True)
-        SiteSetting.__table__.create(bind=db.engine, checkfirst=True)
-        RegistrationInvite.__table__.create(bind=db.engine, checkfirst=True)
-        Venue.__table__.create(bind=db.engine, checkfirst=True)
-        Vendor.__table__.create(bind=db.engine, checkfirst=True)
-        ArtistProfile.__table__.create(bind=db.engine, checkfirst=True)
-        ApiKey.__table__.create(bind=db.engine, checkfirst=True)
+        if table_names:
+            BlacklistedIP.__table__.create(bind=db.engine, checkfirst=True)
+            PasswordResetToken.__table__.create(bind=db.engine, checkfirst=True)
+            SiteSetting.__table__.create(bind=db.engine, checkfirst=True)
+            RegistrationInvite.__table__.create(bind=db.engine, checkfirst=True)
+            Venue.__table__.create(bind=db.engine, checkfirst=True)
+            Vendor.__table__.create(bind=db.engine, checkfirst=True)
+            ArtistProfile.__table__.create(bind=db.engine, checkfirst=True)
+            ApiKey.__table__.create(bind=db.engine, checkfirst=True)
 
-        logs_engine = db.engines['logs']
-        ApiLog.__table__.create(bind=logs_engine, checkfirst=True)
-        SiteLog.__table__.create(bind=logs_engine, checkfirst=True)
-        logs_inspector = inspect(logs_engine)
-        if 'site_log' in logs_inspector.get_table_names():
-            log_columns = [c['name'] for c in logs_inspector.get_columns('site_log')]
-            if 'ip_address' not in log_columns:
-                with logs_engine.begin() as conn:
-                    conn.execute(text('ALTER TABLE site_log ADD COLUMN ip_address VARCHAR(64)'))
-        TournamentLog.__table__.create(bind=logs_engine, checkfirst=True)
-        logs_inspector = inspect(logs_engine)
-        log_tables = logs_inspector.get_table_names()
-        if 'site_log' in log_tables:
-            columns = [c['name'] for c in logs_inspector.get_columns('site_log')]
-            if 'user_id' not in columns:
-                with logs_engine.begin() as conn:
-                    conn.execute(text('ALTER TABLE site_log ADD COLUMN user_id INTEGER'))
-        if 'tournament_log' in log_tables:
-            columns = [c['name'] for c in logs_inspector.get_columns('tournament_log')]
-            if 'user_id' not in columns:
-                with logs_engine.begin() as conn:
-                    conn.execute(text('ALTER TABLE tournament_log ADD COLUMN user_id INTEGER'))
+            logs_engine = db.engines['logs']
+            ApiLog.__table__.create(bind=logs_engine, checkfirst=True)
+            SiteLog.__table__.create(bind=logs_engine, checkfirst=True)
+            logs_inspector = inspect(logs_engine)
+            logs_table_names = logs_inspector.get_table_names()
+            if 'site_log' in logs_table_names:
+                log_columns = [c['name'] for c in logs_inspector.get_columns('site_log')]
+                if 'ip_address' not in log_columns:
+                    with logs_engine.begin() as conn:
+                        conn.execute(text('ALTER TABLE site_log ADD COLUMN ip_address VARCHAR(64)'))
+            TournamentLog.__table__.create(bind=logs_engine, checkfirst=True)
+            logs_inspector = inspect(logs_engine)
+            log_tables = logs_table_names
+            if 'site_log' in log_tables:
+                columns = [c['name'] for c in logs_inspector.get_columns('site_log')]
+                if 'user_id' not in columns:
+                    with logs_engine.begin() as conn:
+                        conn.execute(text('ALTER TABLE site_log ADD COLUMN user_id INTEGER'))
+            if 'tournament_log' in log_tables:
+                columns = [c['name'] for c in logs_inspector.get_columns('tournament_log')]
+                if 'user_id' not in columns:
+                    with logs_engine.begin() as conn:
+                        conn.execute(text('ALTER TABLE tournament_log ADD COLUMN user_id INTEGER'))
 
-        if 'report' not in inspector.get_table_names():
-            Report.__table__.create(bind=db.engine)
-        else:
-            columns = [c['name'] for c in inspector.get_columns('report')]
-            if 'is_read' not in columns:
-                db.session.execute(text('ALTER TABLE report ADD COLUMN is_read BOOLEAN DEFAULT 0'))
-                db.session.execute(text('UPDATE report SET is_read=0 WHERE is_read IS NULL'))
-                db.session.commit()
-            if 'assigned_to_id' not in columns:
-                db.session.execute(text('ALTER TABLE report ADD COLUMN assigned_to_id INTEGER'))
-                db.session.commit()
-            if 'actions_taken' not in columns:
-                db.session.execute(text('ALTER TABLE report ADD COLUMN actions_taken TEXT'))
-                db.session.commit()
-        TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
-        PendingRegistration.__table__.create(bind=db.engine, checkfirst=True)
-        from .models import (
-            LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult,
-            LeagueCube, LeaguePlayDate, LeaguePlayDateCube, LeagueCubeVote,
-            LeagueCubeDiscordPoll,
-        )
+            if 'report' not in table_names:
+                Report.__table__.create(bind=db.engine)
+            else:
+                columns = [c['name'] for c in inspector.get_columns('report')]
+                if 'is_read' not in columns:
+                    db.session.execute(text('ALTER TABLE report ADD COLUMN is_read BOOLEAN DEFAULT 0'))
+                    db.session.execute(text('UPDATE report SET is_read=0 WHERE is_read IS NULL'))
+                    db.session.commit()
+                if 'assigned_to_id' not in columns:
+                    db.session.execute(text('ALTER TABLE report ADD COLUMN assigned_to_id INTEGER'))
+                    db.session.commit()
+                if 'actions_taken' not in columns:
+                    db.session.execute(text('ALTER TABLE report ADD COLUMN actions_taken TEXT'))
+                    db.session.commit()
+            TournamentJoinRequest.__table__.create(bind=db.engine, checkfirst=True)
+            PendingRegistration.__table__.create(bind=db.engine, checkfirst=True)
+            from .models import (
+                LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult,
+                LeagueCube, LeaguePlayDate, LeaguePlayDateCube, LeagueCubeVote,
+                LeagueCubeDiscordPoll,
+            )
 
-        League.__table__.create(bind=db.engine, checkfirst=True)
-        LeaguePlayer.__table__.create(bind=db.engine, checkfirst=True)
-        LeagueResult.__table__.create(bind=db.engine, checkfirst=True)
-        if 'league' in inspector.get_table_names():
-            columns = [c['name'] for c in inspector.get_columns('league')]
-            if 'is_cube_league' not in columns:
-                db.session.execute(text('ALTER TABLE league ADD COLUMN is_cube_league BOOLEAN DEFAULT 0'))
-                db.session.execute(text('UPDATE league SET is_cube_league=0 WHERE is_cube_league IS NULL'))
-                db.session.commit()
-        LeagueCube.__table__.create(bind=db.engine, checkfirst=True)
-        LeaguePlayDate.__table__.create(bind=db.engine, checkfirst=True)
-        LeaguePlayDateCube.__table__.create(bind=db.engine, checkfirst=True)
-        LeagueCubeVote.__table__.create(bind=db.engine, checkfirst=True)
-        LeagueCubeDiscordPoll.__table__.create(bind=db.engine, checkfirst=True)
+            League.__table__.create(bind=db.engine, checkfirst=True)
+            LeaguePlayer.__table__.create(bind=db.engine, checkfirst=True)
+            LeagueResult.__table__.create(bind=db.engine, checkfirst=True)
+            if 'league' in table_names:
+                columns = [c['name'] for c in inspector.get_columns('league')]
+                if 'is_cube_league' not in columns:
+                    db.session.execute(text('ALTER TABLE league ADD COLUMN is_cube_league BOOLEAN DEFAULT 0'))
+                    db.session.execute(text('UPDATE league SET is_cube_league=0 WHERE is_cube_league IS NULL'))
+                    db.session.commit()
+            LeagueCube.__table__.create(bind=db.engine, checkfirst=True)
+            LeaguePlayDate.__table__.create(bind=db.engine, checkfirst=True)
+            LeaguePlayDateCube.__table__.create(bind=db.engine, checkfirst=True)
+            LeagueCubeVote.__table__.create(bind=db.engine, checkfirst=True)
+            LeagueCubeDiscordPoll.__table__.create(bind=db.engine, checkfirst=True)
 
-        media_engine = db.engines['media']
-        LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
-        media_inspector = inspect(media_engine)
-        if 'lost_found_item' in media_inspector.get_table_names():
-            columns = [c['name'] for c in media_inspector.get_columns('lost_found_item')]
-            if 'venue_id' not in columns:
-                with media_engine.begin() as conn:
-                    conn.execute(text('ALTER TABLE lost_found_item ADD COLUMN venue_id INTEGER'))
-        if 'pending_registration' in inspector.get_table_names():
-            columns = [c['name'] for c in inspector.get_columns('pending_registration')]
-            if 'verification_token_hash' not in columns:
-                db.session.execute(text('ALTER TABLE pending_registration ADD COLUMN verification_token_hash VARCHAR(64)'))
-                db.session.commit()
-            if 'invite_id' not in columns:
-                db.session.execute(text('ALTER TABLE pending_registration ADD COLUMN invite_id INTEGER'))
-                db.session.commit()
-        if 'tournament_player_deck' in inspector.get_table_names():
-            columns = [c['name'] for c in inspector.get_columns('tournament_player_deck')]
-            if 'is_submitted' not in columns:
-                db.session.execute(text('ALTER TABLE tournament_player_deck ADD COLUMN is_submitted BOOLEAN DEFAULT 0'))
-                db.session.execute(text('UPDATE tournament_player_deck SET is_submitted=0 WHERE is_submitted IS NULL'))
-                db.session.commit()
-            if 'submitted_at' not in columns:
-                db.session.execute(text('ALTER TABLE tournament_player_deck ADD COLUMN submitted_at DATETIME'))
-                db.session.commit()
-        TournamentPlayerDeck.__table__.create(bind=db.engine, checkfirst=True)
+            media_engine = db.engines['media']
+            LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
+            media_inspector = inspect(media_engine)
+            media_table_names = media_inspector.get_table_names()
+            if 'lost_found_item' in media_table_names:
+                columns = [c['name'] for c in media_inspector.get_columns('lost_found_item')]
+                if 'venue_id' not in columns:
+                    with media_engine.begin() as conn:
+                        conn.execute(text('ALTER TABLE lost_found_item ADD COLUMN venue_id INTEGER'))
+            if 'pending_registration' in table_names:
+                columns = [c['name'] for c in inspector.get_columns('pending_registration')]
+                if 'verification_token_hash' not in columns:
+                    db.session.execute(text('ALTER TABLE pending_registration ADD COLUMN verification_token_hash VARCHAR(64)'))
+                    db.session.commit()
+                if 'invite_id' not in columns:
+                    db.session.execute(text('ALTER TABLE pending_registration ADD COLUMN invite_id INTEGER'))
+                    db.session.commit()
+            if 'tournament_player_deck' in table_names:
+                columns = [c['name'] for c in inspector.get_columns('tournament_player_deck')]
+                if 'is_submitted' not in columns:
+                    db.session.execute(text('ALTER TABLE tournament_player_deck ADD COLUMN is_submitted BOOLEAN DEFAULT 0'))
+                    db.session.execute(text('UPDATE tournament_player_deck SET is_submitted=0 WHERE is_submitted IS NULL'))
+                    db.session.commit()
+                if 'submitted_at' not in columns:
+                    db.session.execute(text('ALTER TABLE tournament_player_deck ADD COLUMN submitted_at DATETIME'))
+                    db.session.commit()
+            TournamentPlayerDeck.__table__.create(bind=db.engine, checkfirst=True)
 
     from .models import (
         User,
@@ -2975,18 +2982,13 @@ def create_app():
             handle.write(buffer.read())
         return filename
 
-    def get_card_database_path():
-        path = app.config.get('CARD_DB_PATH')
-        if not path:
-            base = os.path.join(app.instance_path, 'mtg_cards.db')
-            app.config['CARD_DB_PATH'] = base
-            path = base
-        return path
+    def get_card_database_url():
+        return app.config['CARD_DATABASE_URL']
 
     def ensure_card_database_ready():
-        path = get_card_database_path()
+        database_url = get_card_database_url()
         source_url = app.config.get('CARD_DB_URL', card_db.ATOMIC_CARDS_URL)
-        return card_db.ensure_card_database(path, source_url=source_url)
+        return card_db.ensure_card_database(database_url, source_url=source_url)
 
     def combine_card_entries(entries):
         combined = OrderedDict()
@@ -5260,8 +5262,7 @@ def create_app():
         require_admin()
         log_site('view_admin_panel', 'success')
         process = psutil.Process(os.getpid())
-        db_path = db.engine.url.database
-        db_size = os.path.getsize(db_path) if db_path and os.path.exists(db_path) else 0
+        db_size = None
         cpu_usage = psutil.cpu_percent(interval=0.1)
         mem_usage = process.memory_info().rss
         connections = len([c for c in psutil.net_connections() if c.status == psutil.CONN_ESTABLISHED])
@@ -5277,7 +5278,7 @@ def create_app():
         return render_template(
             'admin/panel.html',
             encryption_type='Werkzeug password hashing',
-            db_size=fmt_bytes(db_size),
+            db_size='Managed by MySQL' if db_size is None else fmt_bytes(db_size),
             ram_usage=fmt_bytes(mem_usage),
             cpu_usage=cpu_usage,
             connections=connections,

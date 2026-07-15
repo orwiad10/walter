@@ -44,11 +44,11 @@ print(json.dumps(data))
     exit 1
 }
 
-$DefaultDb = "mtg_tournament.db"
-$DefaultLogDb = "mtg_tournament_logs.db"
-
-$DatabasePath = $cfg.db_file
-$LogDatabasePath = $cfg.log_db_file
+$DatabaseUrl = $cfg.database_url
+$LogDatabaseUrl = $cfg.log_database_url
+$MediaDatabaseUrl = $cfg.media_database_url
+$CardDatabaseUrl = $cfg.card_database_url
+$MediaStorageDir = $cfg.media_storage_dir
 $FlaskSecret = $cfg.flask_secret
 $PasswordSeed = $cfg.password_seed
 $FlaskIP = $cfg.flask_ip
@@ -91,8 +91,11 @@ $newadmin = New-Object System.Management.Automation.PSCredential($cfg.admin_emai
 $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = "1"
 ###############################
 
-if([string]::IsNullOrEmpty($DatabasePath)){ $DatabasePath = $DefaultDb }
-if([string]::IsNullOrEmpty($LogDatabasePath)){ $LogDatabasePath = $DefaultLogDb }
+if([string]::IsNullOrEmpty($DatabaseUrl)){ $DatabaseUrl = "mysql+pymysql://walter:walter@127.0.0.1:3306/walter?charset=utf8mb4" }
+if([string]::IsNullOrEmpty($LogDatabaseUrl)){ $LogDatabaseUrl = "mysql+pymysql://walter:walter@127.0.0.1:3306/walter_logs?charset=utf8mb4" }
+if([string]::IsNullOrEmpty($MediaDatabaseUrl)){ $MediaDatabaseUrl = "mysql+pymysql://walter:walter@127.0.0.1:3306/walter_media?charset=utf8mb4" }
+if([string]::IsNullOrEmpty($CardDatabaseUrl)){ $CardDatabaseUrl = "mysql+pymysql://walter:walter@127.0.0.1:3306/walter_cards?charset=utf8mb4" }
+if([string]::IsNullOrEmpty($MediaStorageDir)){ $MediaStorageDir = "instance/media" }
 if([string]::IsNullOrEmpty($FlaskSecret)){ $FlaskSecret = "dev-secret-change-me" }
 if([string]::IsNullOrEmpty($PasswordSeed)){ $PasswordSeed = "dev-password-seed-change-me" }
 if([string]::IsNullOrEmpty($FlaskIP)){ $FlaskIP = "0.0.0.0" }
@@ -162,20 +165,11 @@ $env:BOT_ANNOUNCE_READY = $BotAnnounceReady
 $env:BOT_SYNC_GUILD_COMMANDS = $BotSyncGuildCommands
 $env:BOT_CLEAR_GUILD_COMMANDS = $BotClearGuildCommands
 
-$timestamp = Get-Date -Format "yyyyMMddHHmmss"
-
-if($DatabasePath -eq $DefaultDb){
-    $DatabasePath = "mtg_tournament_$timestamp.db"
-    $LogDatabasePath = "mtg_tournament_logs_$timestamp.db"
-} elseif($LogDatabasePath -eq $DefaultLogDb) {
-    $base = [System.IO.Path]::GetFileNameWithoutExtension($DatabasePath)
-    $dir = [System.IO.Path]::GetDirectoryName($DatabasePath)
-    if([string]::IsNullOrEmpty($dir)){ $dir = "." }
-    $LogDatabasePath = Join-Path $dir "$base`_logs.db"
-}
-
-$env:MTG_DB_PATH = $DatabasePath
-$env:MTG_LOG_DB_PATH = $LogDatabasePath
+$env:DATABASE_URL = $DatabaseUrl
+$env:LOG_DATABASE_URL = $LogDatabaseUrl
+$env:MEDIA_DATABASE_URL = $MediaDatabaseUrl
+$env:CARD_DATABASE_URL = $CardDatabaseUrl
+$env:MEDIA_STORAGE_DIR = $MediaStorageDir
 
 Write-Host "Installing dependencies..."
 python -m pip install -r "$PSScriptRoot/requirements.txt" | Out-Null
