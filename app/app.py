@@ -21,6 +21,7 @@ from flask_login import (
     current_user,
 )
 from datetime import datetime, timedelta, timezone
+import ipaddress
 import math
 import os
 import random
@@ -37,6 +38,7 @@ import hashlib
 import time
 import urllib.parse
 import urllib.request
+import socket
 
 from collections import OrderedDict
 from urllib.parse import urlparse
@@ -139,13 +141,39 @@ def clean_cube_cobra_title(raw_title):
     return title or 'Cube Cobra Cube'
 
 
+def _host_resolves_publicly(host):
+    try:
+        addr_infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    if not addr_infos:
+        return False
+    for addr_info in addr_infos:
+        address = addr_info[4][0]
+        try:
+            ip_address = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        if not ip_address.is_global:
+            return False
+    return True
+
+
 def is_allowed_cube_preview_image_url(image_url):
     parsed = urllib.parse.urlparse(image_url)
     host = (parsed.hostname or '').lower()
-    return parsed.scheme == 'https' and any(
-        host == allowed_host or host.endswith(f'.{allowed_host}')
-        for allowed_host in CUBE_PREVIEW_IMAGE_HOSTS
-    )
+    if parsed.scheme != 'https' or not host:
+        return False
+    if parsed.username or parsed.password or parsed.port not in (None, 443):
+        return False
+    if not any(host == allowed_host or host.endswith(f'.{allowed_host}') for allowed_host in CUBE_PREVIEW_IMAGE_HOSTS):
+        return False
+    return _host_resolves_publicly(host)
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def fetch_cube_cobra_metadata(raw_url):
@@ -157,7 +185,7 @@ def fetch_cube_cobra_metadata(raw_url):
             url,
             headers={'User-Agent': 'WaLTER cube preview bot/1.0'},
         )
-        with urllib.request.urlopen(req, timeout=8) as response:
+        with urllib.request.build_opener(_NoRedirectHandler).open(req, timeout=8) as response:
             content_type = response.headers.get('Content-Type', '')
             if 'text/html' in content_type or not content_type:
                 html = response.read(512000).decode('utf-8', errors='ignore')
@@ -1926,7 +1954,13 @@ def create_app():
         token = token or request.headers.get('X-API-Key', '').strip()
         if not token:
             return None, None
-        api_key = db.session.query(ApiKey).filter_by(key_hash=ApiKey.hash_token(token), revoked_at=None).first()
+        token_hash = ApiKey.hash_token(token)
+        api_key = db.session.query(ApiKey).filter_by(key_hash=token_hash, revoked_at=None).first()
+        if not api_key:
+            legacy_hash = ApiKey.legacy_hash_token(token)
+            api_key = db.session.query(ApiKey).filter_by(key_hash=legacy_hash, revoked_at=None).first()
+            if api_key:
+                api_key.key_hash = token_hash
         if not api_key or not api_key.user:
             return None, None
         api_key.last_used_at = utc_now()
@@ -2278,6 +2312,7 @@ def create_app():
         for candidate in db.session.query(User).filter(User.discord_authorization_token_hash.isnot(None)).all():
             if candidate.check_discord_authorization_token(one_time_pass):
                 user = candidate
+                candidate.discord_authorization_token_hash = candidate.hash_discord_authorization_token(one_time_pass)
                 break
         if not user:
             _api_log('discord.authorize', 'failure', _discord_authorize_log_details(error='invalid pass'))
@@ -2702,7 +2737,7 @@ def create_app():
                 image_url,
                 headers={'User-Agent': 'WaLTER cube preview bot/1.0'},
             )
-            with urllib.request.urlopen(req, timeout=8) as response:
+            with urllib.request.build_opener(_NoRedirectHandler).open(req, timeout=8) as response:
                 content_type = (
                     response.headers.get('Content-Type', 'application/octet-stream')
                     .split(';', 1)[0]
@@ -5595,7 +5630,7 @@ def create_app():
         flash('Tournament marked complete.', 'success')
         log_site('complete_tournament', 'success', f'tournament_id={tid}')
         log_tournament(tid, 'complete', 'success')
-        return redirect(request.referrer or url_for('index'))
+        return redirect(safe_redirect_target(request.referrer, 'index'))
 
     @app.route('/admin/tournaments/<int:tid>/reopen', methods=['POST'])
     def reopen_tournament(tid):
@@ -5609,7 +5644,7 @@ def create_app():
         flash('Tournament reopened.', 'success')
         log_site('reopen_tournament', 'success', f'tournament_id={tid}')
         log_tournament(tid, 'reopen', 'success')
-        return redirect(request.referrer or url_for('view_tournament', tid=tid))
+        return redirect(safe_redirect_target(request.referrer, 'view_tournament', tid=tid))
 
     @app.route('/admin/tournaments/<int:tid>/delete', methods=['POST'])
     def delete_tournament(tid):
@@ -5623,6 +5658,16 @@ def create_app():
         log_site('delete_tournament', 'success', t.name)
         log_tournament(tid, 'delete', 'success')
         return redirect(url_for('index'))
+
+
+    def safe_redirect_target(candidate, endpoint, **values):
+        fallback = url_for(endpoint, **values)
+        if not candidate:
+            return fallback
+        parsed = urlparse(candidate.strip())
+        if parsed.scheme or parsed.netloc or not parsed.path.startswith('/') or parsed.path.startswith('//'):
+            return fallback
+        return urllib.parse.urlunparse(('', '', parsed.path, '', parsed.query, ''))
 
     # ---------- Tournament ----------
 
