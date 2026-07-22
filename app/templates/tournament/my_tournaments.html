@@ -4,7 +4,6 @@
   <div class="page-header__title">
     <span class="eyebrow">Player Dashboard</span>
     <h2>My Tournaments</h2>
-    <p class="page-description">Tournaments you are currently registered for that are not complete.</p>
   </div>
 </section>
 
@@ -34,7 +33,7 @@
   </li>
   {% else %}
   <li class="card">
-    <p class="page-description">You are not currently registered for any incomplete tournaments.</p>
+    <p class="page-description">You are not currently registered for any tournaments.</p>
     <a class="btn" href="{{ url_for('index') }}">Browse Tournaments</a>
   </li>
   {% endfor %}

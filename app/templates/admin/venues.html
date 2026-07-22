@@ -4,7 +4,6 @@
   <div class="page-header__title">
     <span class="eyebrow">{% if can_manage_venues %}Admin{% else %}Venue{% endif %}</span>
     <h2>{% if can_manage_venues %}Venue Management{% else %}Venues{% endif %}</h2>
-    <p class="page-description">{% if can_manage_venues %}Create venues, open each venue workspace, and manage venue assets.{% else %}View venue details and the services available at each venue.{% endif %}</p>
   </div>
   {% if can_manage_venues %}
   <div class="page-header__actions">

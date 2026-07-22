@@ -15,7 +15,6 @@
 <section class="page-header">
   <div class="page-header__title">
     <h2>Active Tournaments</h2>
-    <p class="page-description">Track live timers, manage players, and jump into any event with a single tap.</p>
   </div>
   {% if current_user.has_permission('tournaments.manage') %}
   <div class="page-header__actions">
@@ -34,7 +33,7 @@
 {% endif %}
 {% if can_bulk_edit %}
 <form id="bulk-tournament-form" method="post" action="{{ url_for('bulk_edit_tournaments') }}" class="bulk-tournament-form panel-card" onsubmit="return confirm('Apply this bulk action to selected tournaments?');">
-  <div class="section-heading"><div><h3>Bulk Edit Tournaments</h3><p>Select tournaments below, then start, end, or delete them. Venue assignment is managed from each venue page.</p></div></div>
+  <div class="section-heading"><div><h3>Bulk Edit Tournaments</h3></div></div>
   <div class="form-grid two-column">
     <label>Action
       <select name="bulk_action" required>
@@ -83,7 +82,7 @@
     </li>
   {% else %}
     <li class="card">
-      <p class="page-description">No tournaments yet. When a tournament is created, it will appear here with its live status.</p>
+      <p class="page-description">No tournaments yet.</p>
     </li>
   {% endfor %}
 </ul>
