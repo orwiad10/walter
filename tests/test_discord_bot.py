@@ -166,6 +166,25 @@ def test_format_league_standings_includes_record_and_events():
     )
 
 
+def test_pairings_and_league_standings_include_enabled_glicko():
+    pairing = discord_bot.format_pairings({
+        'tournament': {'name': 'Rated League Event'}, 'round': {'number': 2, 'matches': [{
+            'table_number': 1,
+            'players': [
+                {'name': 'One', 'glicko_rating': 1610, 'glicko_deviation': 90},
+                {'name': 'Two', 'glicko_rating': 1490, 'glicko_deviation': 110},
+            ],
+        }]},
+    })
+    assert 'One [1610 ±90] vs. Two [1490 ±110]' in pairing
+    standings = discord_bot.format_league_standings({
+        'league': {'name': 'Rated', 'glicko_enabled': True},
+        'standings': [{'rank': 1, 'name': 'One', 'league_points': 9, 'glicko_rating': 1610.2,
+                       'glicko_deviation': 89.8, 'wins': 3, 'losses': 0, 'draws': 0, 'played': 1}],
+    })
+    assert 'Glicko 1610 ±90' in standings
+
+
 def test_format_cube_poll_includes_options_and_vote_totals():
     payload = {
         'league': {'name': 'Cube League'},

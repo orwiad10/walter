@@ -57,6 +57,7 @@ from werkzeug.utils import safe_join, secure_filename
 from PIL import Image, ImageOps
 
 from . import card_db
+from .league_scoring import colley_ratings, glicko_ratings, select_results
 
 
 db = SQLAlchemy()
@@ -567,6 +568,15 @@ def create_app():
                     db.session.execute(text('ALTER TABLE league ADD COLUMN is_cube_league BOOLEAN DEFAULT 0'))
                     db.session.execute(text('UPDATE league SET is_cube_league=0 WHERE is_cube_league IS NULL'))
                     db.session.commit()
+                league_column_defaults = {
+                    'scoring_system': "VARCHAR(20) DEFAULT 'personal_best'",
+                    'scoring_percentage': 'INTEGER DEFAULT 75',
+                    'glicko_enabled': 'BOOLEAN DEFAULT 0',
+                }
+                for column, definition in league_column_defaults.items():
+                    if column not in columns:
+                        db.session.execute(text(f'ALTER TABLE league ADD COLUMN {column} {definition}'))
+                db.session.commit()
             LeagueCube.__table__.create(bind=db.engine, checkfirst=True)
             LeaguePlayDate.__table__.create(bind=db.engine, checkfirst=True)
             LeaguePlayDateCube.__table__.create(bind=db.engine, checkfirst=True)
@@ -1987,7 +1997,86 @@ def create_app():
         return {'id': t.id, 'name': t.name, 'format': t.format, 'structure': t.structure, 'start_time': t.start_time.isoformat() if t.start_time else None, 'league_id': t.league_id, 'venue_id': t.venue_id}
 
     def league_payload(league):
-        return {'id': league.id, 'name': league.name, 'start_date': league.start_date.isoformat() if league.start_date else None, 'end_date': league.end_date.isoformat() if league.end_date else None, 'is_cube_league': bool(league.is_cube_league)}
+        return {
+            'id': league.id, 'name': league.name,
+            'start_date': league.start_date.isoformat() if league.start_date else None,
+            'end_date': league.end_date.isoformat() if league.end_date else None,
+            'is_cube_league': bool(league.is_cube_league),
+            'scoring_system': league.scoring_system,
+            'scoring_percentage': league.scoring_percentage,
+            'glicko_enabled': bool(league.glicko_enabled),
+        }
+
+    def league_games(league):
+        """Return chronological pairwise match outcomes for league ratings."""
+        games = []
+        matches = (
+            db.session.query(Match)
+            .join(Round)
+            .join(Tournament)
+            .filter(Tournament.league_id == league.id, Match.completed.is_(True))
+            .order_by(Tournament.created_at, Round.number, Match.id)
+            .all()
+        )
+        for match in matches:
+            players = [player for player in (match.player1, match.player2, match.player3, match.player4) if player]
+            if len(players) < 2 or not match.result:
+                continue
+            result = match.result
+            if len(players) == 2:
+                if result.is_draw or result.player1_wins == result.player2_wins:
+                    score = 0.5
+                else:
+                    score = 1.0 if result.player1_wins > result.player2_wins else 0.0
+                games.append((players[0].user_id, players[1].user_id, score))
+                continue
+            places = [result.p1_place, result.p2_place, result.p3_place, result.p4_place]
+            for first in range(len(players)):
+                for second in range(first + 1, len(players)):
+                    if result.is_draw or not places[first] or not places[second] or places[first] == places[second]:
+                        score = 0.5
+                    else:
+                        score = 1.0 if places[first] < places[second] else 0.0
+                    games.append((players[first].user_id, players[second].user_id, score))
+        return games
+
+    def calculate_league_rows(league):
+        league_players = db.session.query(LeaguePlayer).filter_by(league_id=league.id).all()
+        results = db.session.query(LeagueResult).filter_by(league_id=league.id).all()
+        results_by_player = {}
+        for result in results:
+            results_by_player.setdefault(result.user_id, []).append(result)
+        player_ids = [player.user_id for player in league_players]
+        games = league_games(league)
+        colley = colley_ratings(player_ids, games) if league.scoring_system == 'colley' else {}
+        glicko = glicko_ratings(player_ids, games) if league.glicko_enabled else {}
+        maximum_played = max((len(values) for values in results_by_player.values()), default=0)
+        rows = []
+        for league_player in league_players:
+            player_results = results_by_player.get(league_player.user_id, [])
+            counted = select_results(player_results, league.scoring_system, league.scoring_percentage, maximum_played)
+            row = {
+                'player': league_player.user,
+                'user_id': league_player.user_id,
+                'name': league_player.user.name if league_player.user else 'Unknown',
+                'played': len(player_results), 'counted_count': len(counted),
+                'league_points': sum(result.points or 0 for result in counted),
+                'raw_points': sum(result.points or 0 for result in player_results),
+                'wins': sum(result.wins or 0 for result in counted),
+                'draws': sum(result.draws or 0 for result in counted),
+                'losses': sum(result.losses or 0 for result in counted),
+                'colley_rating': colley.get(league_player.user_id),
+                'glicko_rating': glicko.get(league_player.user_id, [1500, 350])[0],
+                'glicko_deviation': glicko.get(league_player.user_id, [1500, 350])[1],
+            }
+            rows.append(row)
+        if league.scoring_system == 'colley':
+            rows.sort(key=lambda row: (-row['colley_rating'], -row['wins'], row['name'].lower()))
+        else:
+            rows.sort(key=lambda row: (-row['league_points'], -row['wins'], row['losses'], row['name'].lower()))
+        for index, row in enumerate(rows, start=1):
+            row['rank'] = index
+        return rows, results
 
     def standings_payload(t):
         standings = compute_standings(t, db.session)
@@ -2008,49 +2097,24 @@ def create_app():
         return rows
 
     def league_standings_payload(league):
-        league_players = db.session.query(LeaguePlayer).filter_by(league_id=league.id).all()
-        results = db.session.query(LeagueResult).filter_by(league_id=league.id).all()
-        results_by_player = {}
-        for result in results:
-            results_by_player.setdefault(result.user_id, []).append(result)
+        rows, _results = calculate_league_rows(league)
+        return [{key: value for key, value in row.items() if key != 'player'} for row in rows]
 
-        rows = []
-        for league_player in league_players:
-            player_results = sorted(
-                results_by_player.get(league_player.user_id, []),
-                key=lambda result: (result.points or 0, result.wins or 0, -(result.losses or 0)),
-                reverse=True,
-            )
-            played = len(player_results)
-            counted_count = math.ceil(played * 0.75) if played else 0
-            counted = player_results[:counted_count]
-            rows.append({
-                'user_id': league_player.user_id,
-                'name': league_player.user.name if league_player.user else 'Unknown',
-                'played': played,
-                'counted_count': counted_count,
-                'league_points': sum(result.points or 0 for result in counted),
-                'raw_points': sum(result.points or 0 for result in player_results),
-                'wins': sum(result.wins or 0 for result in counted),
-                'draws': sum(result.draws or 0 for result in counted),
-                'losses': sum(result.losses or 0 for result in counted),
-            })
-        rows.sort(key=lambda row: (-row['league_points'], -row['wins'], row['losses'], row['name'].lower()))
-        for index, row in enumerate(rows, start=1):
-            row['rank'] = index
-        return rows
-
-    def match_payload(match):
+    def match_payload(match, league_ratings=None):
         players = []
         for player in (match.player1, match.player2, match.player3, match.player4):
             if not player:
                 continue
-            players.append({
+            payload = {
                 'tournament_player_id': player.id,
                 'user_id': player.user_id,
                 'name': player.user.name if player.user else 'Unknown',
                 'dropped': bool(player.dropped),
-            })
+            }
+            if league_ratings and player.user_id in league_ratings:
+                rating, deviation = league_ratings[player.user_id]
+                payload.update({'glicko_rating': round(rating), 'glicko_deviation': round(deviation)})
+            players.append(payload)
         return {
             'id': match.id,
             'table_number': match.table_number,
@@ -2059,12 +2123,12 @@ def create_app():
             'completed': bool(match.completed),
         }
 
-    def round_payload(round_obj):
+    def round_payload(round_obj, league_ratings=None):
         matches = sorted(round_obj.matches, key=lambda match: match.table_number)
         return {
             'id': round_obj.id,
             'number': round_obj.number,
-            'matches': [match_payload(match) for match in matches],
+            'matches': [match_payload(match, league_ratings) for match in matches],
         }
 
     @app.route('/settings', methods=['GET', 'POST'])
@@ -2276,9 +2340,13 @@ def create_app():
         if not round_obj:
             return _json_error('not found', 404)
         _api_log('tournaments.rounds.latest', 'success', f'tournament_id={tournament.id}; round={round_obj.number}')
+        league_ratings = None
+        if tournament.league and tournament.league.glicko_enabled:
+            player_ids = [player.user_id for player in tournament.league.players]
+            league_ratings = glicko_ratings(player_ids, league_games(tournament.league))
         return jsonify({
             'tournament': tournament_payload(tournament),
-            'round': round_payload(round_obj),
+            'round': round_payload(round_obj, league_ratings),
         })
 
     @app.route('/connect', methods=['GET', 'POST'], strict_slashes=False)
@@ -4799,32 +4867,7 @@ def create_app():
         return imported
 
     def build_league_context(league):
-        league_players = db.session.query(LeaguePlayer).filter_by(league_id=league.id).all()
-        results = db.session.query(LeagueResult).filter_by(league_id=league.id).all()
-        player_rows = []
-        results_by_player = {}
-        for result in results:
-            results_by_player.setdefault(result.user_id, []).append(result)
-        for lp in league_players:
-            player_results = sorted(
-                results_by_player.get(lp.user_id, []),
-                key=lambda r: (r.points or 0, r.wins or 0, -(r.losses or 0)),
-                reverse=True,
-            )
-            played = len(player_results)
-            counted_count = math.ceil(played * 0.75) if played else 0
-            counted = player_results[:counted_count]
-            player_rows.append({
-                'player': lp.user,
-                'played': played,
-                'counted_count': counted_count,
-                'league_points': sum(r.points or 0 for r in counted),
-                'raw_points': sum(r.points or 0 for r in player_results),
-                'wins': sum(r.wins or 0 for r in counted),
-                'draws': sum(r.draws or 0 for r in counted),
-                'losses': sum(r.losses or 0 for r in counted),
-            })
-        player_rows.sort(key=lambda r: (-r['league_points'], -r['wins'], r['losses'], r['player'].name.lower()))
+        player_rows, results = calculate_league_rows(league)
         league_tournament_ids = [t.id for t in league.tournaments]
         available_tournaments = db.session.query(Tournament).order_by(Tournament.created_at.desc()).all()
         users = db.session.query(User).order_by(User.name).all()
@@ -5049,6 +5092,38 @@ def create_app():
             cube_vote_totals=cube_vote_totals,
             available_cube_ids=available_cube_ids,
         )
+
+    @app.route('/leagues/<int:league_id>/settings', methods=['GET', 'POST'])
+    @login_required
+    def league_settings(league_id):
+        league = db.session.get(League, league_id)
+        if not league:
+            abort(404)
+        if not require_league_member_or_manager(league):
+            abort(403)
+        can_manage = current_user.has_permission('tournaments.manage')
+        if request.method == 'POST':
+            if not can_manage:
+                abort(403)
+            scoring_system = request.form.get('scoring_system', '')
+            if scoring_system not in {'personal_best', 'field_best', 'colley'}:
+                flash('Choose a valid scoring system.', 'error')
+                return redirect(url_for('league_settings', league_id=league.id))
+            try:
+                percentage = int(request.form.get('scoring_percentage', 75))
+            except (TypeError, ValueError):
+                percentage = 0
+            if not 1 <= percentage <= 100:
+                flash('Best-X percentage must be between 1 and 100.', 'error')
+                return redirect(url_for('league_settings', league_id=league.id))
+            league.scoring_system = scoring_system
+            league.scoring_percentage = percentage
+            league.glicko_enabled = bool(request.form.get('glicko_enabled'))
+            db.session.commit()
+            log_site('league_settings_update', 'success', f'league_id={league.id}; scoring={scoring_system}; percentage={percentage}; glicko={league.glicko_enabled}')
+            flash('League scoring settings updated.', 'success')
+            return redirect(url_for('league_settings', league_id=league.id))
+        return render_template('league_settings.html', league=league, can_manage=can_manage)
 
     @app.route('/leagues/<int:league_id>/cubes', methods=['GET', 'POST'])
     @login_required

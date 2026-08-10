@@ -667,6 +667,9 @@ class League(db.Model):
     start_date = db.Column(db.Date, nullable=True)
     end_date = db.Column(db.Date, nullable=True)
     is_cube_league = db.Column(db.Boolean, default=False)
+    scoring_system = db.Column(db.String(20), nullable=False, default='personal_best')
+    scoring_percentage = db.Column(db.Integer, nullable=False, default=75)
+    glicko_enabled = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=utc_now)
 
 

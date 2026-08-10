@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header modern-hero">
+  <div class="page-header__title">
+    <span class="eyebrow">League Settings</span>
+    <h2>{{ league.name }}</h2>
+    <p class="page-description">Choose how event results become league standings and whether ratings are shown.</p>
+  </div>
+  <div class="page-header__actions"><a class="btn ghost" href="{{ url_for('view_league', league_id=league.id) }}">League Standings</a></div>
+</section>
+
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Scoring system</h3><p>These settings apply only inside this league.</p></div></div>
+  <form method="post" class="modern-form grid-form">
+    <label class="wide-field">Standings calculation
+      <select name="scoring_system" {% if not can_manage %}disabled{% endif %}>
+        <option value="personal_best" {% if league.scoring_system == 'personal_best' %}selected{% endif %}>Personal best-X</option>
+        <option value="field_best" {% if league.scoring_system == 'field_best' %}selected{% endif %}>Field maximum best-X</option>
+        <option value="colley" {% if league.scoring_system == 'colley' %}selected{% endif %}>Colley matrix (win/loss/draw)</option>
+      </select>
+    </label>
+    <label>Best-X percentage
+      <input type="number" name="scoring_percentage" min="1" max="100" value="{{ league.scoring_percentage }}" {% if not can_manage %}disabled{% endif %} required>
+    </label>
+    <div class="wide-field setting-explanation">
+      <p><strong>Personal best-X:</strong> counts each player's best percentage of their own event appearances.</p>
+      <p><strong>Field maximum best-X:</strong> finds the participant with the most appearances, takes the configured percentage of that running maximum, and counts up to that many best results for everyone. Players at or below the limit keep every result.</p>
+      <p><strong>Colley matrix:</strong> ranks the league from head-to-head wins, losses, and draws; it does not use match points.</p>
+    </div>
+    <label class="checkbox-label wide-field"><input type="checkbox" name="glicko_enabled" value="1" {% if league.glicko_enabled %}checked{% endif %} {% if not can_manage %}disabled{% endif %}> Show Glicko rating in league standings and Discord pairings</label>
+    {% if can_manage %}<div class="form-actions wide-field start-actions"><button class="btn" type="submit">Save Scoring Settings</button></div>{% else %}<p class="muted-text wide-field">Only a league manager can change these settings.</p>{% endif %}
+  </form>
+</section>
+{% endblock %}

@@ -279,8 +279,15 @@ def format_league_standings(payload: dict[str, Any]) -> str:
         return '\n'.join(lines)
 
     for row in standings:
+        if league.get('scoring_system') == 'colley':
+            score = f"{row.get('colley_rating', 0):.3f} Colley"
+        else:
+            score = f"{row['league_points']} pts"
+        rating = ''
+        if league.get('glicko_enabled') and row.get('glicko_rating') is not None:
+            rating = f" · Glicko {round(row['glicko_rating'])} ±{round(row['glicko_deviation'])}"
         lines.append(
-            f"{row['rank']}. {row['name']} — {row['league_points']} pts "
+            f"{row['rank']}. {row['name']} — {score}{rating} "
             f"({row['wins']}-{row['losses']}-{row['draws']}, {row['played']} events)"
         )
     return _truncate_lines(lines)
@@ -314,7 +321,12 @@ def format_pairings(payload: dict[str, Any]) -> str:
         return '\n'.join(lines)
 
     for match in matches:
-        names = [player['name'] for player in match.get('players') or []]
+        names = []
+        for player in match.get('players') or []:
+            name = player['name']
+            if player.get('glicko_rating') is not None:
+                name += f" [{player['glicko_rating']} ±{player['glicko_deviation']}]"
+            names.append(name)
         if match.get('is_bye') and names:
             pairing = f'{names[0]} has the bye'
         else:
