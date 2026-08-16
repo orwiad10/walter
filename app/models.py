@@ -37,12 +37,22 @@ def _legacy_token_digest(token):
 
 # Permission groups and default role permissions
 PERMISSION_GROUPS = {
+    'accounts': {
+        'register': 'Register accounts when public registration is unavailable',
+        'authenticate': 'Authenticate and reset a password',
+        'manage_self': 'Manage personal settings and Discord link',
+        'api_keys.revoke_self': 'Revoke a personally owned API key',
+    },
+    'messages': {
+        'use': 'Read, send, and reply to personal messages',
+    },
     'tournaments': {
         'manage': 'Create and manage tournaments',
         'join': 'Join tournaments',
         'approve_join': 'Approve tournament join requests',
         'bulk_manage': 'Bulk edit tournaments',
         'delete_leagues': 'Delete leagues',
+        'view_self': 'View tournaments you have joined',
     },
     'venues': {
         'manage': 'Create and manage venues, vendors, and artists',
@@ -50,6 +60,24 @@ PERMISSION_GROUPS = {
     'users': {
         'manage': 'Manage users',
         'manage_admins': 'Manage admin level users',
+        'search': 'Search the user directory',
+    },
+    'reports': {
+        'submit': 'Submit bug and player reports',
+    },
+    'leagues': {
+        'view': 'View available leagues',
+        'cube_vote': 'View and submit league cube votes',
+    },
+    'decks': {
+        'manage_self': 'Create and update your own deck',
+        'view': 'View other players’ tournament decks',
+    },
+    'matches': {
+        'report_self': 'Report your own match and drop yourself',
+    },
+    'media': {
+        'view': 'View uploaded media and permitted cube images',
     },
     'admin': {
         'panel': 'Access admin panel',
@@ -73,6 +101,7 @@ def all_permission_keys():
 DEFAULT_ROLE_PERMISSIONS = {
     'admin': {key: True for key in all_permission_keys()},
     'manager': {
+        'accounts.register': True,
         'tournaments.manage': True,
         'users.manage': True,
         'tournaments.approve_join': True,
@@ -98,6 +127,26 @@ DEFAULT_ROLE_PERMISSIONS = {
         'tournaments.join': True,
     },
 }
+
+_ALL_ROLE_PERMISSION_KEYS = {
+    'accounts.authenticate',
+    'accounts.manage_self',
+    'accounts.api_keys.revoke_self',
+    'messages.use',
+    'reports.submit',
+    'leagues.view',
+    'leagues.cube_vote',
+    'tournaments.view_self',
+    'decks.manage_self',
+    'matches.report_self',
+    'media.view',
+}
+
+for role_permissions in DEFAULT_ROLE_PERMISSIONS.values():
+    role_permissions.update({key: True for key in _ALL_ROLE_PERMISSION_KEYS})
+for role_name in ('admin', 'manager', 'venue judge', 'event head judge'):
+    DEFAULT_ROLE_PERMISSIONS[role_name]['users.search'] = True
+    DEFAULT_ROLE_PERMISSIONS[role_name]['decks.view'] = True
 
 
 

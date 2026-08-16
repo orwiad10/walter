@@ -1,0 +1,710 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://walter.local/schemas/permissions.schema.json",
+  "title": "WaLTER permissions",
+  "type": "object",
+  "properties": {
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "tournaments.manage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create and manage tournaments",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge"
+          ],
+          "x-current-actions": [
+            "Create, edit, complete, reopen, and delete tournaments",
+            "Manage players, rounds, timers, judges, leagues, and schedules"
+          ]
+        },
+        "tournaments.join": {
+          "type": "boolean",
+          "default": false,
+          "description": "Join tournaments",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "user"
+          ],
+          "x-current-actions": [
+            "Join a tournament or request approval"
+          ]
+        },
+        "tournaments.approve_join": {
+          "type": "boolean",
+          "default": false,
+          "description": "Approve tournament join requests",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge"
+          ],
+          "x-current-actions": [
+            "View, approve, and reject tournament join requests"
+          ]
+        },
+        "tournaments.bulk_manage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Bulk edit tournaments",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "Bulk update or delete tournaments"
+          ]
+        },
+        "tournaments.delete_leagues": {
+          "type": "boolean",
+          "default": false,
+          "description": "Delete leagues",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "Delete a league"
+          ]
+        },
+        "venues.manage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create and manage venues, vendors, and artists",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge"
+          ],
+          "x-current-actions": [
+            "Create and update venues, vendors, and artists"
+          ]
+        },
+        "users.manage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Manage users",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge"
+          ],
+          "x-current-actions": [
+            "List, view, create, update, and delete users"
+          ]
+        },
+        "users.manage_admins": {
+          "type": "boolean",
+          "default": false,
+          "description": "Manage admin-level users",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "View and modify admin accounts"
+          ]
+        },
+        "admin.panel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Access the admin panel",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "View administrative dashboards, logs, reports, connections, and backups"
+          ]
+        },
+        "admin.permissions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Manage roles and permissions",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "Create roles and grant role or user permissions"
+          ]
+        },
+        "admin.login_audit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Audit failed login attempts",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "View failed-login audit records"
+          ]
+        },
+        "admin.ip_blacklist": {
+          "type": "boolean",
+          "default": false,
+          "description": "Manage blacklisted IP addresses",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "View, change, and export the IP blacklist"
+          ]
+        },
+        "admin.site_settings": {
+          "type": "boolean",
+          "default": false,
+          "description": "Manage site settings and registration invites",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "Change site settings and manage registration invites"
+          ]
+        },
+        "admin.api_keys": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create API keys",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin"
+          ],
+          "x-current-actions": [
+            "Create an API key"
+          ]
+        },
+        "accounts.register": {
+          "type": "boolean",
+          "default": false,
+          "description": "Register account",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager"
+          ],
+          "x-current-actions": [
+            "Register account"
+          ],
+          "x-routes": [
+            "/register",
+            "/register/verify",
+            "/register/verify/<token>"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "An admin or manager can register a new user. A person without an account can register only when registration is open or with a valid invite token."
+        },
+        "accounts.authenticate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Authenticate and reset password",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "Authenticate and reset password"
+          ],
+          "x-routes": [
+            "/login",
+            "/logout",
+            "/password-reset",
+            "/password-reset/<token>"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "A user can log in or out. Password reset requires a valid token. Authentication and password reset are unavailable to blocked or locked users."
+        },
+        "accounts.manage_self": {
+          "type": "boolean",
+          "default": false,
+          "description": "Manage own settings and Discord link",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "Manage own settings and Discord link"
+          ],
+          "x-routes": [
+            "/settings"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "A logged-in user can manage their own settings and Discord link."
+        },
+        "accounts.api_keys.revoke_self": {
+          "type": "boolean",
+          "default": false,
+          "description": "Revoke own API key",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "Revoke own API key"
+          ],
+          "x-routes": [
+            "/settings/api-keys/<key_id>/revoke"
+          ],
+          "x-methods": [
+            "POST"
+          ],
+          "request": "A logged-in user can revoke an API key they own."
+        },
+        "messages.use": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read, send, and reply to personal messages",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "View inbox and sent messages",
+            "Send, view, and reply to an owned message",
+            "Read unread-message count"
+          ],
+          "x-routes": [
+            "/messages",
+            "/messages/player",
+            "/messages/inbox",
+            "/messages/sent",
+            "/messages/player/send",
+            "/messages/send",
+            "/messages/view/<mid>",
+            "/messages/<mid>/reply",
+            "/api/messages/unread"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "A logged-in user can read, send, and reply to personal messages. A message is visible only to its sender or recipient."
+        },
+        "users.search": {
+          "type": "boolean",
+          "default": false,
+          "description": "Search the user directory",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge"
+          ],
+          "x-current-actions": [
+            "Search users by name or email"
+          ],
+          "x-routes": [
+            "/api/users/search"
+          ],
+          "x-methods": [
+            "GET"
+          ],
+          "request": "A logged-in user can search the user directory only when their role grants this permission."
+        },
+        "reports.submit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Submit bug and player reports",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "Submit a bug report",
+            "Submit a player report"
+          ],
+          "x-routes": [
+            "/reports"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "A logged-in user can submit bug and player reports."
+        },
+        "leagues.view": {
+          "type": "boolean",
+          "default": false,
+          "description": "View available leagues",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "View own league memberships",
+            "View a league"
+          ],
+          "x-routes": [
+            "/my-leagues",
+            "/leagues/<league_id>"
+          ],
+          "x-methods": [
+            "GET"
+          ],
+          "request": "A logged-in user can view available leagues. A league is visible only to its members or users with tournaments.manage."
+        },
+        "leagues.cube_vote": {
+          "type": "boolean",
+          "default": false,
+          "description": "View and submit league cube votes",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "View cube ballots",
+            "Submit or update own cube votes"
+          ],
+          "x-routes": [
+            "/leagues/<league_id>/cubes"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "A logged-in user can vote only in a league they belong to or when they have tournaments.manage."
+        },
+        "tournaments.view_self": {
+          "type": "boolean",
+          "default": false,
+          "description": "View tournaments joined by the current user",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "View own active tournament registrations"
+          ],
+          "x-routes": [
+            "/my-tournaments"
+          ],
+          "x-methods": [
+            "GET"
+          ],
+          "request": "A logged-in user can view tournaments in which they participate."
+        },
+        "decks.manage_self": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create and update own deck",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "Search cards",
+            "Save, import, or submit own deck",
+            "Upload or delete own deck image"
+          ],
+          "x-routes": [
+            "/t/<tid>/deck/search",
+            "/t/<tid>/deck/manual",
+            "/t/<tid>/deck/mtgo",
+            "/t/<tid>/deck/image",
+            "/t/<tid>/deck/image/delete"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "A logged-in tournament participant can create and update their own deck."
+        },
+        "decks.view": {
+          "type": "boolean",
+          "default": false,
+          "description": "View tournament decklists and player decks",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge"
+          ],
+          "x-current-actions": [
+            "View tournament decklists",
+            "View another player’s deck"
+          ],
+          "x-routes": [
+            "/t/<tid>/decklists",
+            "/t/<tid>/players/<player_id>/deck"
+          ],
+          "x-methods": [
+            "GET"
+          ],
+          "request": "A user can always view their own deck. Viewing another player’s deck requires this permission."
+        },
+        "matches.report_self": {
+          "type": "boolean",
+          "default": false,
+          "description": "Report own match and drop self",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "View and submit own match result",
+            "Drop self while reporting"
+          ],
+          "x-routes": [
+            "/match/<mid>"
+          ],
+          "x-methods": [
+            "GET",
+            "POST"
+          ],
+          "request": "A logged-in match participant can report their own match and drop themselves. Reporting for others requires tournaments.manage."
+        },
+        "media.view": {
+          "type": "boolean",
+          "default": false,
+          "description": "View uploaded media and proxied cube images",
+          "x-assignment-status": "assigned",
+          "x-current-roles": [
+            "admin",
+            "manager",
+            "venue judge",
+            "event head judge",
+            "floor judge",
+            "user"
+          ],
+          "x-current-actions": [
+            "View uploaded media",
+            "Request a permitted Cube Cobra image"
+          ],
+          "x-routes": [
+            "/media/<filename>",
+            "/cube-cobra-image"
+          ],
+          "x-methods": [
+            "GET"
+          ],
+          "request": "A logged-in user with this permission can view uploaded media. Proxied cube images must also use a safe, permitted URL."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "permissions"
+  ],
+  "additionalProperties": false,
+  "x-default-role-permissions": {
+    "admin": [
+      "accounts.api_keys.revoke_self",
+      "accounts.authenticate",
+      "accounts.manage_self",
+      "accounts.register",
+      "admin.api_keys",
+      "admin.ip_blacklist",
+      "admin.login_audit",
+      "admin.panel",
+      "admin.permissions",
+      "admin.site_settings",
+      "decks.manage_self",
+      "decks.view",
+      "leagues.cube_vote",
+      "leagues.view",
+      "matches.report_self",
+      "media.view",
+      "messages.use",
+      "reports.submit",
+      "tournaments.approve_join",
+      "tournaments.bulk_manage",
+      "tournaments.delete_leagues",
+      "tournaments.join",
+      "tournaments.manage",
+      "tournaments.view_self",
+      "users.manage",
+      "users.manage_admins",
+      "users.search",
+      "venues.manage"
+    ],
+    "manager": [
+      "accounts.api_keys.revoke_self",
+      "accounts.authenticate",
+      "accounts.manage_self",
+      "accounts.register",
+      "decks.manage_self",
+      "decks.view",
+      "leagues.cube_vote",
+      "leagues.view",
+      "matches.report_self",
+      "media.view",
+      "messages.use",
+      "reports.submit",
+      "tournaments.approve_join",
+      "tournaments.manage",
+      "tournaments.view_self",
+      "users.manage",
+      "users.search",
+      "venues.manage"
+    ],
+    "venue judge": [
+      "accounts.api_keys.revoke_self",
+      "accounts.authenticate",
+      "accounts.manage_self",
+      "decks.manage_self",
+      "decks.view",
+      "leagues.cube_vote",
+      "leagues.view",
+      "matches.report_self",
+      "media.view",
+      "messages.use",
+      "reports.submit",
+      "tournaments.approve_join",
+      "tournaments.manage",
+      "tournaments.view_self",
+      "users.manage",
+      "users.search",
+      "venues.manage"
+    ],
+    "event head judge": [
+      "accounts.api_keys.revoke_self",
+      "accounts.authenticate",
+      "accounts.manage_self",
+      "decks.manage_self",
+      "decks.view",
+      "leagues.cube_vote",
+      "leagues.view",
+      "matches.report_self",
+      "media.view",
+      "messages.use",
+      "reports.submit",
+      "tournaments.approve_join",
+      "tournaments.manage",
+      "tournaments.view_self",
+      "users.manage",
+      "users.search",
+      "venues.manage"
+    ],
+    "floor judge": [
+      "accounts.api_keys.revoke_self",
+      "accounts.authenticate",
+      "accounts.manage_self",
+      "decks.manage_self",
+      "leagues.cube_vote",
+      "leagues.view",
+      "matches.report_self",
+      "media.view",
+      "messages.use",
+      "reports.submit",
+      "tournaments.approve_join",
+      "tournaments.view_self",
+      "users.manage"
+    ],
+    "user": [
+      "accounts.api_keys.revoke_self",
+      "accounts.authenticate",
+      "accounts.manage_self",
+      "decks.manage_self",
+      "leagues.cube_vote",
+      "leagues.view",
+      "matches.report_self",
+      "media.view",
+      "messages.use",
+      "reports.submit",
+      "tournaments.join",
+      "tournaments.view_self"
+    ]
+  },
+  "x-unpermissioned-actions": [
+    {
+      "id": "tournaments.public_read",
+      "permission": null,
+      "x-current-roles": [],
+      "x-current-actions": [
+        "View tournament overview, rounds, standings, bracket, draft seating, join link, and join QR code"
+      ],
+      "x-routes": [
+        "/t/<tid>",
+        "/t/<tid>/round/<rid>",
+        "/t/<tid>/standings",
+        "/t/<tid>/bracket",
+        "/t/<tid>/draft-seating",
+        "/t/<tid>/join-link",
+        "/t/<tid>/join-qr.png"
+      ],
+      "x-methods": [
+        "GET"
+      ],
+      "request": "Do not display tournament information publicly."
+    }
+  ]
+}

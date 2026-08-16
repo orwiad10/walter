@@ -75,6 +75,50 @@ def test_roles_can_approve_join(session):
         assert perms.get('tournaments.approve_join')
 
 
+def test_new_permission_role_grants(session):
+    roles = {role.name: role.permissions_dict() for role in session.query(Role).all()}
+    all_role_permissions = {
+        'accounts.authenticate', 'accounts.manage_self', 'accounts.api_keys.revoke_self',
+        'messages.use', 'reports.submit', 'leagues.view', 'leagues.cube_vote',
+        'tournaments.view_self', 'decks.manage_self', 'matches.report_self', 'media.view',
+    }
+    for permissions in roles.values():
+        assert all(permissions.get(key) for key in all_role_permissions)
+    for role_name in ('admin', 'manager'):
+        assert roles[role_name].get('accounts.register')
+    for role_name in ('admin', 'manager', 'venue judge', 'event head judge'):
+        assert roles[role_name].get('users.search')
+        assert roles[role_name].get('decks.view')
+    assert 'tournaments.view_public' not in roles['admin']
+
+
+def test_tournament_information_is_not_public(client, session):
+    from app.models import Tournament
+
+    tournament = Tournament(name='Private listing', format='Commander')
+    session.add(tournament)
+    session.commit()
+
+    paths = (
+        f'/t/{tournament.id}', f'/t/{tournament.id}/standings',
+        f'/t/{tournament.id}/bracket', f'/t/{tournament.id}/draft-seating',
+        f'/t/{tournament.id}/join-link', f'/t/{tournament.id}/join-qr.png',
+    )
+    for path in paths:
+        assert client.get(path).status_code == 302
+
+
+def test_user_search_requires_permission(client, session):
+    role = Role(name='no-search', permissions=json.dumps({'accounts.authenticate': True}))
+    user = User(email='no-search@example.com', name='No Search', role=role)
+    user.set_password('secret')
+    session.add_all([role, user])
+    session.commit()
+
+    assert client.post('/login', data={'email': user.email, 'password': 'secret'}).status_code == 302
+    assert client.get('/api/users/search?q=test').status_code == 403
+
+
 def test_admin_bulk_delete_users(client, session):
     admin_role = session.query(Role).filter_by(name='admin').one()
     user_role = session.query(Role).filter_by(name='user').one()
