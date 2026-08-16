@@ -578,6 +578,11 @@ def create_app():
                         db.session.execute(text(f'ALTER TABLE league ADD COLUMN {column} {definition}'))
                 db.session.commit()
             LeagueCube.__table__.create(bind=db.engine, checkfirst=True)
+            if 'league_cube' in table_names:
+                columns = [c['name'] for c in inspector.get_columns('league_cube')]
+                if 'owner_id' not in columns:
+                    db.session.execute(text('ALTER TABLE league_cube ADD COLUMN owner_id INTEGER'))
+                    db.session.commit()
             LeaguePlayDate.__table__.create(bind=db.engine, checkfirst=True)
             LeaguePlayDateCube.__table__.create(bind=db.engine, checkfirst=True)
             LeagueCubeVote.__table__.create(bind=db.engine, checkfirst=True)
@@ -3624,7 +3629,7 @@ def create_app():
                 } for i in registration_invites
             ],
             'league_cubes': [
-                {'id': c.id, 'league_id': c.league_id, 'cube_cobra_url': c.cube_cobra_url, 'title': c.title, 'image_url': c.image_url, 'created_at': iso_datetime(c.created_at)} for c in league_cubes
+                {'id': c.id, 'league_id': c.league_id, 'cube_cobra_url': c.cube_cobra_url, 'title': c.title, 'image_url': c.image_url, 'owner_id': c.owner_id, 'created_at': iso_datetime(c.created_at)} for c in league_cubes
             ],
             'league_play_dates': [
                 {'id': d.id, 'league_id': d.league_id, 'play_date': iso_date(d.play_date), 'is_active': bool(d.is_active), 'created_at': iso_datetime(d.created_at)} for d in league_play_dates
@@ -4056,11 +4061,13 @@ def create_app():
             cube = db.session.query(LeagueCube).filter_by(league_id=league.id, cube_cobra_url=url).first()
             is_new = cube is None
             if is_new:
-                cube = LeagueCube(league=league, cube_cobra_url=url, title=title)
+                owner = user_map.get(item.get('owner_id'))
+                cube = LeagueCube(league=league, cube_cobra_url=url, title=title, owner=owner)
                 db.session.add(cube)
             if overwrite or is_new:
                 cube.title = title
                 cube.image_url = item.get('image_url')
+                cube.owner = user_map.get(item.get('owner_id'))
                 cube.created_at = parse_iso_datetime(item.get('created_at')) or cube.created_at
                 counts['league_cubes'] += 1
             cube_map[item.get('id')] = cube
@@ -4991,7 +4998,9 @@ def create_app():
     def require_league_member_or_manager(league):
         if current_user.has_permission('tournaments.manage'):
             return True
-        return db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=current_user.id).first() is not None
+        is_member = db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=current_user.id).first() is not None
+        owns_cube = db.session.query(LeagueCube).filter_by(league_id=league.id, owner_id=current_user.id).first() is not None
+        return is_member or owns_cube
 
     @app.route('/admin/leagues', methods=['GET', 'POST'])
     def leagues():
@@ -5064,10 +5073,31 @@ def create_app():
                     except ValueError as exc:
                         flash(str(exc), 'error')
                     else:
-                        db.session.add(LeagueCube(league_id=league.id, cube_cobra_url=url, title=title, image_url=image_url))
+                        owner_id = request.form.get('owner_id', '')
+                        owner = db.session.get(User, int(owner_id)) if owner_id.isdigit() else None
+                        db.session.add(LeagueCube(
+                            league_id=league.id,
+                            cube_cobra_url=url,
+                            title=title,
+                            image_url=image_url,
+                            owner=owner,
+                        ))
                         db.session.commit()
                         log_site('league_cube_add', 'success', f'league_id={league.id}; url={url}')
                         flash('Cube added.', 'success')
+            elif action == 'update_cube_owner':
+                cube = db.session.get(LeagueCube, int(request.form.get('cube_id') or 0))
+                raw_owner_id = request.form.get('owner_id', '')
+                owner_id = int(raw_owner_id) if raw_owner_id.isdigit() else 0
+                owner = db.session.get(User, owner_id) if owner_id else None
+                if not cube or cube.league_id != league.id:
+                    flash('Cube not found.', 'error')
+                elif owner_id and not owner:
+                    flash('Cube owner not found.', 'error')
+                else:
+                    cube.owner = owner
+                    db.session.commit()
+                    flash('Cube owner updated.', 'success')
             elif action == 'add_play_date':
                 if not league.is_cube_league:
                     flash('Enable cube league mode before adding League Events.', 'error')
@@ -5222,6 +5252,23 @@ def create_app():
         if not require_league_member_or_manager(league):
             abort(403)
         if request.method == 'POST':
+            if request.form.get('action') == 'add_owned_cube':
+                cube_id = request.form.get('cube_id', '')
+                play_date_id = request.form.get('play_date_id', '')
+                cube = db.session.get(LeagueCube, int(cube_id)) if cube_id.isdigit() else None
+                play_date = db.session.get(LeaguePlayDate, int(play_date_id)) if play_date_id.isdigit() else None
+                if not cube or cube.league_id != league.id or cube.owner_id != current_user.id:
+                    abort(403)
+                if not play_date or play_date.league_id != league.id or not play_date.is_active:
+                    flash('Choose an open League Event.', 'error')
+                elif db.session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id, cube_id=cube.id).first():
+                    flash('That cube is already on this ballot.', 'info')
+                else:
+                    db.session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+                    db.session.commit()
+                    log_site('league_owned_cube_add', 'success', f'league_id={league.id}; play_date_id={play_date.id}; cube_id={cube.id}; owner_id={current_user.id}')
+                    flash('Your cube was added to the ballot.', 'success')
+                return redirect(url_for('league_cube_voting', league_id=league.id))
             for play_date in db.session.query(LeaguePlayDate).filter_by(league_id=league.id, is_active=True).all():
                 available_ids = {link.cube_id for link in play_date.available_cubes}
                 requested = {}
@@ -5251,6 +5298,7 @@ def create_app():
             flash('Cube votes saved.', 'success')
             return redirect(url_for('league_cube_voting', league_id=league.id))
         play_dates, cubes, cube_vote_totals, cube_user_votes, available_cube_ids = league_vote_context(league)
+        owned_cubes = [cube for cube in cubes if cube.owner_id == current_user.id]
         return render_template(
             'league_cubes.html',
             league=league,
@@ -5259,6 +5307,7 @@ def create_app():
             cube_vote_totals=cube_vote_totals,
             cube_user_votes=cube_user_votes,
             available_cube_ids=available_cube_ids,
+            owned_cubes=owned_cubes,
         )
 
     @app.route('/admin/schedule')

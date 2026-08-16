@@ -8,6 +8,26 @@
   </div>
 </section>
 
+{% if owned_cubes and play_dates|selectattr('is_active')|list %}
+<section class="panel-card owned-cube-panel">
+  <div class="section-heading"><div><h3>Add one of your cubes</h3><p>As a cube owner, you can add your cube to any open, existing League Event ballot.</p></div></div>
+  <form method="post" class="modern-form owner-ballot-form">
+    <input type="hidden" name="action" value="add_owned_cube">
+    <label>Your cube
+      <select name="cube_id" required>
+        {% for cube in owned_cubes %}<option value="{{ cube.id }}">{{ cube.title|cube_cobra_title }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>League Event
+      <select name="play_date_id" required>
+        {% for play_date in play_dates if play_date.is_active %}<option value="{{ play_date.id }}">{{ play_date.play_date }}</option>{% endfor %}
+      </select>
+    </label>
+    <button class="btn" type="submit">Add to ballot</button>
+  </form>
+</section>
+{% endif %}
+
 {% if play_dates %}
 <form method="post" class="cube-vote-form">
   {% for play_date in play_dates if play_date.is_active %}
