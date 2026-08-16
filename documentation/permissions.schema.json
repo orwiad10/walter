@@ -2,7 +2,63 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://walter.local/schemas/permissions.schema.json",
   "title": "WaLTER permissions",
+  "description": "Authorization policy schema. Roles, scopes, and permission grants are independent: an action may be granted by a role, directly to a user, and with or without a resource scope.",
   "type": "object",
+  "$defs": {
+    "roleName": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "manager",
+        "venue judge",
+        "event head judge",
+        "floor judge",
+        "user"
+      ]
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "global" }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "enum": ["venue", "league", "tournament"] },
+            "id": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["type", "id"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "principal": {
+      "type": "object",
+      "properties": {
+        "type": { "enum": ["role", "user"] },
+        "id": {
+          "oneOf": [
+            { "$ref": "#/$defs/roleName" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        }
+      },
+      "required": ["type", "id"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "role" } } },
+          "then": { "properties": { "id": { "$ref": "#/$defs/roleName" } } },
+          "else": { "properties": { "id": { "type": "integer", "minimum": 1 } } }
+        }
+      ]
+    }
+  },
   "properties": {
     "permissions": {
       "type": "object",
@@ -559,12 +615,89 @@
         }
       },
       "additionalProperties": false
+    },
+    "roleAssignments": {
+      "type": "array",
+      "description": "Role membership is independent from scope membership and explicit permission grants.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "integer", "minimum": 1 },
+          "role": { "$ref": "#/$defs/roleName" }
+        },
+        "required": ["userId", "role"],
+        "additionalProperties": false
+      }
+    },
+    "scopeAssignments": {
+      "type": "array",
+      "description": "Explicit and relationship-derived scopes. Derived assignments are recalculated from manager, judge, and player relationships.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "integer", "minimum": 1 },
+          "scope": { "$ref": "#/$defs/scope" },
+          "source": { "enum": ["explicit", "inherited", "manager", "judge", "player"] }
+        },
+        "required": ["userId", "scope", "source"],
+        "additionalProperties": false
+      }
+    },
+    "permissionGrants": {
+      "type": "array",
+      "description": "Role and direct-user grants. Scope is optional so an action never requires both a role and a scope; when present it limits the grant to that resource subtree.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "principal": { "$ref": "#/$defs/principal" },
+          "permission": { "type": "string", "minLength": 1 },
+          "effect": { "enum": ["allow", "deny"] },
+          "scope": { "$ref": "#/$defs/scope" }
+        },
+        "required": ["principal", "permission", "effect"],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "permissions"
   ],
   "additionalProperties": false,
+  "x-scope-policy": {
+    "precedence": ["global", "venue|league", "tournament"],
+    "inheritance": {
+      "global": ["venue", "league", "tournament"],
+      "venue": ["tournament"],
+      "league": ["tournament"],
+      "tournament": []
+    },
+    "peerScopes": ["venue", "league"],
+    "defaultRoleScopes": {
+      "admin": ["global"],
+      "manager": ["venue", "league"],
+      "venue judge": ["venue", "league"],
+      "event head judge": ["venue", "league"],
+      "floor judge": ["venue", "league"],
+      "user": ["league", "tournament"]
+    }
+  },
+  "x-role-precedence": [
+    "admin",
+    "manager",
+    "venue judge",
+    "event head judge",
+    "floor judge",
+    "user"
+  ],
+  "x-authorization-rules": [
+    "Only the admin role may hold global scope.",
+    "Non-admin users may acquire scope explicitly or through inherited manager, judge, or player relationships on a league or tournament.",
+    "A grant at global scope applies to every venue, league, and tournament.",
+    "A grant at venue or league scope applies only to that resource and its descendant tournaments; venue and league are peers.",
+    "A grant at tournament scope applies only to that tournament.",
+    "A grantor may not assign a role or scope above the grantor's own role or scope.",
+    "A grantor may not directly grant a user a permission the grantor lacks or a permission above the grantor's role."
+  ],
   "x-default-role-permissions": {
     "admin": [
       "accounts.api_keys.revoke_self",

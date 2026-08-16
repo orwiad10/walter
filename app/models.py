@@ -1,7 +1,7 @@
 from .app import db
 from flask_login import UserMixin
 from datetime import datetime, timezone
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import CheckConstraint, UniqueConstraint
 import uuid
 import os
 import json
@@ -163,6 +163,8 @@ DEFAULT_ROLE_LEVELS = {
     'user': 500,
 }
 
+SCOPE_LEVELS = {'global': 0, 'venue': 1, 'league': 1, 'tournament': 2}
+
 
 class Role(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -279,15 +281,195 @@ class User(db.Model, UserMixin):
         except Exception:
             return {}
 
-    def has_permission(self, key):
+    def _derived_scopes(self):
+        """Return scopes earned from administrator, player, and judge relationships."""
+        if self.is_admin or (self.role and self.role.name == 'admin'):
+            return {('global', None)}
+        scopes = set()
+        for assignment in self.explicit_scope_assignments:
+            scopes.add((assignment.scope_type, assignment.scope_id))
+        for entry in self.tournament_entries:
+            scopes.add(('tournament', entry.tournament_id))
+        for membership in db.session.query(LeaguePlayer).filter_by(user_id=self.id).all():
+            scopes.add(('league', membership.league_id))
+        judged = db.session.query(Tournament).filter(
+            (Tournament.head_judge_id == self.id) | Tournament.floor_judges.contains(f'[{self.id}]')
+            | Tournament.floor_judges.contains(f', {self.id}]') | Tournament.floor_judges.contains(f'[{self.id},')
+            | Tournament.floor_judges.contains(f', {self.id},')
+        ).all()
+        # JSON text is legacy storage; confirm membership to avoid substring matches.
+        for tournament in judged:
+            if tournament.head_judge_id == self.id or self.id in tournament.floor_judge_ids():
+                scopes.add(('tournament', tournament.id))
+        return scopes
+
+    def has_scope(self, scope_type, scope_id=None):
+        if scope_type not in SCOPE_LEVELS:
+            return False
+        scopes = self._derived_scopes()
+        if ('global', None) in scopes:
+            return True
+        if (scope_type, scope_id) in scopes:
+            return True
+        if scope_type == 'tournament':
+            tournament = db.session.get(Tournament, scope_id)
+            return bool(tournament and (
+                (tournament.venue_id and ('venue', tournament.venue_id) in scopes)
+                or (tournament.league_id and ('league', tournament.league_id) in scopes)
+            ))
+        return False
+
+    def _applicable_grants(self, key, scope_type, scope_id):
+        candidates = [(scope_type, scope_id)]
+        if scope_type == 'tournament':
+            tournament = db.session.get(Tournament, scope_id)
+            if tournament:
+                if tournament.venue_id:
+                    candidates.append(('venue', tournament.venue_id))
+                if tournament.league_id:
+                    candidates.append(('league', tournament.league_id))
+        candidates.extend([('global', None), (None, None)])
+        grants = list(self.permission_grants)
+        if self.role:
+            grants.extend(self.role.permission_grants)
+        grants = [g for g in grants if g.permission == key and (g.scope_type, g.scope_id) in candidates]
+        return sorted(
+            grants,
+            key=lambda grant: (
+                SCOPE_LEVELS.get(grant.scope_type, -1),
+                grant.user_id is not None,
+                grant.effect == 'deny',
+            ),
+            reverse=True,
+        )
+
+    def has_permission(self, key, scope_type=None, scope_id=None):
         if self.is_admin:
             return True
+        if scope_type is not None:
+            if not self.has_scope(scope_type, scope_id):
+                return False
+            grants = self._applicable_grants(key, scope_type, scope_id)
+            if grants:
+                return grants[0].effect == 'allow'
+        else:
+            grants = self._applicable_grants(key, None, None)
+            if grants:
+                return grants[0].effect == 'allow'
         overrides = self.permission_overrides_dict()
         if key in overrides:
             return overrides.get(key) == 'allow'
         if not self.role:
             return False
         return self.role.permissions_dict().get(key, False)
+
+    def can_grant(self, target_role, permission, scope_type, scope_id=None):
+        """Enforce role, scope, and permission anti-escalation for a grantor."""
+        if not self.role or not target_role or target_role.level < self.role.level:
+            return False
+        if scope_type is None:
+            return scope_id is None and self.has_permission(permission)
+        if scope_type == 'global' and not self.is_admin:
+            return False
+        return self.has_scope(scope_type, scope_id) and self.has_permission(permission, scope_type, scope_id)
+
+    def assign_scope(self, target, scope_type, scope_id=None, source='explicit'):
+        if scope_type not in SCOPE_LEVELS or source not in {'explicit', 'inherited', 'manager', 'judge', 'player'}:
+            raise ValueError('Invalid scope assignment')
+        if scope_type == 'global' and (scope_id is not None or not target.role or target.role.name != 'admin'):
+            raise PermissionError('Only administrators may hold global scope')
+        if not self.role or not target.role or target.role.level < self.role.level:
+            raise PermissionError('Cannot assign scope to a higher role')
+        if not self.has_scope(scope_type, scope_id):
+            raise PermissionError('Cannot assign a scope the grantor does not hold')
+        assignment = ScopeAssignment.query.filter_by(
+            user_id=target.id, scope_type=scope_type, scope_id=scope_id
+        ).first()
+        if assignment is None:
+            assignment = ScopeAssignment(
+                user=target, scope_type=scope_type, scope_id=scope_id, source=source
+            )
+            db.session.add(assignment)
+        return assignment
+
+    def grant_permission(self, target, permission, scope_type, scope_id=None, effect='allow'):
+        if permission not in all_permission_keys() or effect not in {'allow', 'deny'}:
+            raise ValueError('Invalid permission grant')
+        if not self.can_grant(target.role, permission, scope_type, scope_id):
+            raise PermissionError('Grant exceeds the grantor role, scope, or permissions')
+        grant = PermissionGrant.query.filter_by(
+            user_id=target.id,
+            permission=permission,
+            scope_type=scope_type,
+            scope_id=scope_id,
+        ).first()
+        if grant is None:
+            grant = PermissionGrant(
+                user=target,
+                permission=permission,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                granted_by=self,
+            )
+            db.session.add(grant)
+        grant.effect = effect
+        grant.granted_by = self
+        return grant
+
+    def grant_role_permission(self, target_role, permission, scope_type, scope_id=None, effect='allow'):
+        if permission not in all_permission_keys() or effect not in {'allow', 'deny'}:
+            raise ValueError('Invalid permission grant')
+        if not self.can_grant(target_role, permission, scope_type, scope_id):
+            raise PermissionError('Grant exceeds the grantor role, scope, or permissions')
+        grant = PermissionGrant.query.filter_by(
+            role_id=target_role.id,
+            permission=permission,
+            scope_type=scope_type,
+            scope_id=scope_id,
+        ).first()
+        if grant is None:
+            grant = PermissionGrant(
+                role=target_role,
+                permission=permission,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                granted_by=self,
+            )
+            db.session.add(grant)
+        grant.effect = effect
+        grant.granted_by = self
+        return grant
+
+
+class ScopeAssignment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    scope_type = db.Column(db.String(20), nullable=False)
+    scope_id = db.Column(db.Integer, nullable=True)
+    source = db.Column(db.String(20), nullable=False, default='explicit')
+
+    user = db.relationship('User', backref=db.backref('explicit_scope_assignments', cascade='all, delete-orphan'))
+    __table_args__ = (UniqueConstraint('user_id', 'scope_type', 'scope_id', name='_user_scope_uc'),)
+
+
+class PermissionGrant(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=True)
+    permission = db.Column(db.String(100), nullable=False)
+    effect = db.Column(db.String(10), nullable=False, default='allow')
+    scope_type = db.Column(db.String(20), nullable=True)
+    scope_id = db.Column(db.Integer, nullable=True)
+    granted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('permission_grants', cascade='all, delete-orphan'))
+    role = db.relationship('Role', backref=db.backref('permission_grants', cascade='all, delete-orphan'))
+    granted_by = db.relationship('User', foreign_keys=[granted_by_id])
+    __table_args__ = (
+        CheckConstraint('(user_id IS NULL) != (role_id IS NULL)', name='_permission_grant_one_principal'),
+        UniqueConstraint('user_id', 'permission', 'scope_type', 'scope_id', name='_user_permission_scope_uc'),
+        UniqueConstraint('role_id', 'permission', 'scope_type', 'scope_id', name='_role_permission_scope_uc'),
+    )
 
 
 class ApiKey(db.Model):

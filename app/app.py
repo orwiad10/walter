@@ -619,6 +619,8 @@ def create_app():
         Match,
         MatchResult,
         Role,
+        ScopeAssignment,
+        PermissionGrant,
         PERMISSION_GROUPS,
         DEFAULT_ROLE_PERMISSIONS,
         DEFAULT_ROLE_LEVELS,
@@ -3384,6 +3386,8 @@ def create_app():
         league_play_date_cubes = db.session.query(LeaguePlayDateCube).order_by(LeaguePlayDateCube.id).all()
         league_cube_votes = db.session.query(LeagueCubeVote).order_by(LeagueCubeVote.id).all()
         registration_invites = db.session.query(RegistrationInvite).order_by(RegistrationInvite.id).all()
+        scope_assignments = db.session.query(ScopeAssignment).order_by(ScopeAssignment.id).all()
+        permission_grants = db.session.query(PermissionGrant).order_by(PermissionGrant.id).all()
 
         return {
             'format': BACKUP_FORMAT,
@@ -3421,6 +3425,27 @@ def create_app():
                     'permission_overrides': u.permission_overrides_dict(),
                 }
                 for u in users
+            ],
+            'scope_assignments': [
+                {
+                    'user_id': assignment.user_id,
+                    'scope_type': assignment.scope_type,
+                    'scope_id': assignment.scope_id,
+                    'source': assignment.source,
+                }
+                for assignment in scope_assignments
+            ],
+            'permission_grants': [
+                {
+                    'user_id': grant.user_id,
+                    'role_id': grant.role_id,
+                    'permission': grant.permission,
+                    'effect': grant.effect,
+                    'scope_type': grant.scope_type,
+                    'scope_id': grant.scope_id,
+                    'granted_by_id': grant.granted_by_id,
+                }
+                for grant in permission_grants
             ],
             'leagues': [
                 {
@@ -3688,7 +3713,7 @@ def create_app():
         if payload.get('version') != 1:
             raise ValueError('Unsupported backup version.')
 
-        counts = {key: 0 for key in ['roles', 'users', 'leagues', 'venues', 'vendors', 'artists', 'tournaments', 'players', 'decks', 'join_requests', 'rounds', 'matches', 'league_players', 'league_results', 'league_cubes', 'league_play_dates', 'league_play_date_cubes', 'league_cube_votes', 'registration_invites']}
+        counts = {key: 0 for key in ['roles', 'users', 'scope_assignments', 'permission_grants', 'leagues', 'venues', 'vendors', 'artists', 'tournaments', 'players', 'decks', 'join_requests', 'rounds', 'matches', 'league_players', 'league_results', 'league_cubes', 'league_play_dates', 'league_play_date_cubes', 'league_cube_votes', 'registration_invites']}
         role_map = {}
         user_map = {}
         league_map = {}
@@ -4106,6 +4131,51 @@ def create_app():
                 lr.deck_archetype = item.get('deck_archetype')
                 lr.imported_at = parse_iso_datetime(item.get('imported_at')) or lr.imported_at
                 counts['league_results'] += 1
+
+        def restored_scope_id(scope_type, old_id):
+            if scope_type in (None, 'global'):
+                return None
+            mapping = {'venue': venue_map, 'league': league_map, 'tournament': tournament_map}.get(scope_type, {})
+            resource = mapping.get(old_id)
+            return resource.id if resource else None
+
+        for item in payload.get('scope_assignments', []):
+            user = user_map.get(item.get('user_id'))
+            scope_type = item.get('scope_type')
+            scope_id = restored_scope_id(scope_type, item.get('scope_id'))
+            if not user or scope_type not in ('global', 'venue', 'league', 'tournament') or (scope_type != 'global' and not scope_id):
+                continue
+            assignment = db.session.query(ScopeAssignment).filter_by(
+                user_id=user.id, scope_type=scope_type, scope_id=scope_id
+            ).first()
+            if not assignment:
+                db.session.add(ScopeAssignment(
+                    user=user, scope_type=scope_type, scope_id=scope_id,
+                    source=item.get('source') or 'explicit',
+                ))
+                counts['scope_assignments'] += 1
+
+        for item in payload.get('permission_grants', []):
+            user = user_map.get(item.get('user_id'))
+            role = role_map.get(item.get('role_id'))
+            scope_type = item.get('scope_type')
+            scope_id = restored_scope_id(scope_type, item.get('scope_id'))
+            if bool(user) == bool(role) or scope_type not in (None, 'global', 'venue', 'league', 'tournament') or (scope_type not in (None, 'global') and not scope_id):
+                continue
+            filters = {
+                'user_id': user.id if user else None,
+                'role_id': role.id if role else None,
+                'permission': item.get('permission'),
+                'scope_type': scope_type,
+                'scope_id': scope_id,
+            }
+            grant = db.session.query(PermissionGrant).filter_by(**filters).first()
+            if not grant:
+                grant = PermissionGrant(**filters)
+                db.session.add(grant)
+                counts['permission_grants'] += 1
+            grant.effect = item.get('effect') if item.get('effect') in ('allow', 'deny') else 'allow'
+            grant.granted_by = user_map.get(item.get('granted_by_id'))
 
         db.session.commit()
         return counts
