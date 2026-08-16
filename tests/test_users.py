@@ -1,4 +1,5 @@
 import json
+import pytest
 from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
 
@@ -6,7 +7,7 @@ from sqlalchemy import text
 
 from app.app import db
 
-from app.models import SiteLog, User, Role
+from app.models import League, LeaguePlayer, PermissionGrant, ScopeAssignment, SiteLog, Tournament, TournamentPlayer, User, Role
 
 
 def test_user_crud(session):
@@ -56,6 +57,81 @@ def test_user_permission_overrides(session):
     fetched = session.query(User).filter_by(email='override@example.com').one()
     assert fetched.has_permission('admin.panel')
     assert not fetched.has_permission('users.manage')
+
+
+def test_scopes_are_derived_and_inherit_down_to_tournaments(session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    player = User(email='scoped-player@example.com', name='Scoped Player', role=user_role)
+    league = League(name='Scoped League')
+    tournament = Tournament(name='Scoped Tournament', format='Commander', league=league)
+    session.add_all([player, league, tournament])
+    session.flush()
+    session.add(LeaguePlayer(user_id=player.id, league_id=league.id))
+    session.commit()
+
+    assert player.has_scope('league', league.id)
+    assert player.has_scope('tournament', tournament.id)
+    assert not player.has_scope('global')
+
+
+def test_tournament_relationships_only_derive_tournament_scope(session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    player = User(email='tournament-player@example.com', name='Tournament Player', role=user_role)
+    judge = User(email='tournament-judge@example.com', name='Tournament Judge', role=user_role)
+    league = League(name='Parent League')
+    tournament = Tournament(name='Child Tournament', format='Commander', league=league, head_judge=judge)
+    session.add_all([player, judge, tournament])
+    session.flush()
+    session.add(TournamentPlayer(user_id=player.id, tournament_id=tournament.id))
+    session.commit()
+
+    assert player.has_scope('tournament', tournament.id)
+    assert judge.has_scope('tournament', tournament.id)
+    assert not player.has_scope('league', league.id)
+    assert not judge.has_scope('league', league.id)
+
+
+def test_scoped_grants_obey_inheritance_and_specific_precedence(session):
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    manager = User(email='scope-manager@example.com', name='Scope Manager', role=manager_role)
+    league = League(name='Grant League')
+    tournament = Tournament(name='Grant Tournament', format='Commander', league=league)
+    session.add_all([manager, league, tournament])
+    session.flush()
+    session.add(ScopeAssignment(user=manager, scope_type='league', scope_id=league.id))
+    session.add_all([
+        PermissionGrant(user=manager, permission='tournaments.manage', effect='allow', scope_type='league', scope_id=league.id),
+        PermissionGrant(user=manager, permission='tournaments.manage', effect='deny', scope_type='tournament', scope_id=tournament.id),
+    ])
+    session.commit()
+
+    assert manager.has_permission('tournaments.manage', 'league', league.id)
+    assert not manager.has_permission('tournaments.manage', 'tournament', tournament.id)
+
+
+def test_non_admin_cannot_escalate_scope_role_or_permissions(session):
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    manager = User(email='grantor@example.com', name='Grantor', role=manager_role)
+    admin = User(email='grant-admin@example.com', name='Grant Admin', role=admin_role, is_admin=True)
+    target = User(email='grant-target@example.com', name='Grant Target', role=user_role)
+    league = League(name='Grant Boundary')
+    session.add_all([manager, admin, target, league])
+    session.flush()
+    session.add(ScopeAssignment(user=manager, scope_type='league', scope_id=league.id))
+    session.commit()
+
+    manager.grant_permission(target, 'tournaments.manage', 'league', league.id)
+    assert target.permission_grants[0].effect == 'allow'
+    manager.grant_permission(target, 'accounts.register', None)
+    assert target.has_permission('accounts.register')
+    with pytest.raises(PermissionError):
+        manager.assign_scope(admin, 'league', league.id)
+    with pytest.raises(PermissionError):
+        manager.assign_scope(target, 'global')
+    with pytest.raises(PermissionError):
+        manager.grant_permission(target, 'admin.panel', 'league', league.id)
 
 
 def test_default_role_levels(session):
