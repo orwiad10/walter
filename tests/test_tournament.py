@@ -471,7 +471,7 @@ def test_bulk_register_adds_existing_users(client, session):
 def test_bulk_edit_tournament_controls_stay_bound_to_bulk_form(client, session):
     bulk_role = Role(
         name='bulk form manager',
-        permissions=json.dumps({'tournaments.bulk_manage': True, 'tournaments.manage': True}),
+        permissions=json.dumps({'accounts.authenticate': True, 'tournaments.bulk_manage': True, 'tournaments.manage': True}),
         level=100,
     )
     user = User(email='bulk-form-manager@example.com', name='Bulk Form Manager', role=bulk_role)
@@ -528,7 +528,7 @@ def test_tournament_manager_can_bulk_add_tournament_to_venue(client, session):
 def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session):
     bulk_role = Role(
         name='bulk venue manager',
-        permissions=json.dumps({'tournaments.bulk_manage': True, 'venues.manage': True}),
+        permissions=json.dumps({'accounts.authenticate': True, 'tournaments.bulk_manage': True, 'venues.manage': True}),
         level=100,
     )
     user = User(email='bulk-venue-manager@example.com', name='Bulk Venue Manager', role=bulk_role)
@@ -556,7 +556,7 @@ def test_bulk_edit_tournaments_adds_selected_tournament_to_venue(client, session
 def test_bulk_edit_tournaments_adds_multiple_unique_tournaments_to_venue(client, session):
     bulk_role = Role(
         name='bulk multi venue manager',
-        permissions=json.dumps({'tournaments.bulk_manage': True, 'venues.manage': True}),
+        permissions=json.dumps({'accounts.authenticate': True, 'tournaments.bulk_manage': True, 'venues.manage': True}),
         level=100,
     )
     user = User(email='bulk-multi-venue-manager@example.com', name='Bulk Multi Venue Manager', role=bulk_role)
@@ -586,7 +586,7 @@ def test_bulk_edit_tournaments_adds_multiple_unique_tournaments_to_venue(client,
 def test_bulk_edit_tournaments_ignores_duplicate_tournament_ids(client, session):
     bulk_role = Role(
         name='bulk duplicate venue manager',
-        permissions=json.dumps({'tournaments.bulk_manage': True, 'venues.manage': True}),
+        permissions=json.dumps({'accounts.authenticate': True, 'tournaments.bulk_manage': True, 'venues.manage': True}),
         level=100,
     )
     user = User(email='bulk-duplicate-venue-manager@example.com', name='Bulk Duplicate Venue Manager', role=bulk_role)

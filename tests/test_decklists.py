@@ -375,7 +375,7 @@ def test_deck_changes_locked_prevents_updates(client, session, user):
     assert tp.deck is None
 
 
-def test_floor_judge_can_view_player_deck(client, session, user):
+def test_event_head_judge_can_view_player_deck(client, session, user):
     tournament = create_tournament(session)
     tp = register_player(session, tournament, user)
     deck = TournamentPlayerDeck(
@@ -388,8 +388,8 @@ def test_floor_judge_can_view_player_deck(client, session, user):
     session.add(deck)
     session.commit()
 
-    judge_role = session.query(Role).filter_by(name='floor judge').first()
-    judge = User(email='judge@example.com', name='Floor Judge', role=judge_role)
+    judge_role = session.query(Role).filter_by(name='event head judge').first()
+    judge = User(email='judge@example.com', name='Event Head Judge', role=judge_role)
     judge.set_password('secret')
     session.add(judge)
     session.commit()

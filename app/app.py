@@ -1175,7 +1175,8 @@ def create_app():
         invite_token = request.values.get('invite', '').strip()
         invite = _valid_registration_invite(invite_token)
         mode = registration_mode()
-        if request.method == 'GET' and mode == 'closed':
+        can_register_account = current_user.is_authenticated and current_user.has_permission('accounts.register')
+        if request.method == 'GET' and mode == 'closed' and not can_register_account:
             flash('Registration is currently closed. Contact an administrator for access.', 'error')
         if request.method == 'POST':
             email = request.form['email'].strip().lower()
@@ -1197,7 +1198,7 @@ def create_app():
                 log_site('register', 'failure', 'email exists')
                 return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
             mode = registration_mode()
-            if mode == 'closed':
+            if mode == 'closed' and not can_register_account:
                 flash('Registration is currently closed.', 'error')
                 log_site('register', 'failure', 'registration closed')
                 return redirect(url_for('register'))
@@ -1211,7 +1212,7 @@ def create_app():
                     flash("Selected tournament was not found", "error")
                     log_site('register', 'failure', 'invalid tournament selection')
                     return redirect(url_for('register', invite=invite_token) if invite_token else url_for('register'))
-            if mode == 'invite_only' and not invite:
+            if mode == 'invite_only' and not invite and not can_register_account:
                 flash('Account creation is invite only. Use the invite link sent by an administrator.', 'error')
                 log_site('register', 'failure', 'invite required')
                 return redirect(url_for('register'))
@@ -1361,6 +1362,9 @@ def create_app():
                 _safe_log_site('login', 'failure', 'account locked')
                 return render_template('login.html')
             if u and u.check_password(password):
+                if not u.has_permission('accounts.authenticate'):
+                    _safe_log_site('login', 'failure', 'missing accounts.authenticate')
+                    abort(403)
                 u.failed_login_count = 0
                 u.lock_reason = None
                 db.session.commit()
@@ -1428,6 +1432,8 @@ def create_app():
             log_site('password_reset', 'failure', f'invalid or expired token; ip={_client_ip()}')
             flash('Password reset link is invalid or expired.', 'error')
             return redirect(url_for('password_reset_request'))
+        if reset.user.locked_at or not reset.user.has_permission('accounts.authenticate'):
+            abort(403)
         if request.method == 'POST':
             password = request.form.get('password', '')
             password_confirm = request.form.get('password_confirm', '')
@@ -1444,6 +1450,7 @@ def create_app():
         return render_template('password_reset_form.html', token=token)
 
     @app.route('/t/<int:tid>/join-link')
+    @login_required
     def tournament_join_link(tid):
         from .models import Tournament, TournamentPlayer
         t = db.session.get(Tournament, tid)
@@ -1462,6 +1469,7 @@ def create_app():
         return render_template('tournament/join_link.html', t=t, join_url=join_url, qr_url=qr_url, is_player=is_player, registration_mode=registration_mode())
 
     @app.route('/t/<int:tid>/join-qr.png')
+    @login_required
     def tournament_join_qr(tid):
         import qrcode
 
@@ -1590,6 +1598,7 @@ def create_app():
     @app.route('/messages')
     @login_required
     def messages_home():
+        require_permission('messages.use')
         judge_access = current_user.has_permission('tournaments.manage')
         admin_access = current_user.has_permission('admin.panel')
         return render_template('messages/index.html', judge_access=judge_access, admin_access=admin_access)
@@ -1598,6 +1607,7 @@ def create_app():
     @app.route('/messages/inbox')
     @login_required
     def messages_inbox():
+        require_permission('messages.use')
         from .models import Message
         private_key = load_private_key_from_session()
         msgs = []
@@ -1629,6 +1639,7 @@ def create_app():
     @app.route('/messages/sent')
     @login_required
     def messages_sent():
+        require_permission('messages.use')
         from .models import Message
 
         private_key = load_private_key_from_session()
@@ -1665,6 +1676,7 @@ def create_app():
     @app.route('/messages/send', methods=['GET', 'POST'])
     @login_required
     def send_message():
+        require_permission('messages.use')
         from .models import User
         if request.method == 'POST':
             recipient_id_raw = request.form.get('recipient_id', '').strip()
@@ -1695,6 +1707,7 @@ def create_app():
     @app.route('/messages/view/<int:mid>')
     @login_required
     def view_message(mid):
+        require_permission('messages.use')
         from .models import Message
 
         msg = db.session.get(Message, mid)
@@ -1732,6 +1745,7 @@ def create_app():
     @app.route('/messages/<int:mid>/reply', methods=['POST'])
     @login_required
     def reply_message(mid):
+        require_permission('messages.use')
         from .models import Message
 
         msg = db.session.get(Message, mid)
@@ -1846,6 +1860,7 @@ def create_app():
     @app.route('/api/users/search')
     @login_required
     def api_user_search():
+        require_permission('users.search')
         term = (request.args.get('q') or '').strip()
         results = []
         if term:
@@ -1868,6 +1883,7 @@ def create_app():
     @app.route('/api/messages/unread')
     @login_required
     def api_unread_messages():
+        require_permission('messages.use')
         count = (
             db.session.query(Message)
             .filter_by(recipient_id=current_user.id, is_read=False)
@@ -2134,6 +2150,7 @@ def create_app():
     @app.route('/settings', methods=['GET', 'POST'])
     @login_required
     def user_settings():
+        require_permission('accounts.manage_self')
         new_api_key = None
         new_discord_pass = None
         if request.method == 'POST':
@@ -2182,6 +2199,7 @@ def create_app():
     @app.route('/settings/api-keys/<int:key_id>/revoke', methods=['POST'])
     @login_required
     def revoke_api_key(key_id):
+        require_permission('accounts.api_keys.revoke_self')
         key = db.session.get(ApiKey, key_id)
         if not key or key.user_id != current_user.id:
             abort(404)
@@ -2665,6 +2683,7 @@ def create_app():
     @app.route('/reports', methods=['GET', 'POST'])
     @login_required
     def submit_report():
+        require_permission('reports.submit')
         if request.method == 'POST':
             report_type = request.form.get('report_type')
             description = (request.form.get('description') or '').strip()
@@ -2797,6 +2816,7 @@ def create_app():
     @app.route('/cube-cobra-image')
     @login_required
     def cube_cobra_image():
+        require_permission('media.view')
         image_url = request.args.get('url', '').strip()
         if not is_allowed_cube_preview_image_url(image_url):
             abort(404)
@@ -2829,6 +2849,7 @@ def create_app():
     @app.route('/media/<path:filename>')
     @login_required
     def media_file(filename):
+        require_permission('media.view')
         media_dir = app.config.get('MEDIA_STORAGE_DIR')
         if not media_dir:
             abort(404)
@@ -3269,15 +3290,9 @@ def create_app():
         """Return True if ``user`` may view decks for ``tournament``."""
         if not user or not getattr(user, 'is_authenticated', False):
             return False
-        if hasattr(user, 'has_permission') and user.has_permission('tournaments.manage'):
+        if hasattr(user, 'has_permission') and user.has_permission('decks.view'):
             return True
-        if assigned_judge_ids is None:
-            assigned = set(tournament.floor_judge_ids() or [])
-            if tournament.head_judge_id:
-                assigned.add(tournament.head_judge_id)
-        else:
-            assigned = set(assigned_judge_ids)
-        return user.id in assigned
+        return False
 
     def deck_modifications_locked(tournament):
         from .models import Round  # lazy import
@@ -5062,6 +5077,7 @@ def create_app():
     @app.route('/my-leagues')
     @login_required
     def my_leagues():
+        require_permission('leagues.view')
         memberships = (
             db.session.query(LeaguePlayer)
             .join(League)
@@ -5074,6 +5090,7 @@ def create_app():
     @app.route('/leagues/<int:league_id>')
     @login_required
     def view_league(league_id):
+        require_permission('leagues.view')
         league = db.session.get(League, league_id)
         if not league:
             abort(404)
@@ -5128,6 +5145,7 @@ def create_app():
     @app.route('/leagues/<int:league_id>/cubes', methods=['GET', 'POST'])
     @login_required
     def league_cube_voting(league_id):
+        require_permission('leagues.cube_vote')
         league = db.session.get(League, league_id)
         if not league or not league.is_cube_league:
             abort(404)
@@ -5749,6 +5767,7 @@ def create_app():
     @app.route('/my-tournaments')
     @login_required
     def my_tournaments():
+        require_permission('tournaments.view_self')
         entries = (
             db.session.query(TournamentPlayer)
             .join(Tournament)
@@ -5766,6 +5785,7 @@ def create_app():
         )
 
     @app.route('/t/<int:tid>')
+    @login_required
     def view_tournament(tid):
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
@@ -5868,6 +5888,7 @@ def create_app():
     @app.route('/t/<int:tid>/decklists')
     @login_required
     def tournament_decklists(tid):
+        require_permission('decks.view')
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
@@ -5952,7 +5973,7 @@ def create_app():
         if not t:
             abort(404)
         tp = get_player_entry(tid, current_user.id)
-        if not tp and not current_user.has_permission('tournaments.manage'):
+        if not tp or not current_user.has_permission('decks.manage_self'):
             abort(403)
         query = (request.args.get('q') or '').strip()
         if len(query) < 2:
@@ -5973,6 +5994,7 @@ def create_app():
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
+        require_permission('decks.manage_self')
         tp = get_player_entry(tid, current_user.id)
         if not tp:
             abort(403)
@@ -6056,6 +6078,7 @@ def create_app():
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
+        require_permission('decks.manage_self')
         tp = get_player_entry(tid, current_user.id)
         if not tp:
             abort(403)
@@ -6109,6 +6132,7 @@ def create_app():
     def upload_deck_image(tid):
         from .models import Tournament
 
+        require_permission('decks.manage_self')
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
@@ -6136,6 +6160,7 @@ def create_app():
     def delete_deck_image(tid):
         from .models import Tournament
 
+        require_permission('decks.manage_self')
         t = db.session.get(Tournament, tid)
         if not t:
             abort(404)
@@ -6495,6 +6520,7 @@ def create_app():
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/draft-seating')
+    @login_required
     def draft_seating(tid):
         t = db.session.get(Tournament, tid)
         if not t or t.format != 'Draft':
@@ -6785,6 +6811,7 @@ def create_app():
         return redirect(url_for('view_tournament', tid=tid))
 
     @app.route('/t/<int:tid>/round/<int:rid>')
+    @login_required
     def view_round(tid, rid):
         r = db.session.get(Round, rid)
         if not r or r.tournament_id != tid:
@@ -6826,12 +6853,15 @@ def create_app():
         from .models import TournamentPlayer, MatchResult
         # Only participants or tournament managers can report
         t = m.round.tournament
-        if not current_user.has_permission('tournaments.manage') and current_user.id not in (
+        is_participant = current_user.id in (
             m.player1.user_id,
             m.player2.user_id if m.player2_id else None,
             m.player3.user_id if m.player3_id else None,
             m.player4.user_id if m.player4_id else None,
-        ):
+        )
+        if is_participant:
+            require_permission('matches.report_self')
+        elif not current_user.has_permission('tournaments.manage'):
             abort(403)
         next_round = db.session.query(Round).filter(Round.tournament_id==t.id, Round.number>m.round.number).first()
         if next_round:
@@ -6916,6 +6946,7 @@ def create_app():
         return render_template('match/report.html', m=m, t=t)
 
     @app.route('/t/<int:tid>/standings')
+    @login_required
     def standings(tid):
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
@@ -6946,6 +6977,7 @@ def create_app():
                                timer_remaining=timer_remaining, server_now=datetime.utcnow())
 
     @app.route('/t/<int:tid>/bracket')
+    @login_required
     def bracket(tid):
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
