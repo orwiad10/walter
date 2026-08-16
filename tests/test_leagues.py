@@ -91,6 +91,47 @@ def test_cube_league_votes_are_limited_to_three_per_play_date(client, session):
     assert [vote.votes for vote in votes] == [2, 1]
 
 
+def test_cube_owner_can_add_owned_cube_to_existing_ballot(client, session):
+    owner = _user(session, 'cube-owner@example.com', 'Cube Owner')
+    other = _user(session, 'other-owner@example.com', 'Other Owner')
+    league = League(name='Owner League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    owned_cube = LeagueCube(
+        league_id=league.id,
+        owner_id=owner.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/owned',
+        title='Owned Cube With A Long But Neatly Wrapped Name',
+    )
+    other_cube = LeagueCube(
+        league_id=league.id,
+        owner_id=other.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/other',
+        title='Other Cube',
+    )
+    play_date = LeaguePlayDate(league_id=league.id, play_date=date(2026, 10, 1), is_active=True)
+    session.add_all([owned_cube, other_cube, play_date])
+    session.commit()
+
+    # Ownership grants ballot access even when the owner is not a league player.
+    assert client.post('/login', data={'email': owner.email, 'password': 'secret'}).status_code == 302
+    response = client.post(
+        f'/leagues/{league.id}/cubes',
+        data={'action': 'add_owned_cube', 'cube_id': owned_cube.id, 'play_date_id': play_date.id},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b'Your cube was added to the ballot.' in response.data
+    assert session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id, cube_id=owned_cube.id).count() == 1
+
+    response = client.post(
+        f'/leagues/{league.id}/cubes',
+        data={'action': 'add_owned_cube', 'cube_id': other_cube.id, 'play_date_id': play_date.id},
+    )
+    assert response.status_code == 403
+
+
 def test_admin_can_remove_league_event_ballot_and_votes(client, session):
     admin = _user(session, 'league-event-admin@example.com', 'League Event Admin', 'admin', True)
     player = _user(session, 'league-event-voter@example.com', 'League Event Voter')

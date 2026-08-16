@@ -941,9 +941,11 @@ class LeagueCube(db.Model):
     cube_cobra_url = db.Column(db.Text, nullable=False)
     title = db.Column(db.String(250), nullable=False)
     image_url = db.Column(db.Text, nullable=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
     league = db.relationship('League', backref=db.backref('cubes', cascade='all, delete-orphan'))
+    owner = db.relationship('User')
 
 
 class LeaguePlayDate(db.Model):

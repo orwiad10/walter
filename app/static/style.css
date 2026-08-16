@@ -2432,6 +2432,35 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
   font-size: 0.88rem;
 }
 
+.cube-owner-form,
+.owner-ballot-form {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.65rem;
+}
+
+.cube-owner-form label,
+.owner-ballot-form label {
+  min-width: 0;
+  flex: 1 1 12rem;
+  overflow-wrap: anywhere;
+}
+
+.cube-owner-form select,
+.owner-ballot-form select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.cube-owner-form .btn,
+.owner-ballot-form .btn {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 520px) {
   .cube-preview-card {
     grid-template-columns: 1fr;
