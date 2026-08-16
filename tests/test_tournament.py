@@ -7,7 +7,13 @@ from sqlalchemy.dialects import mysql
 
 from app.app import db
 from app.models import Tournament, User, TournamentPlayer, Role, Round, Match, MatchResult, Venue, SiteLog, TournamentLog
-from app.pairing import pair_round, compute_standings, draft_seating_tables, seeded_cut_pairs
+from app.pairing import (
+    _big_x_little_x_pairs,
+    pair_round,
+    compute_standings,
+    draft_seating_tables,
+    seeded_cut_pairs,
+)
 from datetime import datetime
 
 
@@ -278,6 +284,22 @@ def _add_tournament_players(session, tournament, count, prefix):
     return players
 
 
+def test_big_x_little_x_uses_greatest_ring_distance_for_every_pod_size_through_eight():
+    expected = {
+        1: [(0, None)],
+        2: [(0, 1)],
+        3: [(0, 1), (2, None)],
+        4: [(0, 2), (1, 3)],
+        5: [(0, 2), (1, 3), (4, None)],
+        6: [(0, 3), (1, 4), (2, 5)],
+        7: [(0, 3), (1, 4), (2, 5), (6, None)],
+        8: [(0, 4), (1, 5), (2, 6), (3, 7)],
+    }
+
+    for player_count, pairs in expected.items():
+        assert _big_x_little_x_pairs(list(range(player_count))) == pairs
+
+
 def test_draft_round_one_uses_big_x_little_x_from_saved_seating(session):
     tournament = Tournament(name='Draft Seating Event', format='Draft')
     session.add(tournament)
@@ -301,7 +323,7 @@ def test_draft_round_one_uses_big_x_little_x_from_saved_seating(session):
     ]
 
 
-def test_draft_round_one_uses_big_x_little_x_for_each_pod_with_partial_pod(session, monkeypatch):
+def test_draft_round_one_uses_big_x_little_x_for_each_pod_with_partial_pod(session):
     tournament = Tournament(name='Partial Pod Draft Event', format='Draft')
     session.add(tournament)
     session.commit()
@@ -313,8 +335,6 @@ def test_draft_round_one_uses_big_x_little_x_for_each_pod_with_partial_pod(sessi
         ]
     })
     session.commit()
-    monkeypatch.setattr('app.pairing.random.randrange', lambda stop: 0)
-
     rnd = Round(tournament_id=tournament.id, number=1)
     session.add(rnd)
     session.commit()
@@ -328,9 +348,57 @@ def test_draft_round_one_uses_big_x_little_x_for_each_pod_with_partial_pod(sessi
         (players[2].id, players[6].id),
         (players[3].id, players[7].id),
         (players[8].id, players[11].id),
-        (players[12].id, players[9].id),
+        (players[9].id, players[12].id),
         (players[10].id, players[13].id),
         (players[14].id, None),
+    ]
+
+
+def test_draft_round_one_pairs_randomly_across_complete_pods(session):
+    tournament = Tournament(name='Multi Pod Draft Event', format='Draft')
+    session.add(tournament)
+    session.commit()
+    players = _add_tournament_players(session, tournament, 24, 'draftmultipod')
+    pods = [players[:8], players[8:16], players[16:]]
+    tournament.pairing_options = json.dumps({
+        'draft_seating': [[player.id for player in pod] for pod in pods]
+    })
+    session.commit()
+
+    rnd = Round(tournament_id=tournament.id, number=1)
+    session.add(rnd)
+    session.commit()
+
+    random.seed(12)
+    matches = pair_round(tournament, rnd, session)
+    pod_by_player = {
+        player.id: pod_index
+        for pod_index, pod in enumerate(pods)
+        for player in pod
+    }
+
+    assert len(matches) == 12
+    assert all(pod_by_player[match.player1_id] != pod_by_player[match.player2_id] for match in matches)
+
+
+def test_sealed_round_one_uses_big_x_little_x_for_eight_or_fewer_players(session):
+    tournament = Tournament(name='Small Sealed Event', format='Sealed')
+    session.add(tournament)
+    session.commit()
+    players = _add_tournament_players(session, tournament, 7, 'sealedpairing')
+
+    rnd = Round(tournament_id=tournament.id, number=1)
+    session.add(rnd)
+    session.commit()
+
+    matches = pair_round(tournament, rnd, session)
+    pairs = [(match.player1_id, match.player2_id) for match in sorted(matches, key=lambda m: m.table_number)]
+
+    assert pairs == [
+        (players[0].id, players[3].id),
+        (players[1].id, players[4].id),
+        (players[2].id, players[5].id),
+        (players[6].id, None),
     ]
 
 

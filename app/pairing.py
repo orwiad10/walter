@@ -194,34 +194,41 @@ def draft_seating_tables(t: Tournament, session, *, include_dropped=True):
     return _draft_seating_tables(t, query.all(), session)
 
 
-def _partial_draft_pod_pairs(pod):
-    circle = pod[:]
-    pairs = []
-    idx = random.randrange(len(circle))
-    while len(circle) > 1:
-        first = circle.pop(idx)
-        opponent_idx = (idx + 2) % len(circle)
-        opponent = circle.pop(opponent_idx)
-        pairs.append((first, opponent))
-        if circle:
-            idx = opponent_idx % len(circle)
-    if circle:
-        pairs.append((circle[0], None))
-    return pairs
-
-
 def _big_x_little_x_pairs(pod):
     if len(pod) <= 1:
         return [(pod[0], None)] if pod else []
-    if len(pod) < 8:
-        return _partial_draft_pod_pairs(pod)
 
-    return [(pod[i], pod[i + 4]) for i in range(4)]
+    half = len(pod) // 2
+    pairs = [(pod[i], pod[i + half]) for i in range(half)]
+    if len(pod) % 2:
+        pairs.append((pod[-1], None))
+    return pairs
+
+
+def _cross_pod_pairs(pods):
+    """Randomly pair complete draft pods without creating an in-pod match."""
+    remaining = [pod[:] for pod in pods]
+    for pod in remaining:
+        random.shuffle(pod)
+
+    pairs = []
+    while any(remaining):
+        pod_indexes = list(range(len(remaining)))
+        random.shuffle(pod_indexes)
+        pod_indexes.sort(key=lambda index: len(remaining[index]), reverse=True)
+        first_pod, second_pod = pod_indexes[:2]
+        pairs.append((remaining[first_pod].pop(), remaining[second_pod].pop()))
+    return pairs
 
 
 def _draft_round_one_pairs(t: Tournament, players, session):
-    pairs = []
-    for pod in _draft_seating_tables(t, players, session):
+    pods = _draft_seating_tables(t, players, session)
+    complete_pods = [pod for pod in pods if len(pod) == 8]
+    pairs = _cross_pod_pairs(complete_pods) if len(complete_pods) > 1 else []
+    paired_pod_ids = {id(pod) for pod in complete_pods} if len(complete_pods) > 1 else set()
+    for pod in pods:
+        if id(pod) in paired_pod_ids:
+            continue
         pairs.extend(_big_x_little_x_pairs(pod))
     return pairs
 
@@ -232,8 +239,14 @@ def swiss_pair_round(t: Tournament, r: Round, session):
     if r.number == 1:
         table = t.start_table_number or 1
         created = []
-        if t.format.lower() == 'draft' and group_size == 2:
-            pairings = _draft_round_one_pairs(t, players, session)
+        limited_format = (t.format or '').lower()
+        if limited_format in ('draft', 'sealed') and group_size == 2 and (
+            limited_format == 'draft' or len(players) <= 8
+        ):
+            if limited_format == 'draft':
+                pairings = _draft_round_one_pairs(t, players, session)
+            else:
+                pairings = _big_x_little_x_pairs(sorted(players, key=lambda player: player.id))
             for p1, p2 in pairings:
                 m = Match(round_id=r.id, table_number=table,
                           player1_id=p1.id,
