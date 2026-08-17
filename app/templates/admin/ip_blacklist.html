@@ -27,4 +27,22 @@
   <tr><td colspan="6">No blacklisted IP addresses.</td></tr>
   {% endfor %}
 </table>
+<section class="panel-card">
+  <div class="section-heading"><div><h3>Banned browser fingerprints</h3><p>Fingerprints are banned with their associated IP so the same browser remains blocked if its address changes.</p></div></div>
+  <table>
+    <tr><th>Fingerprint</th><th>Associated IP</th><th>Status</th><th>Reason</th><th>Created</th><th>Created By</th></tr>
+    {% for item in fingerprints %}
+    <tr>
+      <td><code>{{ item.fingerprint }}</code></td>
+      <td>{{ item.source_ip or '' }}</td>
+      <td>{{ 'Active' if item.is_active else 'Inactive' }}</td>
+      <td>{{ item.reason or '' }}</td>
+      <td>{{ item.created_at }}</td>
+      <td>{{ item.created_by.name if item.created_by else '' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No banned browser fingerprints.</td></tr>
+    {% endfor %}
+  </table>
+</section>
 {% endblock %}

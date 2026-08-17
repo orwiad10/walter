@@ -532,6 +532,18 @@ class BlacklistedIP(db.Model):
     created_by = db.relationship('User')
 
 
+class BlacklistedFingerprint(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    fingerprint = db.Column(db.String(64), unique=True, nullable=False)
+    source_ip = db.Column(db.String(64), nullable=True)
+    reason = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    created_by = db.relationship('User')
+
+
 class SiteSetting(db.Model):
     key = db.Column(db.String(100), primary_key=True)
     value = db.Column(db.Text, nullable=False, default='')
