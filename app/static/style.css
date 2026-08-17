@@ -2529,3 +2529,84 @@ html[data-theme="dark"] .tournament-control-box .rounds-form {
 .deck-submitted-at { color:var(--muted-text); font-size:0.9rem; }
 .player-replace-details summary { cursor:pointer; font-weight:700; }
 .player-replace-details select { min-width:180px; }
+
+/* Streamlined issue reporting */
+.report-page {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+.report-page .report-grid {
+  align-items: start;
+  gap: 24px;
+}
+.report-page .report-section {
+  position: relative;
+  margin: 0;
+  padding: 28px;
+  overflow: hidden;
+}
+.report-page .report-section::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--brand-primary);
+}
+.report-page .report-card--player::before { background: var(--brand-accent); }
+.report-card__header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.report-card__header h3 { margin: 2px 0 0; }
+.report-card__number {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 50%;
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--brand-primary-dark);
+  font-weight: 800;
+}
+.report-card--player .report-card__number {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--brand-accent-dark);
+}
+.report-card__intro {
+  min-height: 48px;
+  margin: 0 0 22px;
+  color: var(--brand-muted);
+}
+.report-page label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 700;
+}
+.report-page textarea,
+.report-page input[type="text"] { width: 100%; }
+.report-page .user-lookup-results {
+  max-width: none;
+  margin-top: -14px;
+}
+.report-privacy-note {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--brand-muted);
+}
+.report-privacy-note strong {
+  flex: 0 0 auto;
+  color: var(--brand-text);
+}
+@media (max-width: 640px) {
+  .report-page .report-section { padding: 22px; }
+  .report-privacy-note { flex-direction: column; }
+}

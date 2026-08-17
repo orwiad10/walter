@@ -4857,6 +4857,8 @@ def create_app():
         tournaments = db.session.query(Tournament).order_by(Tournament.start_time).all()
         data = []
         for t in tournaments:
+            if tournament_is_complete(t):
+                continue
             floor = []
             ids = t.floor_judge_ids()
             if ids:
@@ -5670,7 +5672,32 @@ def create_app():
         logs = db.session.query(ApiLog).order_by(ApiLog.timestamp.desc()).limit(500).all()
         user_ids = {log.api_user_id for log in logs if log.api_user_id}
         users = {u.id: u for u in db.session.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
-        return render_template('admin/api_logs.html', logs=logs, users=users)
+        active_blacklisted_ips = {
+            item.ip_address
+            for item in db.session.query(BlacklistedIP).filter_by(is_active=True).all()
+        }
+        return render_template(
+            'admin/api_logs.html',
+            logs=logs,
+            users=users,
+            active_blacklisted_ips=active_blacklisted_ips,
+        )
+
+    @app.route('/admin/api-logs/blacklist', methods=['POST'])
+    def admin_blacklist_api_log_ip():
+        require_admin()
+        ip_address = (request.form.get('ip_address') or '').strip()
+        try:
+            ip_address = str(ipaddress.ip_address(ip_address))
+        except ValueError:
+            flash('The API log does not contain a valid IP address.', 'error')
+            return redirect(url_for('admin_api_logs'))
+
+        _blacklist_client(ip_address, '', 'Blacklisted from API logs', current_user.id)
+        db.session.commit()
+        log_site('ip_blacklist_api_log', 'success', f'ip={ip_address}')
+        flash(f'{ip_address} has been blacklisted.', 'success')
+        return redirect(url_for('admin_api_logs'))
 
     @app.route('/admin/logs')
     def site_logs():

@@ -946,3 +946,20 @@ def test_home_active_count_matches_active_tournament_page_for_legacy_completed_t
     assert active_response.status_code == 200
     assert b'<span>Active tournaments</span><strong>0</strong>' in home_response.data
     assert b'Legacy Completed Event' not in active_response.data
+
+
+def test_staff_page_hides_completed_tournaments(session, client):
+    role_admin = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='staff-page-admin@example.com', name='Staff Admin', role=role_admin, is_admin=True)
+    admin.set_password('secret')
+    active = Tournament(name='Active Staff Event', format='Constructed')
+    complete = Tournament(name='Completed Staff Event', format='Draft', manually_completed=True)
+    session.add_all([admin, active, complete])
+    session.commit()
+
+    assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+    response = client.get('/admin/staff')
+
+    assert response.status_code == 200
+    assert b'Active Staff Event' in response.data
+    assert b'Completed Staff Event' not in response.data

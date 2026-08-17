@@ -26,7 +26,19 @@
           <td><code>{{ log.method }} {{ log.path }}{% if log.query_string %}?{{ log.query_string }}{% endif %}</code></td>
           <td>{{ log.status_code or '-' }}</td>
           <td>{% if log.api_user_id and users.get(log.api_user_id) %}{{ users.get(log.api_user_id).name }}{% elif log.api_user_id %}User #{{ log.api_user_id }}{% else %}-{% endif %}</td>
-          <td>{{ log.ip_address or '-' }}</td>
+          <td>
+            {% if log.ip_address %}
+              <code>{{ log.ip_address }}</code>
+              {% if log.ip_address in active_blacklisted_ips %}
+                <span class="status-pill danger">Blacklisted</span>
+              {% else %}
+                <form method="post" action="{{ url_for('admin_blacklist_api_log_ip') }}" class="inline-form" onsubmit="return confirm('Blacklist this IP address?');">
+                  <input type="hidden" name="ip_address" value="{{ log.ip_address }}">
+                  <button class="btn danger compact-btn" type="submit">Blacklist</button>
+                </form>
+              {% endif %}
+            {% else %}-{% endif %}
+          </td>
           <td>{% if log.duration_ms is not none %}{{ log.duration_ms }} ms{% else %}-{% endif %}</td>
           <td>
             <details>
