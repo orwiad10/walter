@@ -10,20 +10,22 @@
 
 {% if owned_cubes and play_dates|selectattr('is_active')|list %}
 <section class="panel-card owned-cube-panel">
-  <div class="section-heading"><div><h3>Add one of your cubes</h3><p>As a cube owner, you can add your cube to any open, existing League Event ballot.</p></div></div>
+  <div class="section-heading"><div><h3>Manage your ballot cubes</h3><p>Add or remove multiple owned cubes across multiple open League Event ballots.</p></div></div>
   <form method="post" class="modern-form owner-ballot-form">
-    <input type="hidden" name="action" value="add_owned_cube">
-    <label>Your cube
-      <select name="cube_id" required>
+    <label>Your cubes
+      <select name="cube_ids" multiple size="6" required>
         {% for cube in owned_cubes %}<option value="{{ cube.id }}">{{ cube.title|cube_cobra_title }}</option>{% endfor %}
       </select>
     </label>
-    <label>League Event
-      <select name="play_date_id" required>
+    <label>League Events
+      <select name="play_date_ids" multiple size="6" required>
         {% for play_date in play_dates if play_date.is_active %}<option value="{{ play_date.id }}">{{ play_date.play_date }}</option>{% endfor %}
       </select>
     </label>
-    <button class="btn" type="submit">Add to ballot</button>
+    <div class="form-actions">
+      <button class="btn" type="submit" name="action" value="add_owned_cubes">Add selected</button>
+      <button class="btn danger" type="submit" name="action" value="remove_owned_cubes" onclick="return confirm('Remove the selected cubes from these ballots? Existing votes for those cubes will also be removed.');">Remove selected</button>
+    </div>
   </form>
 </section>
 {% endif %}

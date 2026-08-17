@@ -435,6 +435,21 @@ def test_ip_blacklisted_after_ten_bad_logins(client, session, app):
     assert response.status_code == 403
 
 
+def test_ip_ban_also_blocks_browser_fingerprint(client, session, app):
+    from app.models import BlacklistedFingerprint
+
+    app.config['IP_BLACKLIST_ATTEMPTS'] = 1
+    headers = {'User-Agent': 'Fingerprint Test Browser', 'Accept-Language': 'en-Test'}
+    response = client.post('/login', data={'email': 'missing@example.com', 'password': 'wrong'}, headers=headers)
+    assert response.status_code == 200
+    fingerprint = session.query(BlacklistedFingerprint).one()
+    assert fingerprint.is_active
+    assert fingerprint.source_ip == '127.0.0.1'
+
+    response = client.get('/', headers={**headers, 'X-Forwarded-For': '203.0.113.77'})
+    assert response.status_code == 403
+
+
 def test_admin_can_view_bad_login_audit_and_export_blacklist(client, session):
     from app.models import BadLoginAttempt, BlacklistedIP
     admin_role = session.query(Role).filter_by(name='admin').one()

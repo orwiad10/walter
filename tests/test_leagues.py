@@ -132,6 +132,44 @@ def test_cube_owner_can_add_owned_cube_to_existing_ballot(client, session):
     assert response.status_code == 403
 
 
+def test_cube_owner_can_multi_add_and_remove_owned_cubes(client, session):
+    owner = _user(session, 'multi-cube-owner@example.com', 'Multi Cube Owner')
+    voter = _user(session, 'multi-cube-voter@example.com', 'Multi Cube Voter')
+    league = League(name='Multi Owner League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    cubes = [
+        LeagueCube(league_id=league.id, owner_id=owner.id, cube_cobra_url=f'https://cubecobra.com/cube/overview/owned-{number}', title=f'Owned Cube {number}')
+        for number in range(2)
+    ]
+    dates = [
+        LeaguePlayDate(league_id=league.id, play_date=date(2026, 11, number + 1), is_active=True)
+        for number in range(2)
+    ]
+    session.add_all(cubes + dates)
+    session.commit()
+
+    assert client.post('/login', data={'email': owner.email, 'password': 'secret'}).status_code == 302
+    response = client.post(f'/leagues/{league.id}/cubes', data={
+        'action': 'add_owned_cubes',
+        'cube_ids': [str(cube.id) for cube in cubes],
+        'play_date_ids': [str(play_date.id) for play_date in dates],
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert session.query(LeaguePlayDateCube).count() == 4
+
+    session.add(LeagueCubeVote(league_id=league.id, play_date_id=dates[0].id, cube_id=cubes[0].id, user_id=voter.id, votes=2))
+    session.commit()
+    response = client.post(f'/leagues/{league.id}/cubes', data={
+        'action': 'remove_owned_cubes',
+        'cube_ids': [str(cube.id) for cube in cubes],
+        'play_date_ids': [str(play_date.id) for play_date in dates],
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert session.query(LeaguePlayDateCube).count() == 0
+    assert session.query(LeagueCubeVote).count() == 0
+
+
 def test_admin_can_remove_league_event_ballot_and_votes(client, session):
     admin = _user(session, 'league-event-admin@example.com', 'League Event Admin', 'admin', True)
     player = _user(session, 'league-event-voter@example.com', 'League Event Voter')

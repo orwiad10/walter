@@ -433,6 +433,7 @@ def create_app():
             PendingRegistration,
             BadLoginAttempt,
             BlacklistedIP,
+            BlacklistedFingerprint,
             PasswordResetToken,
             SiteSetting,
             RegistrationInvite,
@@ -505,6 +506,7 @@ def create_app():
 
         if table_names:
             BlacklistedIP.__table__.create(bind=db.engine, checkfirst=True)
+            BlacklistedFingerprint.__table__.create(bind=db.engine, checkfirst=True)
             PasswordResetToken.__table__.create(bind=db.engine, checkfirst=True)
             SiteSetting.__table__.create(bind=db.engine, checkfirst=True)
             RegistrationInvite.__table__.create(bind=db.engine, checkfirst=True)
@@ -647,6 +649,7 @@ def create_app():
         LeagueCubeDiscordPoll,
         BadLoginAttempt,
         BlacklistedIP,
+        BlacklistedFingerprint,
         PasswordResetToken,
         SiteSetting,
         RegistrationInvite,
@@ -947,6 +950,28 @@ def create_app():
         raw = f'{user_agent}|{accept_language}'
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
+    def _blacklist_client(ip_address, fingerprint, reason, created_by_id=None):
+        ip_entry = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address).first()
+        if not ip_entry:
+            ip_entry = BlacklistedIP(ip_address=ip_address, created_by_id=created_by_id)
+            db.session.add(ip_entry)
+        ip_entry.is_active = True
+        ip_entry.reason = reason
+        if created_by_id and not ip_entry.created_by_id:
+            ip_entry.created_by_id = created_by_id
+
+        if fingerprint:
+            fingerprint_entry = db.session.query(BlacklistedFingerprint).filter_by(fingerprint=fingerprint).first()
+            if not fingerprint_entry:
+                fingerprint_entry = BlacklistedFingerprint(fingerprint=fingerprint, created_by_id=created_by_id)
+                db.session.add(fingerprint_entry)
+            fingerprint_entry.source_ip = ip_address
+            fingerprint_entry.reason = reason
+            fingerprint_entry.is_active = True
+            if created_by_id and not fingerprint_entry.created_by_id:
+                fingerprint_entry.created_by_id = created_by_id
+        return ip_entry
+
     def _split_name(name):
         parts = (name or '').strip().split(None, 1)
         return (parts[0] if parts else '', parts[1] if len(parts) > 1 else '')
@@ -1156,17 +1181,15 @@ def create_app():
         if ip_attempts >= threshold or admin_lockout_reached:
             existing = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address).first()
             if not existing:
-                existing = BlacklistedIP(ip_address=ip_address)
-                db.session.add(existing)
                 app.logger.info('Creating IP blacklist entry after bad logins: ip=%s attempts=%s', ip_address, ip_attempts)
-            if not existing.is_active:
-                existing.is_active = True
+            elif not existing.is_active:
                 app.logger.info('Reactivating IP blacklist entry after bad logins: ip=%s attempts=%s', ip_address, ip_attempts)
-            existing.reason = (
+            reason = (
                 f'Admin account bad login threshold reached ({user.failed_login_count} attempts)'
                 if admin_lockout_reached
                 else f'{ip_attempts} bad login attempts'
             )
+            _blacklist_client(ip_address, _browser_fingerprint(), reason)
             db.session.commit()
             app.logger.warning('IP address %s blacklisted after %s bad login attempts', ip_address, ip_attempts)
             site_log_events.append(('ip_blacklist', 'success', f'ip={ip_address}; attempts={ip_attempts}'))
@@ -3045,10 +3068,12 @@ def create_app():
     @app.before_request
     def block_blacklisted_ip():
         ip_address = _client_ip()
-        blocked = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address, is_active=True).first()
-        if blocked:
-            app.logger.warning('Blocked blacklisted IP address %s from %s', ip_address, request.path)
-            log_site('blocked_blacklisted_ip', 'failure', f'ip={ip_address}; path={request.path}')
+        fingerprint = _browser_fingerprint()
+        blocked_ip = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address, is_active=True).first()
+        blocked_fingerprint = db.session.query(BlacklistedFingerprint).filter_by(fingerprint=fingerprint, is_active=True).first()
+        if blocked_ip or blocked_fingerprint:
+            app.logger.warning('Blocked blacklisted client ip=%s fingerprint=%s from %s', ip_address, fingerprint, request.path)
+            log_site('blocked_blacklisted_client', 'failure', f'ip={ip_address}; fingerprint={fingerprint}; path={request.path}')
             abort(403)
 
     def parse_datetime_local(value):
@@ -5252,22 +5277,38 @@ def create_app():
         if not require_league_member_or_manager(league):
             abort(403)
         if request.method == 'POST':
-            if request.form.get('action') == 'add_owned_cube':
-                cube_id = request.form.get('cube_id', '')
-                play_date_id = request.form.get('play_date_id', '')
-                cube = db.session.get(LeagueCube, int(cube_id)) if cube_id.isdigit() else None
-                play_date = db.session.get(LeaguePlayDate, int(play_date_id)) if play_date_id.isdigit() else None
-                if not cube or cube.league_id != league.id or cube.owner_id != current_user.id:
+            if request.form.get('action') in {'add_owned_cube', 'add_owned_cubes', 'remove_owned_cubes'}:
+                action = request.form.get('action')
+                is_add = action in {'add_owned_cube', 'add_owned_cubes'}
+                raw_cube_ids = request.form.getlist('cube_ids') or request.form.getlist('cube_id')
+                raw_play_date_ids = request.form.getlist('play_date_ids') or request.form.getlist('play_date_id')
+                cube_ids = {int(value) for value in raw_cube_ids if value.isdigit()}
+                play_date_ids = {int(value) for value in raw_play_date_ids if value.isdigit()}
+                cubes = db.session.query(LeagueCube).filter(LeagueCube.id.in_(cube_ids)).all() if cube_ids else []
+                play_dates = db.session.query(LeaguePlayDate).filter(LeaguePlayDate.id.in_(play_date_ids)).all() if play_date_ids else []
+                if not cube_ids or len(cubes) != len(cube_ids) or any(cube.league_id != league.id or cube.owner_id != current_user.id for cube in cubes):
                     abort(403)
-                if not play_date or play_date.league_id != league.id or not play_date.is_active:
-                    flash('Choose an open League Event.', 'error')
-                elif db.session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id, cube_id=cube.id).first():
-                    flash('That cube is already on this ballot.', 'info')
-                else:
-                    db.session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
-                    db.session.commit()
-                    log_site('league_owned_cube_add', 'success', f'league_id={league.id}; play_date_id={play_date.id}; cube_id={cube.id}; owner_id={current_user.id}')
+                if not play_date_ids or len(play_dates) != len(play_date_ids) or any(play_date.league_id != league.id or not play_date.is_active for play_date in play_dates):
+                    flash('Choose one or more open League Events.', 'error')
+                    return redirect(url_for('league_cube_voting', league_id=league.id))
+                changed = 0
+                for play_date in play_dates:
+                    for cube in cubes:
+                        link = db.session.query(LeaguePlayDateCube).filter_by(play_date_id=play_date.id, cube_id=cube.id).first()
+                        if is_add and not link:
+                            db.session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+                            changed += 1
+                        elif not is_add and link:
+                            db.session.query(LeagueCubeVote).filter_by(play_date_id=play_date.id, cube_id=cube.id).delete()
+                            db.session.delete(link)
+                            changed += 1
+                db.session.commit()
+                verb = 'added to' if is_add else 'removed from'
+                log_site(f'league_owned_cube_{"add" if is_add else "remove"}', 'success', f'league_id={league.id}; owner_id={current_user.id}; selections={changed}')
+                if action == 'add_owned_cube' and changed == 1:
                     flash('Your cube was added to the ballot.', 'success')
+                else:
+                    flash(f'{changed} cube ballot selection{"s" if changed != 1 else ""} {verb} the selected ballots.', 'success')
                 return redirect(url_for('league_cube_voting', league_id=league.id))
             for play_date in db.session.query(LeaguePlayDate).filter_by(league_id=league.id, is_active=True).all():
                 available_ids = {link.cube_id for link in play_date.available_cubes}
@@ -5652,7 +5693,8 @@ def create_app():
         require_permission('admin.ip_blacklist')
         log_site('view_ip_blacklist', 'success')
         ips = db.session.query(BlacklistedIP).order_by(BlacklistedIP.created_at.desc()).all()
-        return render_template('admin/ip_blacklist.html', ips=ips)
+        fingerprints = db.session.query(BlacklistedFingerprint).order_by(BlacklistedFingerprint.created_at.desc()).all()
+        return render_template('admin/ip_blacklist.html', ips=ips, fingerprints=fingerprints)
 
     @app.route('/admin/security/ip-blacklist/<int:ip_id>/toggle', methods=['POST'])
     def admin_toggle_ip_blacklist(ip_id):
@@ -5661,6 +5703,7 @@ def create_app():
         if not item:
             abort(404)
         item.is_active = not item.is_active
+        db.session.query(BlacklistedFingerprint).filter_by(source_ip=item.ip_address).update({'is_active': item.is_active})
         db.session.commit()
         log_site('ip_blacklist_toggle', 'success', f'ip={item.ip_address}; active={item.is_active}')
         flash('IP blacklist entry updated.', 'success')
@@ -5695,17 +5738,12 @@ def create_app():
     def admin_blacklist_connection():
         require_permission('admin.ip_blacklist')
         ip_address = (request.form.get('ip_address') or '').strip()
+        fingerprint = (request.form.get('fingerprint') or '').strip()
         if not ip_address:
             flash('Missing IP address.', 'error')
             return redirect(url_for('admin_current_connections'))
-        item = db.session.query(BlacklistedIP).filter_by(ip_address=ip_address).first()
-        if not item:
-            item = BlacklistedIP(ip_address=ip_address, created_by_id=current_user.id)
-            db.session.add(item)
-        item.is_active = True
-        item.reason = request.form.get('reason') or 'Blacklisted from current connections'
-        if not item.created_by_id:
-            item.created_by_id = current_user.id
+        reason = request.form.get('reason') or 'Blacklisted from current connections'
+        _blacklist_client(ip_address, fingerprint, reason, current_user.id)
         db.session.commit()
         log_site('ip_blacklist_connection', 'success', f'ip={ip_address}')
         flash(f'{ip_address} has been blacklisted.', 'success')

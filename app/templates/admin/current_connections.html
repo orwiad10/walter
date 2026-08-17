@@ -22,6 +22,7 @@
         <td>
           <form method="post" action="{{ url_for('admin_blacklist_connection') }}" onsubmit="return confirm('Blacklist {{ connection.ip_address }}?');">
             <input type="hidden" name="ip_address" value="{{ connection.ip_address }}">
+            <input type="hidden" name="fingerprint" value="{{ connection.fingerprint }}">
             <button class="btn danger" type="submit">Blacklist</button>
           </form>
         </td>
