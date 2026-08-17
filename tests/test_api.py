@@ -3,6 +3,7 @@ from datetime import date
 from app.models import (
     ApiKey,
     ApiLog,
+    BlacklistedIP,
     League,
     LeagueCube,
     LeaguePlayDate,
@@ -18,6 +19,52 @@ from app.models import (
     User,
 )
 from app.pairing import pair_round
+
+
+def test_admin_can_blacklist_ip_from_api_logs(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='api-log-admin@example.com', name='API Log Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add(admin)
+    session.add(ApiLog(method='GET', path='/api/v1/leagues', ip_address='203.0.113.42'))
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.get('/admin/api-logs')
+        assert response.status_code == 200
+        assert b'Blacklist' in response.data
+        response = client.post(
+            '/admin/api-logs/blacklist',
+            data={'ip_address': '203.0.113.42'},
+            follow_redirects=True,
+        )
+
+    assert response.status_code == 200
+    assert b'203.0.113.42 has been blacklisted.' in response.data
+    entry = session.query(BlacklistedIP).filter_by(ip_address='203.0.113.42').one()
+    assert entry.is_active is True
+    assert entry.reason == 'Blacklisted from API logs'
+
+
+def test_api_log_blacklist_rejects_invalid_ip(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='api-log-validation@example.com', name='API Log Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add(admin)
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        response = client.post(
+            '/admin/api-logs/blacklist',
+            data={'ip_address': 'not-an-ip'},
+            follow_redirects=True,
+        )
+
+    assert response.status_code == 200
+    assert b'does not contain a valid IP address' in response.data
+    assert session.query(BlacklistedIP).count() == 0
 
 
 def test_admin_can_create_api_key_and_call_admin_api(client, session):

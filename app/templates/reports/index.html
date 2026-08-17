@@ -4,36 +4,52 @@
   <div class="page-header__title">
     <span class="eyebrow">Support</span>
     <h2>Report an Issue</h2>
+    <p class="page-description">Tell us what went wrong. Your report is private and will be reviewed by the event team.</p>
   </div>
 </section>
-<div class="report-grid">
-  <section class="report-section panel-card">
-    <h3>Report a Bug</h3>
-    <p class="field-help">Include what happened, what you expected, and steps to reproduce it.</p>
-    <form method="post" class="stacked-form">
-      <input type="hidden" name="report_type" value="bug">
-      <label>Description of the bug
-        <textarea name="description" rows="7" required placeholder="Describe what happened, including steps to reproduce if possible."></textarea>
-      </label>
-      <div class="form-actions"><button class="btn" type="submit">Submit Bug Report</button></div>
-    </form>
-  </section>
-  <section class="report-section panel-card">
-    <h3>Report Player Misconduct</h3>
-    <p class="field-help">Choose the player involved and share factual details for staff review.</p>
-    <form method="post" class="player-report-form stacked-form">
-      <input type="hidden" name="report_type" value="player">
-      <label>Player
-        <input type="text" id="report-player-search" placeholder="Search by name or email" autocomplete="off">
-      </label>
-      <input type="hidden" name="reported_user_id" id="report-player-id">
-      <div id="report-player-results" class="user-lookup-results" aria-live="polite"></div>
-      <label>Details
-        <textarea name="description" rows="7" required placeholder="Describe the behaviour you witnessed."></textarea>
-      </label>
-      <div class="form-actions"><button class="btn" type="submit">Submit Player Report</button></div>
-    </form>
-  </section>
+<div class="report-page">
+  <div class="report-grid">
+    <section class="report-section panel-card report-card--bug">
+      <header class="report-card__header">
+        <span class="report-card__number" aria-hidden="true">1</span>
+        <div><span class="eyebrow">Technical problem</span><h3>Report a Bug</h3></div>
+      </header>
+      <p class="report-card__intro">Something on the site is not working as expected? Help us reproduce and fix it.</p>
+      <form method="post" class="stacked-form">
+        <input type="hidden" name="report_type" value="bug">
+        <label>What happened?
+          <textarea name="description" rows="7" required placeholder="Describe what happened, including steps to reproduce if possible."></textarea>
+          <span class="field-help">Include the page you were on, what you expected, and the steps that caused the problem.</span>
+        </label>
+        <div class="form-actions"><button class="btn" type="submit">Submit Bug Report</button></div>
+      </form>
+    </section>
+    <section class="report-section panel-card report-card--player">
+      <header class="report-card__header">
+        <span class="report-card__number" aria-hidden="true">2</span>
+        <div><span class="eyebrow">Event concern</span><h3>Report Player Misconduct</h3></div>
+      </header>
+      <p class="report-card__intro">Privately share a concern about another player with the event staff.</p>
+      <form method="post" class="player-report-form stacked-form">
+        <input type="hidden" name="report_type" value="player">
+        <label>Who was involved?
+          <input type="text" id="report-player-search" placeholder="Search by name or email" autocomplete="off">
+          <span class="field-help">Select a player from the search results.</span>
+        </label>
+        <input type="hidden" name="reported_user_id" id="report-player-id">
+        <div id="report-player-results" class="user-lookup-results" aria-live="polite"></div>
+        <label>What happened?
+          <textarea name="description" rows="7" required placeholder="Describe the behaviour you witnessed."></textarea>
+          <span class="field-help">Stick to factual details, including when and where the incident occurred.</span>
+        </label>
+        <div class="form-actions"><button class="btn" type="submit">Submit Player Report</button></div>
+      </form>
+    </section>
+  </div>
+  <aside class="report-privacy-note">
+    <strong>What happens next?</strong>
+    <span>Staff will review your report and follow up if more information is needed. Please submit urgent safety concerns directly to on-site staff.</span>
+  </aside>
 </div>
 <script>
   document.addEventListener('DOMContentLoaded', function(){
