@@ -1378,6 +1378,57 @@ ul.flashes {
   margin-bottom: 18px;
 }
 
+.league-collapsible > summary.section-heading {
+  cursor: pointer;
+  margin-bottom: 0;
+  list-style-position: outside;
+}
+
+.league-collapsible[open] > summary.section-heading {
+  margin-bottom: 18px;
+}
+
+.league-collapsible > summary.section-heading::marker {
+  color: var(--brand-accent);
+}
+
+.owner-autocomplete {
+  position: relative;
+  display: block;
+}
+
+.owner-autocomplete__popup {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--brand-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-hover);
+}
+
+.owner-autocomplete__option {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--brand-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.owner-autocomplete__option:hover,
+.owner-autocomplete__option:focus-visible {
+  background: var(--brand-surface-soft);
+}
+
 .section-heading p,
 .muted-text,
 .form-help {
