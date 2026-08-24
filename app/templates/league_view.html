@@ -16,12 +16,11 @@
     {% if league.is_cube_league %}<a class="btn" href="{{ url_for('league_cube_voting', league_id=league.id) }}">Cube Voting</a>{% endif %}
     <a class="btn ghost" href="{{ url_for('my_leagues') }}">My Leagues</a>
   </div>
-</section>
-
-<section class="stats-grid">
-  <div class="stat-card"><span>Players</span><strong>{{ leaderboard|length }}</strong></div>
-  <div class="stat-card"><span>Tournaments</span><strong>{{ league_tournament_ids|length }}</strong></div>
-  <div class="stat-card"><span>Imported results</span><strong>{{ results|length }}</strong></div>
+  <section class="stats-grid league-header__stats" aria-label="League statistics">
+    <div class="stat-card"><span>Players</span><strong>{{ leaderboard|length }}</strong></div>
+    <div class="stat-card"><span>Tournaments</span><strong>{{ league_tournament_ids|length }}</strong></div>
+    <div class="stat-card"><span>Imported results</span><strong>{{ results|length }}</strong></div>
+  </section>
 </section>
 
 <details class="panel-card league-collapsible">

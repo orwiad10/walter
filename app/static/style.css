@@ -1611,6 +1611,10 @@ ul.flashes {
   gap: 5px;
 }
 
+.league-header__stats {
+  flex: 1 0 100%;
+}
+
 .staff-role-card span,
 .summary-card span,
 .stat-card span {
