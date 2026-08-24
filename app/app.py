@@ -5081,11 +5081,6 @@ def create_app():
                     flash(f'Imported {imported} player results from {tournament.name}.', 'success')
                 else:
                     flash('Select a tournament to import.', 'error')
-            elif action == 'update_archetypes':
-                for result in db.session.query(LeagueResult).filter_by(league_id=league.id).all():
-                    result.deck_archetype = (request.form.get(f'archetype_{result.id}') or '').strip()
-                db.session.commit()
-                flash('Deck archetypes updated.', 'success')
             elif action == 'update_settings':
                 league.is_cube_league = bool(request.form.get('is_cube_league'))
                 db.session.commit()

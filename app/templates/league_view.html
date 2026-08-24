@@ -24,13 +24,13 @@
   <div class="stat-card"><span>Imported results</span><strong>{{ results|length }}</strong></div>
 </section>
 
-<section class="panel-card">
-  <div class="section-heading">
+<details class="panel-card league-collapsible">
+  <summary class="section-heading">
     <div>
       <h3>Leaderboard</h3>
       <p>{% if league.scoring_system == 'colley' %}Head-to-head results are ranked with the Colley matrix.{% elif league.scoring_system == 'field_best' %}Up to {{ league.scoring_percentage }}% of the league's running maximum appearances are counted.{% else %}Each player's highest-scoring {{ league.scoring_percentage }}% of appearances are counted.{% endif %}</p>
     </div>
-  </div>
+  </summary>
   {% if leaderboard %}
   <table class="table league-table">
     <thead>
@@ -54,11 +54,11 @@
   {% else %}
   <p class="empty-state">No standings have been imported for this league yet.</p>
   {% endif %}
-</section>
+</details>
 
 {% if league.is_cube_league %}
-<section class="panel-card">
-  <div class="section-heading"><div><h3>Cube Voting Results</h3><p>Vote totals are shown by League Event. Members can cast or edit their votes from Cube Voting.</p></div></div>
+<details class="panel-card league-collapsible">
+  <summary class="section-heading"><div><h3>Cube Voting Results</h3><p>Vote totals are shown by League Event. Members can cast or edit their votes from Cube Voting.</p></div></summary>
   {% if play_dates %}
     {% for play_date in play_dates if play_date.is_active %}
     {% set available = available_cube_ids.get(play_date.id, []) %}
@@ -80,6 +80,6 @@
     </div>
     {% endfor %}
   {% else %}<p class="empty-state">No cube League Events have been configured yet.</p>{% endif %}
-</section>
+</details>
 {% endif %}
 {% endblock %}

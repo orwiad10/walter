@@ -207,6 +207,30 @@ def test_admin_can_remove_league_event_ballot_and_votes(client, session):
     assert f'play_date_id={play_date.id}' in log.error
 
 
+def test_league_sections_are_collapsed_and_cube_owner_uses_autocomplete(client, session):
+    admin = _user(session, 'league-ui-admin@example.com', 'League UI Admin', 'admin', True)
+    owner = _user(session, 'autocomplete-owner@example.com', 'Autocomplete Owner')
+    league = League(name='Collapsed Cube League', is_cube_league=True)
+    session.add(league)
+    session.flush()
+    session.add(LeagueCube(
+        league_id=league.id,
+        owner_id=owner.id,
+        cube_cobra_url='https://cubecobra.com/cube/overview/collapsed',
+        title='Collapsed Cube',
+    ))
+    session.commit()
+
+    assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+    response = client.get(f'/admin/leagues/{league.id}')
+
+    assert response.status_code == 200
+    assert b'<details class="panel-card league-collapsible">' in response.data
+    assert b'data-owner-autocomplete' in response.data
+    assert b'<select name="owner_id"' not in response.data
+    assert b'Imported Results &amp; Archetypes' not in response.data
+
+
 def test_player_cannot_drop_opponent_when_reporting_match(client, session):
     player_one = _user(session, 'player-one@example.com', 'Player One')
     player_two = _user(session, 'player-two@example.com', 'Player Two')

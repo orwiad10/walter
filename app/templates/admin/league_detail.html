@@ -19,29 +19,29 @@
 </section>
 
 
-<section class="panel-card">
-  <div class="section-heading"><div><h3>League Settings</h3><p>Mark cube leagues to enable Cube Cobra previews, League Events, and member voting.</p></div></div>
+<details class="panel-card league-collapsible">
+  <summary class="section-heading"><div><h3>League Settings</h3><p>Mark cube leagues to enable Cube Cobra previews, League Events, and member voting.</p></div></summary>
   <form method="post" class="modern-form grid-form">
     <input type="hidden" name="action" value="update_settings">
     <label class="checkbox-label wide-field"><input type="checkbox" name="is_cube_league" value="1" {% if league.is_cube_league %}checked{% endif %}> Cube league</label>
     <div class="form-actions wide-field start-actions"><button class="btn" type="submit">Save Settings</button></div>
   </form>
-</section>
+</details>
 
 {% if league.is_cube_league %}
-<section class="panel-card">
-  <div class="section-heading"><div><h3>Cube Cobra Library</h3><p>Add Cube Cobra links.</div></div>
+<details class="panel-card league-collapsible">
+  <summary class="section-heading"><div><h3>Cube Cobra Library</h3><p>Add Cube Cobra links.</p></div></summary>
   <form method="post" class="modern-form grid-form">
     <input type="hidden" name="action" value="add_cube">
     <label class="wide-field">Cube Cobra URL
       <input type="url" name="cube_url" placeholder="https://cubecobra.com/cube/overview/..." required>
     </label>
     <label>Cube owner
-      <input type="search" class="select-filter" data-filter-select="new-cube-owner" placeholder="Search owners by name or email...">
-      <select name="owner_id" id="new-cube-owner" size="6">
-        <option value="">No owner</option>
-        {% for user in users %}<option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}
-      </select>
+      <span class="owner-autocomplete" data-owner-autocomplete>
+        <input type="search" autocomplete="off" placeholder="Search owners by name or email..." aria-label="Search cube owners" aria-expanded="false">
+        <input type="hidden" name="owner_id" value="">
+        <span class="owner-autocomplete__popup" role="listbox" hidden></span>
+      </span>
     </label>
     <div class="form-actions wide-field start-actions"><button class="btn" type="submit">Add Cube</button></div>
   </form>
@@ -57,11 +57,11 @@
           <input type="hidden" name="action" value="update_cube_owner">
           <input type="hidden" name="cube_id" value="{{ cube.id }}">
           <label>Owner
-            <input type="search" class="select-filter" data-filter-select="cube-owner-{{ cube.id }}" placeholder="Search owners...">
-            <select name="owner_id" id="cube-owner-{{ cube.id }}" size="6">
-              <option value="">No owner</option>
-              {% for user in users %}<option value="{{ user.id }}" {% if cube.owner_id == user.id %}selected{% endif %}>{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}
-            </select>
+            <span class="owner-autocomplete" data-owner-autocomplete data-selected-id="{{ cube.owner_id or '' }}">
+              <input type="search" autocomplete="off" value="{% if cube.owner %}{{ cube.owner.name }}{% if cube.owner.email %} — {{ cube.owner.email }}{% endif %}{% endif %}" placeholder="Search owners..." aria-label="Search cube owners" aria-expanded="false">
+              <input type="hidden" name="owner_id" value="{{ cube.owner_id or '' }}">
+              <span class="owner-autocomplete__popup" role="listbox" hidden></span>
+            </span>
           </label>
           <button class="btn ghost" type="submit">Save owner</button>
         </form>
@@ -70,10 +70,10 @@
     {% endfor %}
   </div>
   {% else %}<p class="empty-state">No cubes have been added yet.</p>{% endif %}
-</section>
+</details>
 
-<section class="panel-card">
-  <div class="section-heading"><div><h3>League Events &amp; Voting Ballots</h3><p>Admins choose the League Events and which cubes are available for members to vote on. Members can spend up to 3 votes per event.</p></div></div>
+<details class="panel-card league-collapsible">
+  <summary class="section-heading"><div><h3>League Events &amp; Voting Ballots</h3><p>Admins choose the League Events and which cubes are available for members to vote on. Members can spend up to 3 votes per event.</p></div></summary>
   <form method="post" class="modern-form grid-form">
     <input type="hidden" name="action" value="add_play_date">
     <label>League Event <input type="date" name="play_date" required></label>
@@ -103,7 +103,7 @@
     </form>
     {% endfor %}
   {% else %}<p class="empty-state">No League Events have been configured yet.</p>{% endif %}
-</section>
+</details>
 {% endif %}
 
 <section class="stats-grid">
@@ -112,13 +112,13 @@
   <div class="stat-card"><span>Imported results</span><strong>{{ results|length }}</strong></div>
 </section>
 
-<section class="panel-card">
-  <div class="section-heading">
+<details class="panel-card league-collapsible">
+  <summary class="section-heading">
     <div>
       <h3>Leaderboard</h3>
       <p>{% if league.scoring_system == 'colley' %}Head-to-head results are ranked with the Colley matrix.{% elif league.scoring_system == 'field_best' %}Up to {{ league.scoring_percentage }}% of the league's running maximum appearances are counted.{% else %}Each player's highest-scoring {{ league.scoring_percentage }}% of appearances are counted.{% endif %}</p>
     </div>
-  </div>
+  </summary>
   {% if leaderboard %}
   <table class="table league-table">
     <thead>
@@ -142,12 +142,11 @@
   {% else %}
   <p class="empty-state">Add players or import a tournament to start the leaderboard.</p>
   {% endif %}
-</section>
+</details>
 
 <section class="league-actions-grid">
-  <form method="post" class="panel-card modern-form">
+  <details class="panel-card league-collapsible"><summary class="section-heading"><div><h3>Assign Players / Mass Add</h3></div></summary><form method="post" class="modern-form">
     <input type="hidden" name="action" value="add_players">
-    <h3>Assign Players / Mass Add</h3>
     <div class="league-player-search">
       <label>Search players
         <input type="search" id="league-player-search" placeholder="Type a player name or email...">
@@ -161,11 +160,10 @@
       </select>
     </label>
     <button class="btn" type="submit">Add Selected Players</button>
-  </form>
+  </form></details>
 
-  <form method="post" class="panel-card modern-form">
+  <details class="panel-card league-collapsible"><summary class="section-heading"><div><h3>Import Tournament</h3></div></summary><form method="post" class="modern-form">
     <input type="hidden" name="action" value="import_tournament">
-    <h3>Import Tournament</h3>
     <p class="muted-text">Imports standings points, W-L-D records, cube status, and creates missing league player assignments.</p>
     <label>Tournament
       <select name="tournament_id" required>
@@ -176,42 +174,7 @@
       </select>
     </label>
     <button class="btn" type="submit">Import Results</button>
-  </form>
-</section>
-
-<section class="panel-card">
-  <div class="section-heading">
-    <div>
-      <h3>Imported Results &amp; Archetypes</h3>
-      <p>Use archetypes to track deck choices across the league. Draft cube events are flagged automatically.</p>
-    </div>
-  </div>
-  {% if results %}
-  <form method="post">
-    <input type="hidden" name="action" value="update_archetypes">
-    <table class="table league-table">
-      <thead>
-        <tr><th>Tournament</th><th>Player</th><th>Points</th><th>Record</th><th>Format</th><th>Cube</th><th>Deck archetype</th></tr>
-      </thead>
-      <tbody>
-        {% for result in results|sort(attribute='tournament.created_at', reverse=true) %}
-        <tr>
-          <td>{{ result.tournament.name }}</td>
-          <td>{{ result.user.name }}</td>
-          <td>{{ result.points }}</td>
-          <td>{{ result.wins }}-{{ result.losses }}-{{ result.draws }}</td>
-          <td>{{ result.tournament.format }}</td>
-          <td>{% if result.tournament.format == 'Draft' and result.tournament.is_cube %}Yes{% else %}No{% endif %}</td>
-          <td><input type="text" name="archetype_{{ result.id }}" value="{{ result.deck_archetype or '' }}" placeholder="Izzet Tempo, Mono-Red..."></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <div class="form-actions start-actions"><button class="btn" type="submit">Save Archetypes</button></div>
-  </form>
-  {% else %}
-  <p class="empty-state">No tournament results have been imported yet.</p>
-  {% endif %}
+  </form></details>
 </section>
 
 <script>
@@ -225,15 +188,34 @@ if (leaguePlayerSearch && leaguePlayerSelect) {
     });
   });
 }
-document.querySelectorAll('[data-filter-select]').forEach(function(input){
-  const select = document.getElementById(input.dataset.filterSelect);
-  if (!select) return;
-  input.addEventListener('input', function(){
-    const query = input.value.trim().toLowerCase();
-    Array.prototype.forEach.call(select.options, function(option){
-      option.hidden = Boolean(query) && !option.text.toLowerCase().includes(query);
+const cubeOwnerNames = {{ users|map(attribute='name')|list|tojson }};
+const cubeOwnerEmails = {{ users|map(attribute='email')|list|tojson }};
+const cubeOwners = {{ users|map(attribute='id')|list|tojson }}.map(function(id, index) {
+  return {id: String(id), label: cubeOwnerNames[index] + (cubeOwnerEmails[index] ? ' — ' + cubeOwnerEmails[index] : '')};
+});
+document.querySelectorAll('[data-owner-autocomplete]').forEach(function(widget){
+  const search = widget.querySelector('input[type="search"]');
+  const ownerId = widget.querySelector('input[type="hidden"]');
+  const popup = widget.querySelector('[role="listbox"]');
+  function closePopup() { popup.hidden = true; search.setAttribute('aria-expanded', 'false'); }
+  function choose(id, label) { ownerId.value = id; search.value = label; closePopup(); }
+  function showMatches() {
+    const query = search.value.trim().toLowerCase();
+    ownerId.value = '';
+    popup.replaceChildren();
+    const matches = cubeOwners.filter(function(owner){ return owner.label.toLowerCase().includes(query); }).slice(0, 8);
+    [{id: '', label: 'No owner'}].concat(matches).forEach(function(owner){
+      const option = document.createElement('button');
+      option.type = 'button'; option.className = 'owner-autocomplete__option'; option.setAttribute('role', 'option');
+      option.textContent = owner.label;
+      option.addEventListener('mousedown', function(event){ event.preventDefault(); choose(owner.id, owner.label); });
+      popup.appendChild(option);
     });
-  });
+    popup.hidden = false; search.setAttribute('aria-expanded', 'true');
+  }
+  search.addEventListener('input', showMatches);
+  search.addEventListener('focus', showMatches);
+  search.addEventListener('blur', function(){ window.setTimeout(closePopup, 100); });
 });
 </script>
 {% endblock %}
