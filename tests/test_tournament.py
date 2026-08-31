@@ -784,7 +784,7 @@ def test_tournament_name_uses_format_timestamp_and_venue(client, session):
     assert tournament.venue_id == venue.id
 
 
-def test_tournament_edit_auto_fills_lowest_contiguous_table_range(client, session, app):
+def test_tournament_edit_without_venue_defaults_to_table_one(client, session, app):
     app.config['LAST_TABLE_NUMBER'] = 20
     admin_role = session.query(Role).filter_by(name='admin').one()
     user_role = session.query(Role).filter_by(name='user').one()
@@ -819,7 +819,50 @@ def test_tournament_edit_auto_fills_lowest_contiguous_table_range(client, sessio
 
     assert response.status_code == 302
     session.refresh(target)
-    assert target.start_table_number == 6
+    assert target.start_table_number == 1
+
+
+def test_tournament_creation_allocates_only_active_tables_at_same_venue(client, session, app):
+    app.config['LAST_TABLE_NUMBER'] = 20
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='admin-venue-tables@example.com', name='Venue Table Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    venue = Venue(name='Table Hall')
+    other_venue = Venue(name='Other Hall')
+    active = Tournament(name='Active Event', format='Modern', venue=venue, player_cap=4, start_table_number=1)
+    completed = Tournament(
+        name='Completed Event', format='Modern', venue=venue, player_cap=4,
+        start_table_number=3, manually_completed=True,
+    )
+    elsewhere = Tournament(name='Other Event', format='Modern', venue=other_venue, player_cap=10, start_table_number=1)
+    session.add_all([admin, venue, other_venue, active, completed, elsewhere])
+    session.commit()
+
+    base_form = {
+        'format': 'Modern',
+        'structure': 'swiss',
+        'cut': 'none',
+        'round_length': '50',
+        'player_cap': '4',
+        'start_table_number': '19',
+    }
+    with client:
+        assert client.post('/login', data={'email': admin.email, 'password': 'secret'}).status_code == 302
+        venue_response = client.post(
+            '/admin/tournaments/new',
+            data={**base_form, 'name': 'Allocated Event', 'venue_id': str(venue.id)},
+        )
+        standalone_response = client.post(
+            '/admin/tournaments/new',
+            data={**base_form, 'name': 'Standalone Event'},
+        )
+
+    assert venue_response.status_code == 302
+    assert standalone_response.status_code == 302
+    allocated = session.query(Tournament).filter(Tournament.name.endswith(' - Allocated Event')).one()
+    standalone = session.query(Tournament).filter(Tournament.name.endswith(' - Standalone Event')).one()
+    assert allocated.start_table_number == 3
+    assert standalone.start_table_number == 1
 
 
 def test_duplicate_booth_numbers_are_blocked_across_artists_and_vendors(client, session):

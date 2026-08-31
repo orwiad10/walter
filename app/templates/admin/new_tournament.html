@@ -81,7 +81,7 @@
       </tr>
       <tr>
         <td>Starting Table Number</td>
-        <td><input type="number" name="start_table_number" min="1" value="{{ request.form.get('start_table_number', suggested_start_table_number) }}"></td>
+        <td><input type="number" name="start_table_number" min="1" value="{{ suggested_start_table_number }}" readonly><p class="form-help">Automatically uses table 1 without a venue, or the lowest available block at the selected venue.</p></td>
       </tr>
       <tr>
         <td>Start Time</td>
@@ -127,30 +127,26 @@
 const tableReservations = {{ table_reservations|tojson }};
 const capInput = document.querySelector('input[name="player_cap"]');
 const startTableInput = document.querySelector('input[name="start_table_number"]');
-let tableStartTouched = false;
-if(startTableInput){
-  startTableInput.addEventListener('input', function(){ tableStartTouched = true; });
-}
-function lowestAvailableTableStart(cap){
+const venueInput = document.querySelector('select[name="venue_id"]');
+function lowestAvailableTableStart(cap, venueId){
+  if(!venueId){ return 1; }
   const tablesNeeded = Math.max(1, Math.ceil((parseInt(cap, 10) || 1) / 2));
   for(let candidate = 1; candidate < 10000; candidate++){
     const end = candidate + tablesNeeded - 1;
     const overlaps = tableReservations.some(function(range){
-      return !(end < range.start || candidate > range.end);
+      return String(range.venue_id || '') === String(venueId) && !(end < range.start || candidate > range.end);
     });
     if(!overlaps){ return candidate; }
   }
   return 1;
 }
-if(capInput && startTableInput){
-  capInput.addEventListener('input', function(){
-    if(!tableStartTouched){
-      startTableInput.value = lowestAvailableTableStart(capInput.value);
-    }
-  });
-  if(capInput.value && !startTableInput.value){
-    startTableInput.value = lowestAvailableTableStart(capInput.value);
+if(capInput && startTableInput && venueInput){
+  function updateTableStart(){
+    startTableInput.value = lowestAvailableTableStart(capInput.value, venueInput.value);
   }
+  capInput.addEventListener('input', updateTableStart);
+  venueInput.addEventListener('change', updateTableStart);
+  updateTableStart();
 }
 
 const fmtSel = document.querySelector('#tournament-format');

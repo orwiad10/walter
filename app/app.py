@@ -699,6 +699,11 @@ def create_app():
         return f"{start}-{end}"
 
     def find_available_table_start(tournament):
+        # Standalone tournaments do not share a physical table pool. Venue
+        # tournaments, however, must use the first contiguous block that is
+        # not reserved by another active tournament at that venue.
+        if not getattr(tournament, 'venue_id', None):
+            return 1
         _, _, tables_needed, _ = compute_table_allocation(tournament)
         last_table = app.config.get('LAST_TABLE_NUMBER') or None
         if tables_needed <= 1:
@@ -712,7 +717,9 @@ def create_app():
             query = db.session.query(Tournament)
             if getattr(tournament, 'id', None):
                 query = query.filter(Tournament.id != tournament.id)
-            for other in query.all():
+            for other in query.filter(Tournament.venue_id == tournament.venue_id).all():
+                if tournament_is_complete(other):
+                    continue
                 _, other_end, other_tables, _ = compute_table_allocation(other)
                 if other_tables:
                     max_existing_end = max(max_existing_end, other_end)
@@ -729,9 +736,16 @@ def create_app():
         if exclude_tournament_id:
             query = query.filter(Tournament.id != exclude_tournament_id)
         for other in query.all():
+            if tournament_is_complete(other):
+                continue
             start, end, tables, _ = compute_table_allocation(other)
             if tables:
-                reservations.append({'start': start, 'end': end, 'name': other.name})
+                reservations.append({
+                    'start': start,
+                    'end': end,
+                    'name': other.name,
+                    'venue_id': other.venue_id,
+                })
         return reservations
 
     def tournament_has_capacity(tournament, slots=1):
@@ -753,11 +767,15 @@ def create_app():
                 errors.append(
                     f'Tournament requires tables up to {end}, exceeding the venue limit of {last_table}.'
                 )
-        if tables_needed:
+        venue_id = getattr(tournament, 'venue_id', None)
+        if tables_needed and venue_id:
             query = db.session.query(Tournament)
             if getattr(tournament, 'id', None):
                 query = query.filter(Tournament.id != tournament.id)
+            query = query.filter(Tournament.venue_id == venue_id)
             for other in query.all():
+                if tournament_is_complete(other):
+                    continue
                 other_start, other_end, other_tables, _ = compute_table_allocation(other)
                 if other_tables == 0:
                     continue
@@ -4274,15 +4292,6 @@ def create_app():
             if player_cap < 1:
                 flash('Player cap must be at least 1.', 'error')
                 return render_template('admin/new_tournament.html', **template_context)
-            start_table_raw = (request.form.get('start_table_number') or '').strip()
-            if start_table_raw:
-                try:
-                    start_table_number = int(start_table_raw)
-                except ValueError:
-                    flash('Starting table number must be a whole number.', 'error')
-                    return render_template('admin/new_tournament.html', **template_context)
-            else:
-                start_table_number = None
             name = format_tournament_name(fmt, start_time, provided_name)
             t = Tournament(name=name, format=fmt, cut=cut, structure=structure,
                            pairing_type=pairing_type,
@@ -4294,17 +4303,15 @@ def create_app():
                             rules_enforcement_level=rel,
                            is_cube=is_cube,
                            join_requires_approval=join_requires_approval,
-                           player_cap=player_cap,
-                           start_table_number=start_table_number)
+                           player_cap=player_cap)
             league_id = request.form.get('league_id')
             if league_id:
                 t.league_id = int(league_id)
             venue_id = request.form.get('venue_id')
             if venue_id:
                 t.venue_id = int(venue_id)
-            if start_table_number is None:
-                start_table_number = find_available_table_start(t)
-                t.start_table_number = start_table_number
+            start_table_number = find_available_table_start(t)
+            t.start_table_number = start_table_number
             errors, _, _, _, _ = validate_table_assignment(t, start_number=start_table_number)
             if errors:
                 for message in errors:
@@ -4401,6 +4408,8 @@ def create_app():
             preview.players = t.players
             preview.player_cap = player_cap
             preview.name = provided_name or t.name
+            venue_id = request.form.get('venue_id')
+            preview.venue_id = int(venue_id) if venue_id else None
             if start_table_number is None:
                 start_table_number = find_available_table_start(preview)
                 preview.start_table_number = start_table_number
@@ -4427,8 +4436,7 @@ def create_app():
             t.join_requires_approval = join_requires_approval
             t.player_cap = player_cap
             t.start_table_number = start_table_number
-            venue_id = request.form.get('venue_id')
-            t.venue_id = int(venue_id) if venue_id else None
+            t.venue_id = preview.venue_id
             db.session.commit()
             flash('Tournament updated.', 'success')
             log_site('edit_tournament', 'success', t.name)
