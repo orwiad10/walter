@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from app.app import db
 
-from app.models import League, LeaguePlayer, PermissionGrant, ScopeAssignment, SiteLog, Tournament, TournamentPlayer, User, Role
+from app.models import League, LeaguePlayer, PermissionGrant, ScopeAssignment, ScopedRoleAssignment, SiteLog, Tournament, TournamentPlayer, User, Role, Venue
 
 
 def test_user_crud(session):
@@ -72,6 +72,30 @@ def test_scopes_are_derived_and_inherit_down_to_tournaments(session):
     assert player.has_scope('league', league.id)
     assert player.has_scope('tournament', tournament.id)
     assert not player.has_scope('global')
+
+
+def test_scoped_roles_push_permissions_to_child_tournaments(session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    manager = User(email='venue-scope@example.com', name='Venue Manager', role=user_role)
+    venue = Venue(name='Scoped Venue')
+    league = League(name='Scoped League')
+    venue_tournament = Tournament(name='Venue Event', format='Constructed', venue=venue)
+    league_tournament = Tournament(name='League Event', format='Constructed', league=league)
+    outside = Tournament(name='Outside Event', format='Constructed')
+    session.add_all([manager, venue, league, venue_tournament, league_tournament, outside])
+    session.flush()
+    session.add_all([
+        ScopedRoleAssignment(user=manager, role=manager_role, scope_type='venue', scope_id=venue.id),
+        ScopedRoleAssignment(user=manager, role=manager_role, scope_type='league', scope_id=league.id),
+    ])
+    session.commit()
+
+    assert manager.has_permission('venues.manage', 'venue', venue.id)
+    assert manager.has_permission('tournaments.manage', 'tournament', venue_tournament.id)
+    assert manager.has_permission('tournaments.manage', 'tournament', league_tournament.id)
+    assert not manager.has_permission('tournaments.manage', 'tournament', outside.id)
+    assert not manager.has_permission('tournaments.manage')
 
 
 def test_tournament_relationships_only_derive_tournament_scope(session):
@@ -465,9 +489,26 @@ def test_admin_can_view_bad_login_audit_and_export_blacklist(client, session):
         response = client.get('/admin/security/bad-logins')
         assert response.status_code == 200
         assert b'bad@example.com' in response.data
+        assert b'Blacklisted' in response.data
         export = client.get('/admin/security/ip-blacklist/export')
         assert export.status_code == 200
         assert b'iptables -A INPUT -s 203.0.113.8 -j DROP' in export.data
+
+
+def test_admin_can_blacklist_ip_from_bad_login_audit(client, session):
+    from app.models import BadLoginAttempt, BlacklistedIP
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='audit-blacklist@example.com', name='Audit Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add_all([admin, BadLoginAttempt(email='bad@example.com', ip_address='203.0.113.19')])
+    session.commit()
+
+    with client:
+        client.post('/login', data={'email': admin.email, 'password': 'secret'})
+        response = client.post('/admin/security/bad-logins/blacklist',
+                               data={'ip_address': '203.0.113.19'}, follow_redirects=True)
+        assert response.status_code == 200
+        assert session.query(BlacklistedIP).filter_by(ip_address='203.0.113.19', is_active=True).one()
 
 
 def test_admin_can_manually_lock_and_unlock_user(client, session):

@@ -18,6 +18,20 @@
   </div>
 </section>
 
+{% if can_assign_staff %}
+<section class="panel-card">
+  <h3>League Staff</h3>
+  <p class="muted-text">Managers and judges receive their role permissions for this league and its tournaments only.</p>
+  <form method="post" action="{{ url_for('assign_league_staff', league_id=league.id) }}" class="modern-form grid-form">
+    {% set manager_ids = staff_assignments|selectattr('role.name', 'equalto', 'manager')|map(attribute='user_id')|list %}
+    {% set judge_ids = staff_assignments|selectattr('role.name', 'equalto', 'venue judge')|map(attribute='user_id')|list %}
+    <label>Managers<select name="manager_ids" multiple size="8">{% for user in users %}<option value="{{ user.id }}"{% if user.id in manager_ids %} selected{% endif %}>{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}</select></label>
+    <label>Judges<select name="judge_ids" multiple size="8">{% for user in users %}<option value="{{ user.id }}"{% if user.id in judge_ids %} selected{% endif %}>{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}</select></label>
+    <div class="form-actions wide-field"><button class="btn" type="submit">Save League Staff</button></div>
+  </form>
+</section>
+{% endif %}
+
 
 <details class="panel-card league-collapsible">
   <summary class="section-heading"><div><h3>League Settings</h3><p>Mark cube leagues to enable Cube Cobra previews, League Events, and member voting.</p></div></summary>

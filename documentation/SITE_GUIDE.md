@@ -281,3 +281,18 @@ Fetches an allowed Cube Cobra/Scryfall preview with host and size safeguards; us
 ## 14. Access and troubleshooting
 
 A **401** usually means the session or API credential is absent/invalid. A **403** means the identity lacks permission. A **404** may mean the object does not exist or is deliberately hidden. A **409** generally indicates a state conflict (for example, a vote limit or attempting to alter a result after another round exists). Never share passwords, one-time Discord passes, reset links, API keys, bot tokens, or backup encryption material.
+# Tournament result corrections and scoped staff
+
+Tournament administrators can use **Delete** beside a pairing's **Edit** link to remove an entered
+match result. A result can only be removed before the next round is paired. Once every report in a
+round is removed, the round can be deleted or re-paired. Re-pairing discards persisted random choices
+used by the pairing algorithm so the random portions are rolled again.
+
+Entering every result does not archive a tournament. Use **Mark Complete** when the event is truly
+finished; only that explicit action moves it to completed tournaments and releases its venue tables.
+
+Administrators can assign multiple **Managers** and **Judges** from the Venue Staff and League Staff
+sections. These are scoped role assignments: their permissions apply to the selected venue or league,
+and flow down to tournaments attached to it, without granting the same access elsewhere.
+
+The **Bad Login Audit** offers a **Blacklist IP** action for each address that is not already blocked.

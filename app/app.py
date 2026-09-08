@@ -558,7 +558,7 @@ def create_app():
             from .models import (
                 LostFoundItem, TournamentPlayerDeck, League, LeaguePlayer, LeagueResult,
                 LeagueCube, LeaguePlayDate, LeaguePlayDateCube, LeagueCubeVote,
-                LeagueCubeDiscordPoll,
+                LeagueCubeDiscordPoll, ScopedRoleAssignment,
             )
 
             League.__table__.create(bind=db.engine, checkfirst=True)
@@ -589,6 +589,7 @@ def create_app():
             LeaguePlayDateCube.__table__.create(bind=db.engine, checkfirst=True)
             LeagueCubeVote.__table__.create(bind=db.engine, checkfirst=True)
             LeagueCubeDiscordPoll.__table__.create(bind=db.engine, checkfirst=True)
+            ScopedRoleAssignment.__table__.create(bind=db.engine, checkfirst=True)
 
             media_engine = db.engines['media']
             LostFoundItem.__table__.create(bind=media_engine, checkfirst=True)
@@ -654,13 +655,14 @@ def create_app():
         SiteSetting,
         RegistrationInvite,
         Venue,
+        ScopedRoleAssignment,
         Vendor,
         ArtistProfile,
         ApiKey,
         all_permission_keys,
         utc_now,
     )
-    from .pairing import pair_round, recommended_rounds, compute_standings, player_points, draft_seating_tables, seeded_cut_pairs
+    from .pairing import pair_round, recommended_rounds, compute_standings, player_points, draft_seating_tables, seeded_cut_pairs, reroll_pairing_randomness
 
     TYPE_SORT_ORDER = [
         'Creature',
@@ -790,27 +792,9 @@ def create_app():
 
 
     def tournament_is_complete(tournament):
-        players = list(getattr(tournament, 'players', []) or [])
-        rounds = sorted(list(getattr(tournament, 'rounds', []) or []), key=lambda r: r.number)
-        if getattr(tournament, 'ended_at', None) or getattr(tournament, 'manually_completed', False):
-            return True
-        if not rounds:
-            return False
-        round_limit = tournament.rounds_override or recommended_rounds(len(players))
-        if tournament.structure == 'single_elim':
-            round_limit = 0
-        relevant_rounds = [r for r in rounds if r.number <= round_limit]
-        if len(relevant_rounds) < round_limit:
-            return False
-        if any(not (m.completed and m.result) for r in relevant_rounds for m in r.matches):
-            return False
-        if tournament.cut and tournament.cut.startswith('top'):
-            elim_rounds = [r for r in rounds if r.number > round_limit]
-            if not elim_rounds:
-                return False
-            final_round = elim_rounds[-1]
-            return bool(final_round.matches) and all(m.completed and m.result for m in final_round.matches)
-        return True
+        # Results never archive an event implicitly.  Only the explicit Mark
+        # Complete/end controls release its tables and moves it to history.
+        return bool(getattr(tournament, 'ended_at', None) or getattr(tournament, 'manually_completed', False))
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -3015,6 +2999,10 @@ def create_app():
             return set()
         if hasattr(user, 'has_permission') and user.has_permission('venues.manage'):
             return {venue.id for venue in db.session.query(Venue.id).all()}
+        scoped_ids = {
+            assignment.scope_id for assignment in user.scoped_role_assignments
+            if assignment.scope_type == 'venue'
+        }
         rows = (
             db.session.query(Tournament.venue_id)
             .join(TournamentPlayer, TournamentPlayer.tournament_id == Tournament.id)
@@ -3022,7 +3010,7 @@ def create_app():
             .distinct()
             .all()
         )
-        return {row[0] for row in rows}
+        return {row[0] for row in rows} | scoped_ids
 
     def restrict_to_visible_venues(query, model):
         visible_ids = venue_ids_for_user(current_user)
@@ -3031,6 +3019,29 @@ def create_app():
         if not visible_ids:
             return query.filter(False)
         return query.filter(model.venue_id.in_(visible_ids))
+
+    def _replace_scoped_staff(scope_type, scope_id, role_user_ids):
+        """Replace manager/judge role assignments for one administrative scope."""
+        role_names = tuple(role_user_ids)
+        roles = {role.name: role for role in db.session.query(Role).filter(Role.name.in_(role_names)).all()}
+        role_ids = [role.id for role in roles.values()]
+        if role_ids:
+            db.session.query(ScopedRoleAssignment).filter(
+                ScopedRoleAssignment.scope_type == scope_type,
+                ScopedRoleAssignment.scope_id == scope_id,
+                ScopedRoleAssignment.role_id.in_(role_ids),
+            ).delete(synchronize_session=False)
+        for role_name, raw_user_ids in role_user_ids.items():
+            role = roles.get(role_name)
+            if not role:
+                continue
+            for raw_user_id in set(raw_user_ids):
+                user = db.session.get(User, int(raw_user_id)) if str(raw_user_id).isdigit() else None
+                if user:
+                    db.session.add(ScopedRoleAssignment(
+                        user=user, role=role, scope_type=scope_type, scope_id=scope_id
+                    ))
+        db.session.commit()
 
     def log_site(action, result, error=None):
         log = SiteLog(action=action, result=result, error=error,
@@ -4478,10 +4489,11 @@ def create_app():
     @app.route('/admin/venues/<int:venue_id>/update', methods=['POST'])
     @login_required
     def update_venue(venue_id):
-        require_permission('venues.manage')
         venue = db.session.get(Venue, venue_id)
         if not venue:
             abort(404)
+        if not current_user.has_permission('venues.manage', 'venue', venue.id):
+            abort(403)
         name = request.form.get('name', '').strip()
         if not name:
             flash('Venue name is required.', 'error')
@@ -4499,7 +4511,7 @@ def create_app():
         venue = db.session.get(Venue, venue_id)
         if not venue:
             abort(404)
-        if current_user.has_permission('venues.manage'):
+        if current_user.has_permission('venues.manage', 'venue', venue.id):
             return venue
         if venue.id not in venue_ids_for_user(current_user):
             abort(403)
@@ -4527,29 +4539,55 @@ def create_app():
             .order_by(Tournament.start_time.is_(None), Tournament.start_time.desc(), Tournament.created_at.desc())
             .all()
         )
+        staff_assignments = db.session.query(ScopedRoleAssignment).filter_by(
+            scope_type='venue', scope_id=venue.id
+        ).all()
         return render_template(
             'admin/venue_detail.html',
             venue=venue,
             current_tournaments=current_tournaments,
             available_tournaments=available_tournaments,
             unassigned_tournaments=unassigned_tournaments,
+            staff_assignments=staff_assignments,
+            staff_users=db.session.query(User).order_by(User.name).all(),
+            can_assign_staff=current_user.has_permission('admin.permissions'),
             can_bulk_add_tournaments=(
-                current_user.has_permission('venues.manage')
+                current_user.has_permission('venues.manage', 'venue', venue.id)
                 and (
-                    current_user.has_permission('tournaments.bulk_manage')
-                    or current_user.has_permission('tournaments.manage')
+                    current_user.has_permission('tournaments.bulk_manage', 'venue', venue.id)
+                    or current_user.has_permission('tournaments.manage', 'venue', venue.id)
                 )
             ),
         )
 
+    @app.route('/admin/venues/<int:venue_id>/staff', methods=['POST'])
+    @login_required
+    def assign_venue_staff(venue_id):
+        require_permission('admin.permissions')
+        venue = db.session.get(Venue, venue_id)
+        if not venue:
+            abort(404)
+        _replace_scoped_staff('venue', venue.id, {
+            'manager': request.form.getlist('manager_ids'),
+            'venue judge': request.form.getlist('judge_ids'),
+        })
+        log_site('venue_staff_update', 'success', f'venue_id={venue.id}')
+        flash('Venue staff assignments updated.', 'success')
+        return redirect(url_for('venue_detail', venue_id=venue.id))
+
     @app.route('/admin/venues/<int:venue_id>/tournaments/bulk-add', methods=['POST'])
     @login_required
     def bulk_add_tournaments_to_venue(venue_id):
-        require_permission('venues.manage')
         user_id = current_user.id if current_user.is_authenticated else None
+        venue = db.session.get(Venue, venue_id)
+        if not venue:
+            abort(404)
         if not (
-            current_user.has_permission('tournaments.bulk_manage')
-            or current_user.has_permission('tournaments.manage')
+            current_user.has_permission('venues.manage', 'venue', venue.id)
+            and (
+                current_user.has_permission('tournaments.bulk_manage', 'venue', venue.id)
+                or current_user.has_permission('tournaments.manage', 'venue', venue.id)
+            )
         ):
             app.logger.warning(
                 'Venue bulk add denied: user_id=%s venue_id=%s required=%s',
@@ -4559,10 +4597,6 @@ def create_app():
             )
             log_site('unauthorized_access', 'failure', 'venues.manage+tournaments.bulk_manage')
             abort(403)
-        venue = db.session.get(Venue, venue_id)
-        if not venue:
-            app.logger.warning('Venue bulk add aborted: venue_id=%s was not found; user_id=%s', venue_id, user_id)
-            abort(404)
         raw_ids = request.form.getlist('tournament_ids')
         tournament_ids = []
         seen_tournament_ids = set()
@@ -5067,11 +5101,16 @@ def create_app():
         return render_template('admin/leagues.html', leagues=league_list, users=users, tournaments=tournaments)
 
     @app.route('/admin/leagues/<int:league_id>', methods=['GET', 'POST'])
+    @login_required
     def league_detail(league_id):
-        require_permission('tournaments.manage')
         league = db.session.get(League, league_id)
         if not league:
             abort(404)
+        if not current_user.has_permission('tournaments.manage', 'league', league.id):
+            abort(403)
+        staff_assignments = db.session.query(ScopedRoleAssignment).filter_by(
+            scope_type='league', scope_id=league.id
+        ).all()
         if request.method == 'POST':
             action = request.form.get('action')
             if action == 'add_players':
@@ -5188,7 +5227,24 @@ def create_app():
             cube_vote_totals=cube_vote_totals,
             cube_user_votes=cube_user_votes,
             available_cube_ids=available_cube_ids,
+            staff_assignments=staff_assignments,
+            can_assign_staff=current_user.has_permission('admin.permissions'),
         )
+
+    @app.route('/admin/leagues/<int:league_id>/staff', methods=['POST'])
+    @login_required
+    def assign_league_staff(league_id):
+        require_permission('admin.permissions')
+        league = db.session.get(League, league_id)
+        if not league:
+            abort(404)
+        _replace_scoped_staff('league', league.id, {
+            'manager': request.form.getlist('manager_ids'),
+            'venue judge': request.form.getlist('judge_ids'),
+        })
+        log_site('league_staff_update', 'success', f'league_id={league.id}')
+        flash('League staff assignments updated.', 'success')
+        return redirect(url_for('league_detail', league_id=league.id))
 
     @app.route('/admin/leagues/<int:league_id>/delete', methods=['POST'])
     def delete_league(league_id):
@@ -5716,7 +5772,26 @@ def create_app():
         require_permission('admin.login_audit')
         log_site('view_bad_login_audit', 'success')
         attempts = db.session.query(BadLoginAttempt).order_by(BadLoginAttempt.created_at.desc()).all()
-        return render_template('admin/bad_logins.html', attempts=attempts)
+        active_blacklisted_ips = {
+            item.ip_address for item in db.session.query(BlacklistedIP).filter_by(is_active=True).all()
+        }
+        return render_template('admin/bad_logins.html', attempts=attempts,
+                               active_blacklisted_ips=active_blacklisted_ips)
+
+    @app.route('/admin/security/bad-logins/blacklist', methods=['POST'])
+    def admin_blacklist_bad_login_ip():
+        require_permission('admin.ip_blacklist')
+        raw_ip = (request.form.get('ip_address') or '').strip()
+        try:
+            ip_address = str(ipaddress.ip_address(raw_ip))
+        except ValueError:
+            flash('The login attempt does not contain a valid IP address.', 'error')
+            return redirect(url_for('admin_bad_logins'))
+        _blacklist_client(ip_address, '', 'Blacklisted from bad login audit', current_user.id)
+        db.session.commit()
+        log_site('ip_blacklist_bad_login', 'success', f'ip={ip_address}')
+        flash(f'{ip_address} has been blacklisted.', 'success')
+        return redirect(url_for('admin_bad_logins'))
 
     @app.route('/admin/security/ip-blacklist')
     def admin_ip_blacklist():
@@ -6753,9 +6828,12 @@ def create_app():
 
     @app.route('/t/<int:tid>/pair-next-round', methods=['POST'])
     def pair_next_round(tid):
-        require_permission('tournaments.manage')
         t = db.session.get(Tournament, tid)
         if not t: abort(404)
+        if not current_user.is_authenticated or not current_user.has_permission(
+            'tournaments.manage', 'tournament', t.id
+        ):
+            abort(403)
         prev_round = db.session.query(Round).filter_by(tournament_id=tid).order_by(Round.number.desc()).first()
         if prev_round and any((not m.completed) or (not m.result) for m in prev_round.matches):
             flash('Previous round not completed.', 'error')
@@ -6961,10 +7039,13 @@ def create_app():
 
     @app.route('/t/<int:tid>/round/<int:rid>/repair', methods=['POST'])
     def repair_round(tid, rid):
-        require_permission('tournaments.manage')
         r = db.session.get(Round, rid)
         if not r or r.tournament_id != tid:
             abort(404)
+        if not current_user.is_authenticated or not current_user.has_permission(
+            'tournaments.manage', 'tournament', tid
+        ):
+            abort(403)
         if any(m.completed for m in r.matches):
             flash('Cannot re-pair, results already entered.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
@@ -6972,6 +7053,7 @@ def create_app():
             db.session.delete(m)
         db.session.commit()
         t = db.session.get(Tournament, tid)
+        reroll_pairing_randomness(t, r, db.session)
         player_count = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, dropped=False).count()
         if player_count == 0:
             flash('No players registered.', 'error')
@@ -6981,12 +7063,44 @@ def create_app():
         log_tournament(tid, 'repair_round', 'success', f'round={r.number}')
         return redirect(url_for('view_tournament', tid=tid))
 
+    @app.route('/match/<int:mid>/result/delete', methods=['POST'])
+    @login_required
+    def delete_match_result(mid):
+        m = db.session.get(Match, mid)
+        if not m:
+            abort(404)
+        tournament = m.round.tournament
+        if not current_user.has_permission('tournaments.manage', 'tournament', tournament.id):
+            abort(403)
+        next_round = db.session.query(Round).filter(
+            Round.tournament_id == tournament.id,
+            Round.number > m.round.number,
+        ).first()
+        if next_round:
+            flash('Cannot delete a result after the next round has been paired.', 'error')
+            return redirect(url_for('view_round', tid=tournament.id, rid=m.round_id))
+        if not m.completed and not m.result:
+            flash('This pairing has no result to delete.', 'error')
+            return redirect(url_for('view_round', tid=tournament.id, rid=m.round_id))
+        result = m.result
+        m.completed = False
+        m.result = None
+        if result:
+            db.session.delete(result)
+        db.session.commit()
+        log_tournament(tournament.id, 'delete_report', 'success', f'match_id={m.id}')
+        flash('Match result deleted. The pairing can be reported again.', 'success')
+        return redirect(url_for('view_round', tid=tournament.id, rid=m.round_id))
+
     @app.route('/t/<int:tid>/round/<int:rid>/delete', methods=['POST'])
     def delete_round(tid, rid):
-        require_permission('tournaments.manage')
         r = db.session.get(Round, rid)
         if not r or r.tournament_id != tid:
             abort(404)
+        if not current_user.is_authenticated or not current_user.has_permission(
+            'tournaments.manage', 'tournament', tid
+        ):
+            abort(403)
         if any(m.completed for m in r.matches):
             flash('Cannot delete, results already entered.', 'error')
             return redirect(url_for('view_round', tid=tid, rid=rid))
@@ -7048,7 +7162,7 @@ def create_app():
         )
         if is_participant:
             require_permission('matches.report_self')
-        elif not current_user.has_permission('tournaments.manage'):
+        elif not current_user.has_permission('tournaments.manage', 'tournament', t.id):
             abort(403)
         next_round = db.session.query(Round).filter(Round.tournament_id==t.id, Round.number>m.round.number).first()
         if next_round:
@@ -7056,7 +7170,7 @@ def create_app():
             return redirect(url_for('view_round', tid=t.id, rid=m.round_id))
         if request.method == 'POST':
             dropped_ids = []
-            can_drop_any_player = current_user.has_permission('tournaments.manage')
+            can_drop_any_player = current_user.has_permission('tournaments.manage', 'tournament', t.id)
 
             def player_drop_requested(field_name, tournament_player):
                 if not request.form.get(field_name):

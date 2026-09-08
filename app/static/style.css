@@ -1130,6 +1130,19 @@ ul.flashes {
   margin: 0;
 }
 
+.link-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--brand-accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.danger-link { color: var(--danger, #b42318); }
+
 .inline-form-divider {
   text-align:center;
   margin:12px 0;
