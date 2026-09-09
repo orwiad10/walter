@@ -246,7 +246,11 @@ def swiss_pair_round(t: Tournament, r: Round, session):
             if limited_format == 'draft':
                 pairings = _draft_round_one_pairs(t, players, session)
             else:
-                pairings = _big_x_little_x_pairs(sorted(players, key=lambda player: player.id))
+                # Sealed still uses big-X/little-X, but the ring itself must be
+                # randomized every time the round is generated.  Sorting by ID
+                # made both the initial pairing and every re-pair deterministic.
+                random.shuffle(players)
+                pairings = _big_x_little_x_pairs(players)
             for p1, p2 in pairings:
                 m = Match(round_id=r.id, table_number=table,
                           player1_id=p1.id,

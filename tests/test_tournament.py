@@ -434,11 +434,19 @@ def test_draft_round_one_pairs_randomly_across_complete_pods(session):
     assert all(pod_by_player[match.player1_id] != pod_by_player[match.player2_id] for match in matches)
 
 
-def test_sealed_round_one_uses_big_x_little_x_for_eight_or_fewer_players(session):
+def test_sealed_round_one_randomizes_before_big_x_little_x(session, monkeypatch):
     tournament = Tournament(name='Small Sealed Event', format='Sealed')
     session.add(tournament)
     session.commit()
     players = _add_tournament_players(session, tournament, 7, 'sealedpairing')
+
+    shuffle_calls = []
+
+    def reverse_order(values):
+        shuffle_calls.append([player.id for player in values])
+        values.reverse()
+
+    monkeypatch.setattr(random, 'shuffle', reverse_order)
 
     rnd = Round(tournament_id=tournament.id, number=1)
     session.add(rnd)
@@ -447,12 +455,55 @@ def test_sealed_round_one_uses_big_x_little_x_for_eight_or_fewer_players(session
     matches = pair_round(tournament, rnd, session)
     pairs = [(match.player1_id, match.player2_id) for match in sorted(matches, key=lambda m: m.table_number)]
 
+    assert shuffle_calls == [[player.id for player in players]]
     assert pairs == [
-        (players[0].id, players[3].id),
-        (players[1].id, players[4].id),
-        (players[2].id, players[5].id),
-        (players[6].id, None),
+        (players[6].id, players[3].id),
+        (players[5].id, players[2].id),
+        (players[4].id, players[1].id),
+        (players[0].id, None),
     ]
+
+
+def test_constructed_round_one_is_reshuffled_when_repaired(session, monkeypatch):
+    tournament = Tournament(name='Re-paired Constructed Event', format='Constructed')
+    session.add(tournament)
+    session.commit()
+    players = _add_tournament_players(session, tournament, 4, 'constructedrepair')
+    rnd = Round(tournament_id=tournament.id, number=1)
+    session.add(rnd)
+    session.commit()
+
+    shuffle_count = 0
+
+    def distinct_shuffle(values):
+        nonlocal shuffle_count
+        shuffle_count += 1
+        if shuffle_count == 1:
+            values.reverse()
+        else:
+            values.append(values.pop(0))
+
+    monkeypatch.setattr(random, 'shuffle', distinct_shuffle)
+
+    first_matches = pair_round(tournament, rnd, session)
+    first_pairs = {
+        frozenset((match.player1_id, match.player2_id))
+        for match in first_matches
+    }
+    for match in first_matches:
+        session.delete(match)
+    session.commit()
+
+    reroll_pairing_randomness(tournament, rnd, session)
+    second_matches = pair_round(tournament, rnd, session)
+    second_pairs = {
+        frozenset((match.player1_id, match.player2_id))
+        for match in second_matches
+    }
+
+    assert shuffle_count == 2
+    assert first_pairs != second_pairs
+    assert set().union(*second_pairs) == {player.id for player in players}
 
 
 def test_draft_seating_is_persisted_for_round_one_pairings(session):
