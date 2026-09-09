@@ -45,7 +45,7 @@
               {% if current_user.is_authenticated and (current_user.has_permission('tournaments.manage', 'tournament', t.id) or current_user.id in ids) %}
                 <a href="{{ url_for('report_match', mid=m.id) }}">Edit</a>
                 {% if current_user.has_permission('tournaments.manage', 'tournament', t.id) %}
-                <form method="post" action="{{ url_for('delete_match_result', mid=m.id) }}" class="inline-form" onsubmit="return confirm('Delete this match result?');"><button type="submit" class="link-button danger-link">Delete</button></form>
+                <form method="post" action="{{ url_for('delete_match_result', mid=m.id) }}" class="inline-form" onsubmit="return confirm('Delete this report? The matchup will be kept.');"><button type="submit" class="link-button danger-link">Delete Report</button></form>
                 {% endif %}
               {% endif %}
             {% endif %}
@@ -68,7 +68,7 @@
               {% if current_user.is_authenticated and (current_user.has_permission('tournaments.manage', 'tournament', t.id) or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
                 <a href="{{ url_for('report_match', mid=m.id) }}">Edit</a>
                 {% if current_user.has_permission('tournaments.manage', 'tournament', t.id) %}
-                <form method="post" action="{{ url_for('delete_match_result', mid=m.id) }}" class="inline-form" onsubmit="return confirm('Delete this match result?');"><button type="submit" class="link-button danger-link">Delete</button></form>
+                <form method="post" action="{{ url_for('delete_match_result', mid=m.id) }}" class="inline-form" onsubmit="return confirm('Delete this report? The matchup will be kept.');"><button type="submit" class="link-button danger-link">Delete Report</button></form>
                 {% endif %}
               {% endif %}
             {% endif %}

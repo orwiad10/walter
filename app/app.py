@@ -7082,14 +7082,11 @@ def create_app():
         if not m.completed and not m.result:
             flash('This pairing has no result to delete.', 'error')
             return redirect(url_for('view_round', tid=tournament.id, rid=m.round_id))
-        result = m.result
         m.completed = False
         m.result = None
-        if result:
-            db.session.delete(result)
         db.session.commit()
         log_tournament(tournament.id, 'delete_report', 'success', f'match_id={m.id}')
-        flash('Match result deleted. The pairing can be reported again.', 'success')
+        flash('Match report deleted. The pairing was kept and can be reported again.', 'success')
         return redirect(url_for('view_round', tid=tournament.id, rid=m.round_id))
 
     @app.route('/t/<int:tid>/round/<int:rid>/delete', methods=['POST'])
