@@ -928,8 +928,10 @@ class Match(db.Model):
     player4 = db.relationship('TournamentPlayer', foreign_keys=[player4_id])
     result = db.relationship(
         'MatchResult',
-        backref=db.backref('match', cascade='all, delete-orphan'),
-        uselist=False
+        backref=db.backref('match', uselist=False),
+        cascade='all, delete-orphan',
+        single_parent=True,
+        uselist=False,
     )
 
     __table_args__ = (UniqueConstraint('round_id', 'table_number', name='_round_table_uc'),)

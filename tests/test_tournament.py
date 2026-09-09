@@ -138,15 +138,22 @@ def test_admin_can_delete_match_result_before_next_round(client, session):
                   completed=True, result=result)
     session.add(match)
     session.commit()
+    match_id = match.id
+    result_id = result.id
+    round_id = round_one.id
+    player_ids = (match.player1_id, match.player2_id)
 
     with client:
         client.post('/login', data={'email': admin.email, 'password': 'secret'})
         response = client.post(f'/match/{match.id}/result/delete', follow_redirects=True)
         assert response.status_code == 200
-        session.refresh(match)
-        assert match.completed is False
-        assert match.result is None
-        assert session.get(MatchResult, result.id) is None
+        preserved_match = session.get(Match, match_id)
+        assert preserved_match is not None
+        assert preserved_match.round_id == round_id
+        assert (preserved_match.player1_id, preserved_match.player2_id) == player_ids
+        assert preserved_match.completed is False
+        assert preserved_match.result is None
+        assert session.get(MatchResult, result_id) is None
 
 
 def test_tournament_start_time(session):
