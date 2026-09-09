@@ -327,6 +327,19 @@ def _save_pairing_state(t: Tournament, state, session):
     session.add(t)
 
 
+def reroll_pairing_randomness(t: Tournament, r: Round, session):
+    """Discard persisted random choices that affect a round being re-paired."""
+    state = _load_pairing_state(t)
+    changed = False
+    if (t.pairing_type or 'swiss').lower() == 'round_robin':
+        changed = state.pop('round_robin_order', None) is not None
+    if r.number == 1 and (t.format or '').lower() == 'draft':
+        changed = state.pop('draft_seating', None) is not None or changed
+    if changed:
+        _save_pairing_state(t, state, session)
+        session.flush()
+
+
 def _normalize_round_robin_order(order_ids, active_ids):
     present = [pid for pid in order_ids if pid in active_ids]
     missing = [pid for pid in active_ids if pid not in present]

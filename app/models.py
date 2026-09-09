@@ -288,6 +288,8 @@ class User(db.Model, UserMixin):
         scopes = set()
         for assignment in self.explicit_scope_assignments:
             scopes.add((assignment.scope_type, assignment.scope_id))
+        for assignment in self.scoped_role_assignments:
+            scopes.add((assignment.scope_type, assignment.scope_id))
         for entry in self.tournament_entries:
             scopes.add(('tournament', entry.tournament_id))
         for membership in db.session.query(LeaguePlayer).filter_by(user_id=self.id).all():
@@ -352,6 +354,19 @@ class User(db.Model, UserMixin):
             grants = self._applicable_grants(key, scope_type, scope_id)
             if grants:
                 return grants[0].effect == 'allow'
+            scoped_roles = [
+                assignment.role for assignment in self.scoped_role_assignments
+                if (assignment.scope_type, assignment.scope_id) in {
+                    (scope_type, scope_id),
+                    *(
+                        [('venue', db.session.get(Tournament, scope_id).venue_id),
+                         ('league', db.session.get(Tournament, scope_id).league_id)]
+                        if scope_type == 'tournament' and db.session.get(Tournament, scope_id) else []
+                    ),
+                }
+            ]
+            if any(role.permissions_dict().get(key, False) for role in scoped_roles):
+                return True
         else:
             grants = self._applicable_grants(key, None, None)
             if grants:
@@ -450,6 +465,21 @@ class ScopeAssignment(db.Model):
 
     user = db.relationship('User', backref=db.backref('explicit_scope_assignments', cascade='all, delete-orphan'))
     __table_args__ = (UniqueConstraint('user_id', 'scope_type', 'scope_id', name='_user_scope_uc'),)
+
+
+class ScopedRoleAssignment(db.Model):
+    """A role held only within a venue, league, or tournament scope."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=False)
+    scope_type = db.Column(db.String(20), nullable=False)
+    scope_id = db.Column(db.Integer, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('scoped_role_assignments', cascade='all, delete-orphan'))
+    role = db.relationship('Role')
+    __table_args__ = (
+        UniqueConstraint('user_id', 'role_id', 'scope_type', 'scope_id', name='_user_role_scope_uc'),
+    )
 
 
 class PermissionGrant(db.Model):

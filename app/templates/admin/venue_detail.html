@@ -7,13 +7,27 @@
   </div>
   <div class="page-header__actions">
     <a class="btn secondary" href="{{ url_for('venue_management') }}">All Venues</a>
-    {% if current_user.has_permission('venues.manage') %}
+    {% if current_user.has_permission('venues.manage', 'venue', venue.id) %}
     <a class="btn secondary" href="{{ url_for('vendor_management') }}">Vendors</a>
     <a class="btn secondary" href="{{ url_for('artist_management') }}">Artists</a>
     <a class="btn secondary" href="{{ url_for('lost_and_found', venue_id=venue.id) }}">Lost &amp; Found</a>
     {% endif %}
   </div>
 </section>
+
+{% if can_assign_staff %}
+<section class="panel-card">
+  <h3>Venue Staff</h3>
+  <p class="muted-text">These roles apply to venue settings and every tournament held here.</p>
+  <form method="post" action="{{ url_for('assign_venue_staff', venue_id=venue.id) }}" class="modern-form grid-form">
+    {% set manager_ids = staff_assignments|selectattr('role.name', 'equalto', 'manager')|map(attribute='user_id')|list %}
+    {% set judge_ids = staff_assignments|selectattr('role.name', 'equalto', 'venue judge')|map(attribute='user_id')|list %}
+    <label>Managers<select name="manager_ids" multiple size="8">{% for user in staff_users %}<option value="{{ user.id }}"{% if user.id in manager_ids %} selected{% endif %}>{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}</select></label>
+    <label>Venue judges<select name="judge_ids" multiple size="8">{% for user in staff_users %}<option value="{{ user.id }}"{% if user.id in judge_ids %} selected{% endif %}>{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}</select></label>
+    <div class="form-actions wide-field"><button class="btn" type="submit">Save Venue Staff</button></div>
+  </form>
+</section>
+{% endif %}
 
 <section class="panel-card">
   <h3>Venue Details</h3>

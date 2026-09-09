@@ -8,7 +8,7 @@
   </div>
 </section>
 <table>
-  <tr><th>Time</th><th>Email</th><th>User</th><th>IP Address</th><th>Result</th><th>User Agent</th></tr>
+  <tr><th>Time</th><th>Email</th><th>User</th><th>IP Address</th><th>Result</th><th>User Agent</th><th>Action</th></tr>
   {% for attempt in attempts %}
   <tr>
     <td>{{ attempt.created_at }}</td>
@@ -17,9 +17,10 @@
     <td>{{ attempt.ip_address }}</td>
     <td>{{ attempt.result }}</td>
     <td>{{ attempt.user_agent or '' }}</td>
+    <td>{% if attempt.ip_address in active_blacklisted_ips %}<span class="status-pill">Blacklisted</span>{% elif current_user.has_permission('admin.ip_blacklist') %}<form method="post" action="{{ url_for('admin_blacklist_bad_login_ip') }}" class="inline-form" onsubmit="return confirm('Blacklist {{ attempt.ip_address }}?');"><input type="hidden" name="ip_address" value="{{ attempt.ip_address }}"><button class="btn danger" type="submit">Blacklist IP</button></form>{% endif %}</td>
   </tr>
   {% else %}
-  <tr><td colspan="6">No bad login attempts recorded.</td></tr>
+  <tr><td colspan="7">No bad login attempts recorded.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

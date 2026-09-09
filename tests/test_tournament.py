@@ -13,6 +13,7 @@ from app.pairing import (
     compute_standings,
     draft_seating_tables,
     seeded_cut_pairs,
+    reroll_pairing_randomness,
 )
 from datetime import datetime
 
@@ -101,6 +102,51 @@ def test_round_robin_pairings_unique(session):
             pair = frozenset({m.player1_id, m.player2_id})
             assert pair not in seen_pairs
             seen_pairs.add(pair)
+
+
+def test_repair_rerolls_persisted_round_robin_random_order(session):
+    tournament = Tournament(name='Re-roll Event', format='Constructed', pairing_type='round_robin',
+                            pairing_options=json.dumps({'round_robin_order': [1, 2], 'other': True}))
+    round_one = Round(tournament=tournament, number=1)
+    session.add_all([tournament, round_one])
+    session.commit()
+
+    reroll_pairing_randomness(tournament, round_one, session)
+
+    state = json.loads(tournament.pairing_options)
+    assert 'round_robin_order' not in state
+    assert state['other'] is True
+
+
+def test_admin_can_delete_match_result_before_next_round(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='delete-result@example.com', name='Result Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    users = [User(email=f'delete-player-{i}@example.com', name=f'Player {i}', role=user_role) for i in range(2)]
+    tournament = Tournament(name='Delete Result Event', format='Constructed')
+    session.add_all([admin, tournament, *users])
+    session.flush()
+    entries = [TournamentPlayer(tournament=tournament, user=user) for user in users]
+    session.add_all(entries)
+    session.flush()
+    round_one = Round(tournament=tournament, number=1)
+    session.add(round_one)
+    session.flush()
+    result = MatchResult(player1_wins=2, player2_wins=1)
+    match = Match(round=round_one, player1=entries[0], player2=entries[1], table_number=1,
+                  completed=True, result=result)
+    session.add(match)
+    session.commit()
+
+    with client:
+        client.post('/login', data={'email': admin.email, 'password': 'secret'})
+        response = client.post(f'/match/{match.id}/result/delete', follow_redirects=True)
+        assert response.status_code == 200
+        session.refresh(match)
+        assert match.completed is False
+        assert match.result is None
+        assert session.get(MatchResult, result.id) is None
 
 
 def test_tournament_start_time(session):
