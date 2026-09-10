@@ -4,7 +4,7 @@
   <div class="page-header__title">
     <span class="eyebrow">Tournament Control</span>
     <h2>{{ t.name }}</h2>
-    <p class="page-description">{{ t.format }}{% if t.format == 'Draft' and t.is_cube %} · Cube{% endif %} · {{ t.cut|upper }} cut · {{ t.rules_enforcement_level }} REL · Tables {{ table_range }}</p>
+    <p class="page-description">{{ t.format }}{% if t.format == 'Draft' and t.is_cube %} · Cube{% endif %}{% if t.format == 'Old School - X-point' %} · {{ t.old_school_point_value }} points{% endif %} · {{ t.cut|upper }} cut · {{ t.rules_enforcement_level }} REL · Tables {{ table_range }}</p>
   </div>
   <div class="page-header__actions">
     {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
@@ -99,6 +99,7 @@
         {% if t.format == 'Draft' %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
         {% if can_view_player_decks %}<a class="btn ghost" href="{{ url_for('tournament_decklists', tid=t.id) }}">Player Deck Lists</a>{% endif %}
         <a class="btn ghost" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
+        <a class="btn ghost" href="{{ url_for('tournament_players', tid=t.id) }}">Manage Players</a>
       {% endif %}
       {% if t.format == 'Draft' and is_player and not (current_user.is_authenticated and current_user.has_permission('tournaments.manage')) %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
     </div>
@@ -513,88 +514,9 @@ Sideboard
   {% endif %}
 </section>
 
-{% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
-<details class="inline-add-player panel-card">
-  <summary class="section-heading"><div><h3>Add Players</h3><p>Add a single searched player, choose several existing people, or quick-create one new player.</p></div></summary>
-  <form method="post" action="{{ url_for('add_player_to_tournament', tid=t.id) }}" class="message-form add-player-form tournament-control-card">
-    <div class="form-grid two-column">
-      <div>
-        <label>Search existing player
-          <input type="text" id="add-player-search" placeholder="Search by name or email" autocomplete="off">
-        </label>
-        <div id="add-player-results" class="user-lookup-results" aria-live="polite"></div>
-        <input type="hidden" name="user_id" id="add-player-id">
-      </div>
-      <label>Multi-select existing people
-        <select name="user_ids" multiple size="8" class="multi-select">
-          {% for user in available_users %}
-          <option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>
-          {% endfor %}
-        </select>
-        <span class="field-help">Hold Ctrl/Command or Shift to select multiple people.</span>
-      </label>
-    </div>
-    <p class="inline-form-divider">or quick add</p>
-    <div class="form-grid two-column">
-      <label>Player Name
-        <input type="text" name="new_player_name" placeholder="New player name">
-      </label>
-      <label>Email (optional)
-        <input type="email" name="new_player_email" placeholder="email@example.com">
-      </label>
-    </div>
-    <div class="form-actions"><button class="btn" type="submit">Add Player(s)</button></div>
-  </form>
-</details>
-<script>
-  document.addEventListener('DOMContentLoaded', function(){
-    if(window.attachUserLookup){
-      window.attachUserLookup('add-player-search', 'add-player-results', 'add-player-id');
-    }
-  });
-</script>
-{% endif %}
-
 <section class="panel-card">
-<div class="section-heading"><div><h3>Players ({{ players|length }})</h3><p>Registered player roster and deck submission status.</p></div></div>
-<div class="players-roster-grid">
-  {% for p in players %}
-  {% set deck = p.deck %}
-  <article class="player-roster-card">
-    <div class="player-roster-card__header">
-      <h4>{{ p.user.name }}</h4>
-      {% if can_view_player_decks %}
-      <span class="deck-status {% if deck and deck.is_submitted %}deck-status-submitted{% else %}deck-status-draft{% endif %}">
-        {% if deck and deck.is_submitted %}Deck submitted{% elif deck %}Deck not submitted{% else %}No deck submitted{% endif %}
-      </span>
-      {% endif %}
-    </div>
-    {% if can_view_player_decks %}
-    <div class="player-roster-card__deck">
-      {% if deck %}
-      <span class="deck-counts">Main {{ deck.total_mainboard() }} · Side {{ deck.total_sideboard() }}</span>
-      {% if deck.submitted_at and deck.is_submitted %}<span class="deck-submitted-at">Submitted {{ deck.submitted_at }}</span>{% endif %}
-      <a class="btn secondary" href="{{ url_for('view_player_deck', tid=t.id, player_id=p.id) }}">View Deck</a>
-      {% else %}
-      <span class="empty-state compact-empty">Awaiting deck list.</span>
-      {% endif %}
-    </div>
-    {% endif %}
-    {% if current_user.has_permission('tournaments.manage') %}
-    <details class="player-replace-details">
-      <summary>Replace player</summary>
-      <form method="post" action="{{ url_for('replace_tournament_player', tid=t.id, player_id=p.id) }}" class="inline-form player-replace-form">
-        <select name="replacement_user_id" required>
-          <option value="">Choose replacement...</option>
-          {% for user in available_users %}<option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}
-        </select>
-        <button class="btn ghost" type="submit">Replace</button>
-      </form>
-    </details>
-    {% endif %}
-  </article>
-  {% endfor %}
-</div>
+<div class="section-heading"><div><h3>Players ({{ players|length }})</h3><p>The roster now has a dedicated management page.</p></div></div>
+<a class="btn" href="{{ url_for('tournament_players', tid=t.id) }}">View Players</a>
 </section>
 
 {% endblock %}

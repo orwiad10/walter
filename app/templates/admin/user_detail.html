@@ -7,10 +7,15 @@
 {% endif %}
 <h2>{{ user.name }}</h2>
 <p><a class="btn" href="{{ back_url }}">&larr; Back to Users</a></p>
+<p><a class="btn secondary" href="{{ url_for('admin_user_effective_permissions', uid=user.id) }}">Effective Permissions</a></p>
 <section class="user-settings-section">
   <h3>Account Details</h3>
   <form method="post" action="{{ url_for('admin_update_user', uid=user.id) }}" class="user-settings-form">
     <input type="hidden" name="search_query" value="{{ search_query }}">
+    <div class="form-row">
+      <label for="user-hidden">Visibility</label>
+      <label><input id="user-hidden" type="checkbox" name="hidden" value="1"{% if user.hidden %} checked{% endif %}> Hide this user from people without permission to view hidden users</label>
+    </div>
     <div class="form-row">
       <label for="user-first-name">First Name</label>
       <input id="user-first-name" name="first_name" value="{{ user.first_name or '' }}">

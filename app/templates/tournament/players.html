@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header"><div class="page-header__title"><span class="eyebrow">{{ t.name }}</span><h2>Players</h2></div></section>
+<p><a class="btn secondary" href="{{ url_for('view_tournament', tid=t.id) }}">&larr; Back to Tournament</a></p>
+{% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
+<section class="panel-card">
+  <h3>Add Players</h3>
+  <form method="post" action="{{ url_for('add_player_to_tournament', tid=t.id) }}" class="message-form">
+    <label>Search existing player<input type="text" id="add-player-search" placeholder="Search by name or email" autocomplete="off"></label>
+    <div id="add-player-results" class="user-lookup-results" aria-live="polite"></div><input type="hidden" name="user_id" id="add-player-id">
+    <label>Existing people<select name="user_ids" multiple size="8" class="multi-select">{% for user in available_users %}<option value="{{ user.id }}">{{ user.name }}{% if user.email %} — {{ user.email }}{% endif %}</option>{% endfor %}</select></label>
+    <div class="form-grid two-column"><label>New player name<input name="new_player_name"></label><label>Email (optional)<input type="email" name="new_player_email"></label></div>
+    <button class="btn" type="submit">Add Player(s)</button>
+  </form>
+</section>
+{% endif %}
+<details class="panel-card">
+  <summary><strong>Added Players ({{ players|length }})</strong> — expand roster</summary>
+  <div class="players-roster-grid">
+  {% for p in players %}<article class="player-roster-card"><h4>{{ p.user.name }}</h4>
+    {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
+    <form method="post" action="{{ url_for('remove_tournament_player', tid=t.id, player_id=p.id) }}" class="inline-form" onsubmit="return confirm('Remove this player?');"><button class="btn danger" type="submit">Remove</button></form>
+    <details><summary>Replace player</summary><form method="post" action="{{ url_for('replace_tournament_player', tid=t.id, player_id=p.id) }}" class="inline-form"><select name="replacement_user_id" required><option value="">Choose replacement...</option>{% for user in available_users %}<option value="{{ user.id }}">{{ user.name }}</option>{% endfor %}</select><button class="btn ghost">Replace</button></form></details>
+    {% endif %}
+  </article>{% else %}<p>No players registered.</p>{% endfor %}
+  </div>
+</details>
+<script>document.addEventListener('DOMContentLoaded',function(){if(window.attachUserLookup){window.attachUserLookup('add-player-search','add-player-results','add-player-id');}});</script>
+{% endblock %}

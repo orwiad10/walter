@@ -61,6 +61,7 @@ PERMISSION_GROUPS = {
         'manage': 'Manage users',
         'manage_admins': 'Manage admin level users',
         'search': 'Search the user directory',
+        'view_hidden': 'View users marked as hidden',
     },
     'reports': {
         'submit': 'Submit bug and player reports',
@@ -204,6 +205,7 @@ class User(db.Model, UserMixin):
     discord_username = db.Column(db.String(120), nullable=True)
     discord_user_id = db.Column(db.String(32), unique=True, nullable=True)
     discord_authorization_token_hash = db.Column(db.String(64), nullable=True)
+    hidden = db.Column(db.Boolean, nullable=False, default=False)
 
     @staticmethod
     def hash_discord_authorization_token(token):
@@ -676,6 +678,7 @@ class Tournament(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     format = db.Column(db.String(50), nullable=False)  # Commander, Draft, Constructed
+    old_school_point_value = db.Column(db.Integer, nullable=True)
     structure = db.Column(db.String(20), default='swiss')  # swiss or single_elim
     cut = db.Column(db.String(10), default='none')     # none, top8, top4
     pairing_type = db.Column(db.String(20), default='swiss')  # swiss, round_robin
