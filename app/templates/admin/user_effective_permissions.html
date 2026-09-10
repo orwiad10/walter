@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-header">
+  <div class="page-header__title"><span class="eyebrow">Admin · Users</span><h2>{{ user.name }} — Effective Permissions</h2></div>
+</section>
+<p><a class="btn secondary" href="{{ url_for('admin_user_detail', uid=user.id) }}">&larr; Back to User</a></p>
+<nav class="format-selector" aria-label="Permission output format">
+  <a class="btn{% if output_format != 'json' %} secondary{% endif %}" href="{{ url_for('admin_user_effective_permissions', uid=user.id, format='json') }}">JSON</a>
+  <a class="btn{% if output_format != 'yaml' %} secondary{% endif %}" href="{{ url_for('admin_user_effective_permissions', uid=user.id, format='yaml') }}">YAML</a>
+</nav>
+<pre class="panel-card"><code>{{ serialized }}</code></pre>
+{% endblock %}

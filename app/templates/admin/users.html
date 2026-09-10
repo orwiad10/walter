@@ -30,7 +30,7 @@
       {% for u in users %}
       <tr>
         <td><input type="checkbox" name="user_ids" value="{{ u.id }}" aria-label="Select {{ u.name }}"{% if u.id == current_user.id %} disabled{% endif %}></td>
-        <td>{{ u.name }}</td>
+        <td>{{ u.name }}{% if u.hidden %} <span class="status-pill">Hidden</span>{% endif %}</td>
         <td>{{ u.email or '—' }}</td>
         <td>{{ u.role.name if u.role else 'None' }}</td>
         <td>{% if u.locked_at %}<span class="status-pill warning">Locked</span>{% else %}Unlocked{% endif %}</td>

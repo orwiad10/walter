@@ -404,6 +404,17 @@
           ],
           "request": "A logged-in user can search the user directory only when their role grants this permission."
         },
+        "users.view_hidden": {
+          "type": "boolean",
+          "default": false,
+          "description": "View users marked as hidden",
+          "x-assignment-status": "assigned",
+          "x-current-roles": ["admin"],
+          "x-current-actions": ["List, search, and manage hidden user accounts"],
+          "x-routes": ["/admin/users", "/api/users/search"],
+          "x-methods": ["GET"],
+          "request": "Hidden accounts are omitted unless this permission is granted to the requesting user or role."
+        },
         "reports.submit": {
           "type": "boolean",
           "default": false,
@@ -727,6 +738,7 @@
       "users.manage",
       "users.manage_admins",
       "users.search",
+      "users.view_hidden",
       "venues.manage"
     ],
     "manager": [

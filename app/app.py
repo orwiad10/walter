@@ -39,6 +39,7 @@ import time
 import urllib.parse
 import urllib.request
 import socket
+import yaml
 
 from collections import OrderedDict
 from urllib.parse import urlparse
@@ -81,7 +82,10 @@ MAJOR_60_CARD_FORMATS = [
     'Vintage',
     'Pauper',
 ]
-BASE_TOURNAMENT_FORMATS = ['Commander', 'Draft']
+BASE_TOURNAMENT_FORMATS = [
+    'Commander', 'Draft', 'Old School - ATL', 'Old School - EC',
+    'Old School - SWE', 'Old School - X-point',
+]
 TOURNAMENT_FORMATS = BASE_TOURNAMENT_FORMATS + MAJOR_60_CARD_FORMATS
 MAILGUN_DOMAIN_PATTERN = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$')
 
@@ -377,6 +381,9 @@ def create_app():
                 db.session.execute(text('ALTER TABLE tournament ADD COLUMN manually_completed BOOLEAN DEFAULT 0'))
                 db.session.execute(text('UPDATE tournament SET manually_completed=0 WHERE manually_completed IS NULL'))
                 db.session.commit()
+            if 'old_school_point_value' not in columns:
+                db.session.execute(text('ALTER TABLE tournament ADD COLUMN old_school_point_value INTEGER'))
+                db.session.commit()
         if 'user' in table_names:
             columns = [c['name'] for c in inspector.get_columns('user')]
             if 'break_end' not in columns:
@@ -392,6 +399,10 @@ def create_app():
             if 'last_name' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN last_name VARCHAR(80)'))
                 db.session.execute(text("UPDATE user SET last_name=trim(CASE WHEN instr(name, ' ') = 0 THEN '' ELSE substr(name, instr(name, ' ') + 1) END) WHERE last_name IS NULL"))
+                db.session.commit()
+            if 'hidden' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN hidden BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE user SET hidden=0 WHERE hidden IS NULL'))
                 db.session.commit()
         if 'message' in table_names:
             columns = [c['name'] for c in inspector.get_columns('message')]
@@ -1904,6 +1915,8 @@ def create_app():
                 .limit(10)
                 .all()
             )
+            if not current_user.has_permission('users.view_hidden'):
+                users = [user for user in users if not user.hidden]
             for user in users:
                 results.append({
                     'id': user.id,
@@ -2257,7 +2270,10 @@ def create_app():
             db.session.commit()
             _api_log('users.create', 'success', f'user_id={user.id}; api_user_id={api_user.id}')
             return jsonify(user_payload(user)), 201
-        users = db.session.query(User).order_by(User.name).all()
+        users_query = db.session.query(User)
+        if not api_user.has_permission('users.view_hidden'):
+            users_query = users_query.filter(User.hidden == False)
+        users = users_query.order_by(User.name).all()
         _api_log('users.list', 'success')
         return jsonify({'users': [user_payload(u) for u in users]})
 
@@ -3482,6 +3498,7 @@ def create_app():
                     'private_key_salt': encode_binary(u.private_key_salt),
                     'private_key_nonce': encode_binary(u.private_key_nonce),
                     'permission_overrides': u.permission_overrides_dict(),
+                    'hidden': bool(u.hidden),
                 }
                 for u in users
             ],
@@ -3566,6 +3583,7 @@ def create_app():
                     'id': t.id,
                     'name': t.name,
                     'format': t.format,
+                    'old_school_point_value': t.old_school_point_value,
                     'structure': t.structure,
                     'cut': t.cut,
                     'pairing_type': t.pairing_type,
@@ -3830,6 +3848,7 @@ def create_app():
                 user.private_key_nonce = decode_binary(item.get('private_key_nonce'))
                 overrides = item.get('permission_overrides') or {}
                 user.permission_overrides = json.dumps(overrides) if overrides else None
+                user.hidden = bool(item.get('hidden'))
                 counts['users'] += 1
             user_map[item.get('id')] = user
         db.session.flush()
@@ -3923,6 +3942,7 @@ def create_app():
             if overwrite or is_new:
                 tournament.name = item.get('name') or tournament.name
                 tournament.format = item.get('format') or tournament.format
+                tournament.old_school_point_value = item.get('old_school_point_value')
                 tournament.structure = item.get('structure') or tournament.structure
                 tournament.cut = item.get('cut') or tournament.cut
                 tournament.pairing_type = item.get('pairing_type') or tournament.pairing_type
@@ -4291,6 +4311,15 @@ def create_app():
             is_cube = request.form.get('is_cube') == '1'
             if fmt != 'Draft':
                 is_cube = False
+            old_school_point_value = None
+            if fmt == 'Old School - X-point':
+                try:
+                    old_school_point_value = int(request.form.get('old_school_point_value') or '')
+                    if old_school_point_value < 1:
+                        raise ValueError
+                except ValueError:
+                    flash('X-point value must be a positive whole number.', 'error')
+                    return render_template('admin/new_tournament.html', **template_context)
             join_requires_approval = request.form.get('join_requires_approval') == '1'
             player_cap_raw = (request.form.get('player_cap') or '').strip()
             if not player_cap_raw:
@@ -4313,6 +4342,7 @@ def create_app():
                            start_time=start_time,
                             rules_enforcement_level=rel,
                            is_cube=is_cube,
+                           old_school_point_value=old_school_point_value,
                            join_requires_approval=join_requires_approval,
                            player_cap=player_cap)
             league_id = request.form.get('league_id')
@@ -4387,6 +4417,15 @@ def create_app():
                 return render_template('admin/edit_tournament.html', **template_context)
             rel = request.form.get('rules_enforcement_level', 'None') or 'None'
             is_cube = request.form.get('is_cube') == '1'
+            old_school_point_value = None
+            if new_format == 'Old School - X-point':
+                try:
+                    old_school_point_value = int(request.form.get('old_school_point_value') or '')
+                    if old_school_point_value < 1:
+                        raise ValueError
+                except ValueError:
+                    flash('X-point value must be a positive whole number.', 'error')
+                    return render_template('admin/edit_tournament.html', **template_context)
             join_requires_approval = request.form.get('join_requires_approval') == '1'
             player_cap_raw = (request.form.get('player_cap') or '').strip()
             if not player_cap_raw:
@@ -4444,6 +4483,7 @@ def create_app():
             t.deck_build_time = int(deck_build_time) if deck_build_time else None
             t.rules_enforcement_level = rel
             t.is_cube = is_cube if t.format == 'Draft' else False
+            t.old_school_point_value = old_school_point_value
             t.join_requires_approval = join_requires_approval
             t.player_cap = player_cap
             t.start_table_number = start_table_number
@@ -6126,6 +6166,8 @@ def create_app():
         if current_user.is_authenticated and current_user.has_permission('tournaments.manage'):
             player_user_ids = {player.user_id for player in players}
             user_query = db.session.query(User)
+            if not current_user.has_permission('users.view_hidden'):
+                user_query = user_query.filter(User.hidden == False)
             if player_user_ids:
                 user_query = user_query.filter(~User.id.in_(player_user_ids))
             available_users = user_query.order_by(User.name).all()
@@ -6601,14 +6643,14 @@ def create_app():
                 if skipped_existing:
                     message += f' Skipped {skipped_existing} invalid or duplicate selection' + ('s' if skipped_existing != 1 else '') + '.'
                 flash(message, 'success')
-                return redirect(url_for('view_tournament', tid=tid))
+                return redirect(url_for('tournament_players', tid=tid))
             flash('No new existing players were selected.', 'warning')
-            return redirect(url_for('view_tournament', tid=tid))
+            return redirect(url_for('tournament_players', tid=tid))
         if new_name:
             email_value = new_email or None
             if email_value and db.session.query(User).filter_by(email=email_value).first():
                 flash('Email already registered.', 'error')
-                return redirect(url_for('view_tournament', tid=tid))
+                return redirect(url_for('tournament_players', tid=tid))
             role_user = db.session.query(Role).filter_by(name='user').first()
             player = User(name=new_name, email=email_value, role=role_user)
             _set_user_name_parts(player, fallback_name=new_name)
@@ -6617,7 +6659,7 @@ def create_app():
             created_user = True
         else:
             flash('Select existing users or enter a name to add a new player.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
+            return redirect(url_for('tournament_players', tid=tid))
         existing = (
             db.session.query(TournamentPlayer)
             .filter_by(tournament_id=tid, user_id=player.id)
@@ -6627,18 +6669,53 @@ def create_app():
             if created_user:
                 db.session.rollback()
             flash('Player is already registered for this tournament.', 'warning')
-            return redirect(url_for('view_tournament', tid=tid))
+            return redirect(url_for('tournament_players', tid=tid))
         if not tournament_has_capacity(t):
             if created_user:
                 db.session.rollback()
             flash('Tournament is at its player cap.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
+            return redirect(url_for('tournament_players', tid=tid))
         tp = TournamentPlayer(tournament_id=tid, user_id=player.id)
         db.session.add(tp)
         db.session.commit()
         log_tournament(tid, 'add_player_inline', 'success', f'user_id={player.id}')
         flash('Player added to tournament.', 'success')
-        return redirect(url_for('view_tournament', tid=tid))
+        return redirect(url_for('tournament_players', tid=tid))
+
+    @app.route('/t/<int:tid>/players')
+    def tournament_players(tid):
+        t = db.session.get(Tournament, tid)
+        if not t:
+            abort(404)
+        players = db.session.query(TournamentPlayer).filter_by(tournament_id=tid).order_by(TournamentPlayer.id).all()
+        available_users = []
+        if current_user.is_authenticated and current_user.has_permission('tournaments.manage'):
+            player_ids = {player.user_id for player in players}
+            query = db.session.query(User)
+            if player_ids:
+                query = query.filter(~User.id.in_(player_ids))
+            if not current_user.has_permission('users.view_hidden'):
+                query = query.filter(User.hidden == False)
+            available_users = query.order_by(User.name).all()
+        return render_template('tournament/players.html', t=t, players=players,
+                               available_users=available_users)
+
+    @app.route('/t/<int:tid>/players/<int:player_id>/remove', methods=['POST'])
+    @login_required
+    def remove_tournament_player(tid, player_id):
+        require_permission('tournaments.manage')
+        entry = db.session.get(TournamentPlayer, player_id)
+        if not entry or entry.tournament_id != tid:
+            abort(404)
+        if db.session.query(Round).filter_by(tournament_id=tid).first():
+            flash('Players cannot be removed after rounds have been created; mark them dropped instead.', 'error')
+        else:
+            removed_user_id = entry.user_id
+            db.session.delete(entry)
+            db.session.commit()
+            log_tournament(tid, 'remove_player', 'success', f'user_id={removed_user_id}')
+            flash('Player removed from tournament.', 'success')
+        return redirect(url_for('tournament_players', tid=tid))
 
     @app.route('/t/<int:tid>/players/<int:player_id>/replace', methods=['POST'])
     @login_required
@@ -6657,17 +6734,17 @@ def create_app():
         replacement = db.session.get(User, replacement_user_id)
         if not replacement:
             flash('Choose a replacement player.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
+            return redirect(url_for('tournament_players', tid=tid))
         existing = db.session.query(TournamentPlayer).filter_by(tournament_id=tid, user_id=replacement.id).first()
         if existing and existing.id != entry.id:
             flash('Replacement player is already in this tournament.', 'error')
-            return redirect(url_for('view_tournament', tid=tid))
+            return redirect(url_for('tournament_players', tid=tid))
         old_user_id = entry.user_id
         entry.user_id = replacement.id
         db.session.commit()
         log_tournament(tid, 'replace_player', 'success', f'old_user_id={old_user_id}; new_user_id={replacement.id}; ended={bool(t.ended_at)}')
         flash('Tournament player replaced.', 'success')
-        return redirect(url_for('view_tournament', tid=tid))
+        return redirect(url_for('tournament_players', tid=tid))
 
     @app.route('/t/<int:tid>/logs')
     def tournament_logs(tid):
@@ -7337,6 +7414,8 @@ def create_app():
 
         q = request.args.get('q', '').strip()
         query = db.session.query(User)
+        if not current_user.has_permission('users.view_hidden'):
+            query = query.filter(User.hidden == False)
         if not current_user.has_permission('users.manage_admins'):
             query = query.filter(User.is_admin == False)
         if q:
@@ -7383,6 +7462,8 @@ def create_app():
             abort(404)
         if target.is_admin and not current_user.has_permission('users.manage_admins'):
             abort(403)
+        if target.hidden and not current_user.has_permission('users.view_hidden'):
+            abort(404)
 
         q = request.args.get('q', '').strip()
         back_url = url_for('admin_users', q=q) if q else url_for('admin_users')
@@ -7403,6 +7484,26 @@ def create_app():
             can_manage_overrides=can_manage_overrides,
             permission_groups=PERMISSION_GROUPS,
         )
+
+    @app.route('/admin/users/<int:uid>/effective-permissions')
+    def admin_user_effective_permissions(uid):
+        require_permission('users.manage')
+        target = db.session.get(User, uid)
+        if not target:
+            abort(404)
+        if target.is_admin and not current_user.has_permission('users.manage_admins'):
+            abort(403)
+        if target.hidden and not current_user.has_permission('users.view_hidden'):
+            abort(404)
+        output_format = (request.args.get('format') or 'json').lower()
+        if output_format not in {'json', 'yaml'}:
+            abort(400)
+        permissions = {key: target.has_permission(key) for key in all_permission_keys()}
+        serialized = (yaml.safe_dump(permissions, sort_keys=True)
+                      if output_format == 'yaml'
+                      else json.dumps(permissions, indent=2, sort_keys=True))
+        return render_template('admin/user_effective_permissions.html', user=target,
+                               output_format=output_format, serialized=serialized)
 
     @app.route('/admin/users/<int:uid>/add', methods=['POST'])
     def admin_add_user_to_tournament(uid):
@@ -7496,6 +7597,7 @@ def create_app():
             u.email = email
             _set_user_name_parts(u, first_name, last_name, request.form.get('name'))
             u.notes = request.form.get('notes', '').strip() or None
+            u.hidden = request.form.get('hidden') == '1'
             role_id = request.form.get('role_id')
             if role_id:
                 role = db.session.get(Role, int(role_id))
