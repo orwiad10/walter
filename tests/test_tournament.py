@@ -13,6 +13,8 @@ from app.pairing import (
     compute_standings,
     draft_seating_tables,
     seeded_cut_pairs,
+    seeded_cut_pods,
+    pairing_order_from_standings,
     reroll_pairing_randomness,
 )
 from datetime import datetime
@@ -537,6 +539,51 @@ def test_seeded_cut_pairs_first_against_last():
     seeds = list(range(1, 9))
 
     assert seeded_cut_pairs(seeds) == [(1, 8), (2, 7), (3, 6), (4, 5)]
+
+
+def test_seeded_commander_cut_pods_preserve_counter_seed_matches():
+    seeds = list(range(1, 9))
+
+    assert seeded_cut_pods(seeds) == [[1, 8, 3, 6], [2, 7, 4, 5]]
+
+
+def test_pairing_order_randomizes_only_exact_ties(monkeypatch):
+    players = list(range(4))
+    rows = [
+        {'tp': players[0], 'points': 6, 'omw': .5, 'gw': .6, 'ogw': .4},
+        {'tp': players[1], 'points': 3, 'omw': .5, 'gw': .6, 'ogw': .4},
+        {'tp': players[2], 'points': 3, 'omw': .5, 'gw': .6, 'ogw': .4},
+        {'tp': players[3], 'points': 0, 'omw': .8, 'gw': .9, 'ogw': .9},
+    ]
+    monkeypatch.setattr(random, 'shuffle', lambda values: values.reverse())
+
+    assert pairing_order_from_standings(rows) == [0, 2, 1, 3]
+
+
+def test_draft_remainder_is_distributed_into_full_pods(session):
+    tournament = Tournament(name='Remainder Draft', format='Draft')
+    session.add(tournament)
+    session.commit()
+    _add_tournament_players(session, tournament, 18, 'draftremainder')
+
+    tables = draft_seating_tables(tournament, session)
+
+    assert sorted(map(len, tables)) == [9, 9]
+
+
+def test_pair_round_automatically_reports_bye(session):
+    tournament = Tournament(name='Automatic Bye', format='Constructed')
+    session.add(tournament)
+    session.commit()
+    _add_tournament_players(session, tournament, 3, 'automaticbye')
+    rnd = Round(tournament=tournament, number=1)
+    session.add(rnd)
+    session.commit()
+
+    bye = next(match for match in pair_round(tournament, rnd, session) if match.player2_id is None)
+
+    assert bye.completed is True
+    assert (bye.result.player1_wins, bye.result.player2_wins) == (2, 0)
 
 def test_bulk_register_adds_existing_users(client, session):
     manager_role = session.query(Role).filter_by(name='manager').one()

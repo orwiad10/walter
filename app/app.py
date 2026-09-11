@@ -673,7 +673,10 @@ def create_app():
         all_permission_keys,
         utc_now,
     )
-    from .pairing import pair_round, recommended_rounds, compute_standings, player_points, draft_seating_tables, seeded_cut_pairs, reroll_pairing_randomness
+    from .pairing import (pair_round, recommended_rounds, compute_standings, player_points,
+                          draft_seating_tables, seeded_cut_pairs, seeded_cut_pods, reroll_pairing_randomness,
+                          create_manual_pairings, elimination_pairing_order, pairing_order_from_standings,
+                          have_played)
 
     TYPE_SORT_ORDER = [
         'Creature',
@@ -4294,6 +4297,9 @@ def create_app():
                 flash('Select a supported tournament format.', 'error')
                 return render_template('admin/new_tournament.html', **template_context)
             structure, pairing_type = resolve_structure_and_pairing(request.form)
+            if fmt == 'Commander' and pairing_type == 'round_robin':
+                flash('Commander does not support round-robin pairing.', 'error')
+                return render_template('admin/new_tournament.html', **template_context)
             cut = request.form.get('cut', 'none') if structure == 'swiss' and pairing_type != 'round_robin' else 'none'
             if fmt == 'Commander' and cut not in ('none','top4','top16','top32','top64'):
                 flash('Commander supports cuts to Top 4, 16, 32, or 64.', 'error')
@@ -4405,6 +4411,9 @@ def create_app():
                 flash('Select a supported tournament format.', 'error')
                 return render_template('admin/edit_tournament.html', **template_context)
             new_structure, new_pairing_type = resolve_structure_and_pairing(request.form)
+            if new_format == 'Commander' and new_pairing_type == 'round_robin':
+                flash('Commander does not support round-robin pairing.', 'error')
+                return render_template('admin/edit_tournament.html', **template_context)
             new_cut = request.form.get('cut', 'none') if new_structure == 'swiss' and new_pairing_type != 'round_robin' else 'none'
             commander_points = request.form.get('commander_points', '3,2,1,0,1')
             round_length = int(request.form.get('round_length', 50))
@@ -6926,6 +6935,9 @@ def create_app():
             flash('No players registered.', 'error')
             return redirect(url_for('view_tournament', tid=tid))
         pairing_type = (t.pairing_type or 'swiss').lower()
+        if t.format.lower() == 'commander' and pairing_type == 'round_robin':
+            flash('Commander does not support round-robin pairing.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
         round_limit = t.rounds_override
         if pairing_type == 'round_robin':
             if round_limit is None:
@@ -6967,7 +6979,23 @@ def create_app():
             r = Round(tournament_id=tid, number=next_round_num)
             db.session.add(r)
             db.session.commit()
-            pair_round(t, r, db.session)
+            try:
+                pair_round(t, r, db.session)
+            except ValueError as exc:
+                db.session.rollback()
+                # The empty round is retained as the target for a rules-valid
+                # administrator pairing; no repeat is silently accepted.
+                r = db.session.query(Round).filter_by(tournament_id=tid, number=next_round_num).first()
+                if r is None:
+                    r = Round(tournament_id=tid, number=next_round_num)
+                    db.session.add(r)
+                    db.session.flush()
+                state = json_loads_safe(t.pairing_options, {})
+                state['manual_pairing_round_id'] = r.id
+                t.pairing_options = json.dumps(state)
+                db.session.commit()
+                flash(f'{exc} Create a hand pairing that obeys the no-repeat rule.', 'error')
+                return redirect(url_for('manual_pair_round', tid=tid, rid=r.id))
             flash(f"Paired round {next_round_num}.", "success")
             log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
             return redirect(url_for('view_tournament', tid=tid))
@@ -6975,28 +7003,27 @@ def create_app():
         next_round_num = current_rounds + 1
         if t.structure == 'single_elim':
             if current_rounds == 0:
-                players = list(active_players)
-                random.shuffle(players)
                 r = Round(tournament_id=tid, number=next_round_num)
                 db.session.add(r)
                 db.session.commit()
-                table = t.start_table_number or 1
-                for i in range(0, len(players), 2):
-                    p1 = players[i]
-                    p2 = players[i+1] if i+1 < len(players) else None
-                    m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id if p2 else None, table_number=table)
-                    if p2 is None:
-                        m.completed = True
-                        m.result = MatchResult(player1_wins=2, player2_wins=0, draws=0)
-                    db.session.add(m)
-                    table += 1
-                db.session.commit()
+                pair_round(t, r, db.session)
                 flash(f"Paired round {next_round_num}.", "success")
                 log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
                 return redirect(url_for('view_tournament', tid=tid))
             winners = []
             for m in sorted(prev_round.matches, key=lambda m: m.table_number):
-                if m.result.player1_wins > m.result.player2_wins:
+                if t.format.lower() == 'commander':
+                    pod_players = [m.player1, m.player2, m.player3, m.player4]
+                    if m.result.is_draw:
+                        winners.extend(player for player in pod_players if player)
+                    else:
+                        placements = [(m.player1, m.result.p1_place), (m.player2, m.result.p2_place),
+                                      (m.player3, m.result.p3_place), (m.player4, m.result.p4_place)]
+                        winners.extend(player for player, place in placements if player and place == 1)
+                        for player, place in placements:
+                            if player and place != 1:
+                                player.dropped = True
+                elif m.result.player1_wins > m.result.player2_wins:
                     winners.append(m.player1)
                     if m.player2_id:
                         m.player2.dropped = True
@@ -7011,10 +7038,18 @@ def create_app():
             db.session.add(r)
             db.session.commit()
             table = t.start_table_number or 1
-            for i in range(0, len(winners), 2):
-                p1 = winners[i]
-                p2 = winners[i+1]
-                m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
+            winners = elimination_pairing_order(t, winners, db.session)
+            group_size = 4 if t.format.lower() == 'commander' else 2
+            for i in range(0, len(winners), group_size):
+                pod = winners[i:i + group_size]
+                m = Match(round_id=r.id, player1_id=pod[0].id,
+                          player2_id=pod[1].id if len(pod) > 1 else None,
+                          player3_id=pod[2].id if len(pod) > 2 else None,
+                          player4_id=pod[3].id if len(pod) > 3 else None,
+                          table_number=table)
+                if len(pod) == 1 and group_size == 2:
+                    m.completed = True
+                    m.result = MatchResult(player1_wins=2, player2_wins=0, draws=0)
                 db.session.add(m)
                 table += 1
             db.session.commit()
@@ -7031,16 +7066,13 @@ def create_app():
                 if len(standings) < top_n:
                     flash('Not enough players for cut.', 'error')
                     return redirect(url_for('view_tournament', tid=tid))
-                seeds = [row['tp'] for row in standings[:top_n]]
+                seeds = pairing_order_from_standings(standings)[:top_n]
                 r = Round(tournament_id=tid, number=next_round_num)
                 db.session.add(r)
                 db.session.commit()
                 table = t.start_table_number or 1
                 if t.format.lower() == 'commander':
-                    group_size = 4
-                    i = 0
-                    while i < top_n:
-                        pod = seeds[i:i+group_size]
+                    for pod in seeded_cut_pods(seeds):
                         m = Match(round_id=r.id, table_number=table,
                                   player1_id=pod[0].id,
                                   player2_id=pod[1].id if len(pod) > 1 else None,
@@ -7048,7 +7080,6 @@ def create_app():
                                   player4_id=pod[3].id if len(pod) > 3 else None)
                         db.session.add(m)
                         table += 1
-                        i += group_size
                 else:
                     for p1, p2 in seeded_cut_pairs(seeds):
                         m = Match(round_id=r.id, player1_id=p1.id, player2_id=p2.id, table_number=table)
@@ -7113,6 +7144,55 @@ def create_app():
             flash(f"Paired round {next_round_num}.", "success")
             log_tournament(tid, 'pair_round', 'success', f'round={next_round_num}')
             return redirect(url_for('view_tournament', tid=tid))
+
+    @app.route('/t/<int:tid>/round/<int:rid>/manual-pair', methods=['GET', 'POST'])
+    def manual_pair_round(tid, rid):
+        t = db.session.get(Tournament, tid)
+        r = db.session.get(Round, rid)
+        if not t or not r or r.tournament_id != tid:
+            abort(404)
+        if not current_user.is_authenticated or not current_user.has_permission(
+            'tournaments.manage', 'tournament', tid
+        ):
+            abort(403)
+        state = json_loads_safe(t.pairing_options, {})
+        if state.get('manual_pairing_round_id') != rid or r.matches:
+            flash('Hand pairing is available only after automatic no-repeat pairing fails.', 'error')
+            return redirect(url_for('view_tournament', tid=tid))
+        players = (db.session.query(TournamentPlayer)
+                   .filter_by(tournament_id=tid, dropped=False)
+                   .all())
+        group_size = 4 if t.format.lower() == 'commander' else 2
+        if request.method == 'POST':
+            grouped = {}
+            try:
+                for player in players:
+                    group_number = int(request.form.get(f'group_{player.id}', '0'))
+                    if group_number < 1:
+                        raise ValueError('Assign every player to a table.')
+                    grouped.setdefault(group_number, []).append(player.id)
+                groups = [grouped[number] for number in sorted(grouped)]
+                create_manual_pairings(t, r, groups, db.session)
+            except ValueError as exc:
+                db.session.rollback()
+                flash(str(exc), 'error')
+            else:
+                state.pop('manual_pairing_round_id', None)
+                t.pairing_options = json.dumps(state)
+                db.session.commit()
+                flash(f'Hand-paired round {r.number}.', 'success')
+                log_tournament(tid, 'manual_pair_round', 'success', f'round={r.number}')
+                return redirect(url_for('view_round', tid=tid, rid=rid))
+        prior_opponents = {
+            player.id: [other.user.name for other in players
+                        if other.id != player.id and have_played(
+                            player.id, other.id, db.session,
+                            up_to_round_number=r.number - 1)]
+            for player in players
+        }
+        table_count = (len(players) + group_size - 1) // group_size
+        return render_template('tournament/manual_pair.html', t=t, r=r, players=players,
+                               prior_opponents=prior_opponents, table_count=table_count)
 
     @app.route('/t/<int:tid>/round/<int:rid>/repair', methods=['POST'])
     def repair_round(tid, rid):
