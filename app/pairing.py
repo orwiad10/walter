@@ -157,8 +157,34 @@ def _build_pods(players, group_size, session, *, up_to_round_number=None, allow_
     return total[1]
 
 
+def pairing_order_from_standings(standings):
+    """Rank players while randomizing only exact tiebreak regions."""
+    buckets = {}
+    for row in standings:
+        key = (row['points'], row['omw'], row['gw'], row['ogw'])
+        buckets.setdefault(key, []).append(row['tp'])
+    ordered = []
+    for key in sorted(buckets, reverse=True):
+        tied = buckets[key]
+        random.shuffle(tied)
+        ordered.extend(tied)
+    return ordered
+
+
 def seeded_cut_pairs(seeds):
     return [(seeds[i], seeds[len(seeds) - 1 - i]) for i in range(len(seeds) // 2)]
+
+
+def seeded_cut_pods(seeds, group_size=4):
+    """Distribute high and low seeds into counter-seeded multiplayer pods."""
+    pod_count = max(1, (len(seeds) + group_size - 1) // group_size)
+    pods = [[] for _ in range(pod_count)]
+    counter_pairs = seeded_cut_pairs(seeds)
+    for index, pair in enumerate(counter_pairs):
+        pods[index % pod_count].extend(pair)
+    if len(seeds) % 2:
+        pods[-1].append(seeds[len(seeds) // 2])
+    return pods
 
 
 def _draft_seating_tables(t: Tournament, players, session, table_size=8):
@@ -179,7 +205,13 @@ def _draft_seating_tables(t: Tournament, players, session, table_size=8):
         random.shuffle(missing_ids)
         seated_ids.extend(missing_ids)
 
-    tables = [seated_ids[i:i+table_size] for i in range(0, len(seated_ids), table_size)]
+    # Make full eight-player pods first, then distribute every remainder player
+    # among those pods.  This avoids creating a tiny, isolated final pod.
+    pod_count = max(1, len(seated_ids) // table_size) if seated_ids else 0
+    tables = [seated_ids[i * table_size:(i + 1) * table_size] for i in range(pod_count)]
+    remainder = seated_ids[pod_count * table_size:]
+    for index, player_id in enumerate(remainder):
+        tables[index % pod_count].append(player_id)
     if tables != saved_tables:
         state['draft_seating'] = tables
         _save_pairing_state(t, state, session)
@@ -206,31 +238,33 @@ def _big_x_little_x_pairs(pod):
 
 
 def _cross_pod_pairs(pods):
-    """Randomly pair complete draft pods without creating an in-pod match."""
+    """Pair across draft pods until only internal-pod pairing is possible."""
     remaining = [pod[:] for pod in pods]
     for pod in remaining:
         random.shuffle(pod)
 
     pairs = []
-    while any(remaining):
-        pod_indexes = list(range(len(remaining)))
+    while sum(bool(pod) for pod in remaining) >= 2:
+        pod_indexes = [index for index, pod in enumerate(remaining) if pod]
         random.shuffle(pod_indexes)
         pod_indexes.sort(key=lambda index: len(remaining[index]), reverse=True)
         first_pod, second_pod = pod_indexes[:2]
         pairs.append((remaining[first_pod].pop(), remaining[second_pod].pop()))
+    for pod in remaining:
+        pairs.extend(_big_x_little_x_pairs(pod))
     return pairs
 
 
 def _draft_round_one_pairs(t: Tournament, players, session):
     pods = _draft_seating_tables(t, players, session)
-    complete_pods = [pod for pod in pods if len(pod) == 8]
-    pairs = _cross_pod_pairs(complete_pods) if len(complete_pods) > 1 else []
-    paired_pod_ids = {id(pod) for pod in complete_pods} if len(complete_pods) > 1 else set()
-    for pod in pods:
-        if id(pod) in paired_pod_ids:
-            continue
-        pairs.extend(_big_x_little_x_pairs(pod))
-    return pairs
+    return _cross_pod_pairs(pods) if len(pods) > 1 else _big_x_little_x_pairs(pods[0])
+
+
+def _complete_bye(match, session):
+    """Automatically record the standard 2-0 result for a two-player bye."""
+    match.completed = True
+    match.result = MatchResult(player1_wins=2, player2_wins=0, draws=0)
+    session.add(match)
 
 
 def swiss_pair_round(t: Tournament, r: Round, session):
@@ -240,22 +274,15 @@ def swiss_pair_round(t: Tournament, r: Round, session):
         table = t.start_table_number or 1
         created = []
         limited_format = (t.format or '').lower()
-        if limited_format in ('draft', 'sealed') and group_size == 2 and (
-            limited_format == 'draft' or len(players) <= 8
-        ):
-            if limited_format == 'draft':
-                pairings = _draft_round_one_pairs(t, players, session)
-            else:
-                # Sealed still uses big-X/little-X, but the ring itself must be
-                # randomized every time the round is generated.  Sorting by ID
-                # made both the initial pairing and every re-pair deterministic.
-                random.shuffle(players)
-                pairings = _big_x_little_x_pairs(players)
+        if limited_format in ('draft', 'sealed') and group_size == 2:
+            pairings = _draft_round_one_pairs(t, players, session)
             for p1, p2 in pairings:
                 m = Match(round_id=r.id, table_number=table,
                           player1_id=p1.id,
                           player2_id=p2.id if p2 else None)
                 session.add(m)
+                if p2 is None:
+                    _complete_bye(m, session)
                 created.append(m)
                 table += 1
             session.commit()
@@ -271,6 +298,8 @@ def swiss_pair_round(t: Tournament, r: Round, session):
                       player3_id=pod[2].id if len(pod) > 2 else None,
                       player4_id=pod[3].id if len(pod) > 3 else None)
             session.add(m)
+            if len(pod) == 1 and group_size == 2:
+                _complete_bye(m, session)
             created.append(m)
             table += 1
             i += group_size
@@ -278,14 +307,8 @@ def swiss_pair_round(t: Tournament, r: Round, session):
         return created
     # Build ordering using match points and standard tie breakers
     standings = compute_standings(t, session)
-    rank = {row['tp'].id: (
-        row['points'], row['omw'], row['gw'], row['ogw'], row['player'].lower()
-    ) for row in standings}
-    players.sort(
-        key=lambda tp: (
-            -rank[tp.id][0], -rank[tp.id][1], -rank[tp.id][2], -rank[tp.id][3], rank[tp.id][4]
-        )
-    )
+    active_ids = {player.id for player in players}
+    players = [player for player in pairing_order_from_standings(standings) if player.id in active_ids]
     is_post_cut = _is_post_cut_round(t, r, len(players))
     if group_size == 2:
         bye_player = _select_swiss_bye_player(players, t.id, session)
@@ -309,11 +332,14 @@ def swiss_pair_round(t: Tournament, r: Round, session):
                   player3_id=pod[2].id if len(pod) > 2 else None,
                   player4_id=pod[3].id if len(pod) > 3 else None)
         session.add(m)
+        if len(pod) == 1 and group_size == 2:
+            _complete_bye(m, session)
         created.append(m)
         table += 1
     if bye_player is not None:
         m = Match(round_id=r.id, table_number=table, player1_id=bye_player.id, player2_id=None)
         session.add(m)
+        _complete_bye(m, session)
         created.append(m)
     session.commit()
     return created
@@ -337,7 +363,7 @@ def reroll_pairing_randomness(t: Tournament, r: Round, session):
     changed = False
     if (t.pairing_type or 'swiss').lower() == 'round_robin':
         changed = state.pop('round_robin_order', None) is not None
-    if r.number == 1 and (t.format or '').lower() == 'draft':
+    if r.number == 1 and (t.format or '').lower() in ('draft', 'sealed'):
         changed = state.pop('draft_seating', None) is not None or changed
     if changed:
         _save_pairing_state(t, state, session)
@@ -377,8 +403,26 @@ def round_robin_pair_round(t: Tournament, r: Round, session):
     if not players:
         return []
     if t.format and t.format.lower() == 'commander':
-        # Commander pods use groups of four; reuse Swiss logic for now.
-        return swiss_pair_round(t, r, session)
+        raise ValueError('Commander tournaments do not support round-robin pairing.')
+    if t.format and t.format.lower() in ('draft', 'sealed'):
+        if r.number == 1:
+            pairings = _draft_round_one_pairs(t, players, session)
+        else:
+            random.shuffle(players)
+            pairings = _build_pods(players, 2, session, up_to_round_number=r.number - 1,
+                                   allow_repeat_pairings=False)
+        table = t.start_table_number or 1
+        created = []
+        for p1, p2 in pairings:
+            match = Match(round_id=r.id, table_number=table, player1_id=p1.id,
+                          player2_id=p2.id if p2 else None)
+            session.add(match)
+            if p2 is None:
+                _complete_bye(match, session)
+            created.append(match)
+            table += 1
+        session.commit()
+        return created
     state = _load_pairing_state(t)
     order_ids = state.get('round_robin_order') or []
     active_ids = [tp.id for tp in players]
@@ -399,6 +443,7 @@ def round_robin_pair_round(t: Tournament, r: Round, session):
         if pid1 is None or pid2 is None:
             bye_player = pid1 or pid2
             m = Match(round_id=r.id, table_number=table, player1_id=bye_player, player2_id=None)
+            _complete_bye(m, session)
         else:
             if secrets.randbelow(2) == 0:
                 pid1, pid2 = pid2, pid1
@@ -415,6 +460,70 @@ def pair_round(t: Tournament, r: Round, session):
     if pairing_type == 'round_robin':
         return round_robin_pair_round(t, r, session)
     return swiss_pair_round(t, r, session)
+
+
+def create_manual_pairings(t, r, groups, session):
+    """Create a complete, non-repeating hand pairing for an impossible round."""
+    players = session.query(TournamentPlayer).filter_by(tournament_id=t.id, dropped=False).all()
+    expected = {player.id for player in players}
+    flat = [player_id for group in groups for player_id in group]
+    if len(flat) != len(set(flat)) or set(flat) != expected:
+        raise ValueError('Every active player must be assigned exactly once.')
+    group_size = 4 if (t.format or '').lower() == 'commander' else 2
+    if any(not group or len(group) > group_size for group in groups):
+        raise ValueError(f'Pairings must contain between one and {group_size} players.')
+    if sum(len(group) < group_size for group in groups) > 1:
+        raise ValueError('Only one incomplete pairing is allowed.')
+    for group in groups:
+        for a, b in combinations(group, 2):
+            if have_played(a, b, session, up_to_round_number=r.number - 1):
+                raise ValueError('A hand pairing cannot repeat a prior opponent.')
+    table = t.start_table_number or 1
+    created = []
+    for group in groups:
+        match = Match(round_id=r.id, table_number=table,
+                      player1_id=group[0],
+                      player2_id=group[1] if len(group) > 1 else None,
+                      player3_id=group[2] if len(group) > 2 else None,
+                      player4_id=group[3] if len(group) > 3 else None)
+        session.add(match)
+        if len(group) == 1 and group_size == 2:
+            _complete_bye(match, session)
+        created.append(match)
+        table += 1
+    session.commit()
+    return created
+
+
+def elimination_pairing_order(t, players, session):
+    """Order survivors by game record and opponent game-win percentage."""
+    active = {player.id for player in players}
+    rows = [row for row in compute_standings(t, session) if row['tp'].id in active]
+    game_record = {player_id: [0, 0] for player_id in active}
+    matches = session.query(Match).join(Round).filter(Round.tournament_id == t.id).all()
+    for match in matches:
+        if not match.completed or not match.result or match.player2_id is None:
+            continue
+        if match.player1_id in active:
+            game_record[match.player1_id][0] += match.result.player1_wins
+            game_record[match.player1_id][1] += match.result.player2_wins
+        if match.player2_id in active:
+            game_record[match.player2_id][0] += match.result.player2_wins
+            game_record[match.player2_id][1] += match.result.player1_wins
+    buckets = {}
+    for row in rows:
+        wins, losses = game_record[row['tp'].id]
+        if (t.format or '').lower() == 'commander':
+            key = (row['gw'], row['ogw'])
+        else:
+            key = (wins, -losses, row['ogw'])
+        buckets.setdefault(key, []).append(row['tp'])
+    ordered = []
+    for key in sorted(buckets, reverse=True):
+        tied = buckets[key]
+        random.shuffle(tied)
+        ordered.extend(tied)
+    return ordered
 
 # --- Tiebreakers per MTR (simplified) ---
 # OMW%: average of each opponent's match-win %, floored at 33%

@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block content %}
+<p><a href="{{ url_for('view_tournament', tid=t.id) }}">Back to Tournament</a></p>
+<section class="page-header">
+  <div class="page-header__title">
+    <span class="eyebrow">Pairing recovery</span>
+    <h2>{{ t.name }} — Hand-pair Round {{ r.number }}</h2>
+    <p class="page-description">Automatic pairing could not find a complete layout without repeats. Assign every player once; repeated opponents will be rejected.</p>
+  </div>
+</section>
+<form method="post" class="panel-card">
+  <table class="table">
+    <thead><tr><th>Player</th><th>Prior opponents</th><th>Table</th></tr></thead>
+    <tbody>
+    {% for player in players|sort(attribute='user.name') %}
+      <tr>
+        <td>{{ player.user.name }}</td>
+        <td>{{ prior_opponents[player.id]|join(', ') or 'None' }}</td>
+        <td>
+          <select name="group_{{ player.id }}" required>
+            <option value="">Choose table</option>
+            {% for table in range(1, table_count + 1) %}<option value="{{ table }}">{{ table }}</option>{% endfor %}
+          </select>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <button class="btn" type="submit">Validate and Save Pairings</button>
+</form>
+{% endblock %}
