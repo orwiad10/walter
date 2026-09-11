@@ -12,6 +12,7 @@ from app.pairing import (
     pair_round,
     compute_standings,
     draft_seating_tables,
+    _balanced_draft_pod_sizes,
     seeded_cut_pairs,
     seeded_cut_pods,
     pairing_order_from_standings,
@@ -560,7 +561,7 @@ def test_pairing_order_randomizes_only_exact_ties(monkeypatch):
     assert pairing_order_from_standings(rows) == [0, 2, 1, 3]
 
 
-def test_draft_remainder_is_distributed_into_full_pods(session):
+def test_draft_remainder_creates_a_pod_of_no_more_than_eight(session):
     tournament = Tournament(name='Remainder Draft', format='Draft')
     session.add(tournament)
     session.commit()
@@ -568,7 +569,24 @@ def test_draft_remainder_is_distributed_into_full_pods(session):
 
     tables = draft_seating_tables(tournament, session)
 
-    assert sorted(map(len, tables)) == [9, 9]
+    assert list(map(len, tables)) == [8, 8, 2]
+
+
+def test_low_count_draft_pods_can_be_evenly_redistributed(session):
+    tournament = Tournament(name='Balanced Draft', format='Draft')
+    session.add(tournament)
+    session.commit()
+    _add_tournament_players(session, tournament, 19, 'draftbalance')
+
+    tables = draft_seating_tables(tournament, session, rebalance=True)
+
+    assert list(map(len, tables)) == [6, 6, 7]
+    assert all(len(table) <= 8 for table in tables)
+
+
+def test_large_draft_redistribution_preserves_full_pods():
+    assert _balanced_draft_pod_sizes(91) == ([8] * 10) + [6, 5]
+    assert _balanced_draft_pod_sizes(11) == [6, 5]
 
 
 def test_pair_round_automatically_reports_bye(session):

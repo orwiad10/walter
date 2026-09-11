@@ -187,7 +187,33 @@ def seeded_cut_pods(seeds, group_size=4):
     return pods
 
 
-def _draft_seating_tables(t: Tournament, players, session, table_size=8):
+def _balanced_draft_pod_sizes(player_count, table_size=8):
+    """Return optional, admin-requested pod sizes without a 1--3 player pod.
+
+    Small drafts are balanced across all of their pods.  In a large draft, only
+    the final full pod is disturbed so that already-full pods stay together.
+    """
+    if not player_count:
+        return []
+    pod_count = (player_count + table_size - 1) // table_size
+    remainder = player_count % table_size
+    if not remainder or remainder >= 4 or pod_count == 1:
+        return [table_size] * (pod_count - bool(remainder)) + ([remainder] if remainder else [])
+
+    balanced_count = pod_count if pod_count <= 3 else 2
+    fixed_count = pod_count - balanced_count
+    players_to_balance = player_count - (fixed_count * table_size)
+    small_size, extra = divmod(players_to_balance, balanced_count)
+    balanced_sizes = ([small_size] * (balanced_count - extra)
+                      + [small_size + 1] * extra)
+    # With two affected pods, put the larger pod first to match the natural
+    # seating order (for example, 8 + 3 becomes 6 + 5).
+    if balanced_count == 2:
+        balanced_sizes.reverse()
+    return [table_size] * fixed_count + balanced_sizes
+
+
+def _draft_seating_tables(t: Tournament, players, session, table_size=8, *, rebalance=False):
     state = _load_pairing_state(t)
     saved_tables = state.get('draft_seating') or []
     active_ids = [tp.id for tp in players]
@@ -205,13 +231,18 @@ def _draft_seating_tables(t: Tournament, players, session, table_size=8):
         random.shuffle(missing_ids)
         seated_ids.extend(missing_ids)
 
-    # Make full eight-player pods first, then distribute every remainder player
-    # among those pods.  This avoids creating a tiny, isolated final pod.
-    pod_count = max(1, len(seated_ids) // table_size) if seated_ids else 0
-    tables = [seated_ids[i * table_size:(i + 1) * table_size] for i in range(pod_count)]
-    remainder = seated_ids[pod_count * table_size:]
-    for index, player_id in enumerate(remainder):
-        tables[index % pod_count].append(player_id)
+    if rebalance:
+        pod_sizes = _balanced_draft_pod_sizes(len(seated_ids), table_size)
+    else:
+        pod_sizes = [table_size] * (len(seated_ids) // table_size)
+        if len(seated_ids) % table_size:
+            pod_sizes.append(len(seated_ids) % table_size)
+
+    tables = []
+    offset = 0
+    for pod_size in pod_sizes:
+        tables.append(seated_ids[offset:offset + pod_size])
+        offset += pod_size
     if tables != saved_tables:
         state['draft_seating'] = tables
         _save_pairing_state(t, state, session)
@@ -219,11 +250,11 @@ def _draft_seating_tables(t: Tournament, players, session, table_size=8):
     return [[player_by_id[player_id] for player_id in table if player_id in player_by_id] for table in tables]
 
 
-def draft_seating_tables(t: Tournament, session, *, include_dropped=True):
+def draft_seating_tables(t: Tournament, session, *, include_dropped=True, rebalance=False):
     query = session.query(TournamentPlayer).filter_by(tournament_id=t.id)
     if not include_dropped:
         query = query.filter_by(dropped=False)
-    return _draft_seating_tables(t, query.all(), session)
+    return _draft_seating_tables(t, query.all(), session, rebalance=rebalance)
 
 
 def _big_x_little_x_pairs(pod):
