@@ -38,7 +38,7 @@
     <div class="section-heading">
       <div>
         {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
-          <h3>QR and Passcode</h3><p>Share the player join QR link or enter a tournament passcode.</p>
+          <h3>QR and Passcode</h3>
         {% else %}
           <h3>Passcode</h3><p>Enter a tournament passcode to join.</p>
         {% endif %}
@@ -75,14 +75,14 @@
 
   <section class="panel-card timer-row tournament-control-box" aria-label="Tournament timer controls">
     <div class="section-heading">
-      <div><h3>Time Controls</h3><p>Start, pause, stop, or restart round timers.</p></div>
+      <div><h3>Time Controls</h3></div>
     </div>
     {% include 'tournament/_timer_bar.html' %}
   </section>
 
   <section class="panel-card action-row tournament-control-box" aria-label="Tournament actions">
     <div class="section-heading">
-      <div><h3>Tournament Controls</h3><p>Print materials, manage rounds, and open tournament tools.</p></div>
+      <div><h3>Tournament Controls</h3></div>
     </div>
     <div class="control-actions tournament-actions-row">
       <button class="btn ghost" type="button" onclick="window.print()">Print</button>
@@ -502,7 +502,7 @@ Sideboard
 {% endif %}
 
 <section class="panel-card">
-  <div class="section-heading"><div><h3>Rounds</h3><p>Jump into pairings, tables, and result entry for each round.</p></div></div>
+  <div class="section-heading"><div><h3>Rounds</h3></div></div>
   {% if rounds %}
   <div class="round-link-grid">
   {% for r in rounds %}
@@ -515,7 +515,7 @@ Sideboard
 </section>
 
 <section class="panel-card">
-<div class="section-heading"><div><h3>Players ({{ players|length }})</h3><p>The roster now has a dedicated management page.</p></div></div>
+<div class="section-heading"><div><h3>Players ({{ players|length }})</h3></div></div>
 <a class="btn" href="{{ url_for('tournament_players', tid=t.id) }}">View Players</a>
 </section>
 
