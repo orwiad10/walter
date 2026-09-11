@@ -85,9 +85,6 @@
       <div><h3>Tournament Controls</h3></div>
     </div>
     <div class="control-actions tournament-actions-row">
-      <button class="btn ghost" type="button" onclick="window.print()">Print</button>
-      <a class="btn secondary" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
-      {% if t.cut.startswith('top') %}<a class="btn secondary" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>{% endif %}
       {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
         {% if current_rounds < round_limit or t.cut.startswith('top') %}
         <form method="post" action="{{ url_for('pair_next_round', tid=t.id) }}"><button class="btn" type="submit">Pair Next Round</button></form>
@@ -97,11 +94,24 @@
           <button class="btn ghost" type="submit">Set Rounds</button>
         </form>
         {% if t.format == 'Draft' %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
+      {% endif %}
+      {% if t.format == 'Draft' and is_player and not (current_user.is_authenticated and current_user.has_permission('tournaments.manage')) %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
+    </div>
+  </section>
+
+  <section class="panel-card action-row tournament-control-box" aria-label="Information and management actions">
+    <div class="section-heading">
+      <div><h3>Information and Management</h3></div>
+    </div>
+    <div class="control-actions tournament-actions-row">
+      <button class="btn ghost" type="button" onclick="window.print()">Print</button>
+      <a class="btn secondary" href="{{ url_for('standings', tid=t.id) }}">Standings</a>
+      {% if t.cut.startswith('top') %}<a class="btn secondary" href="{{ url_for('bracket', tid=t.id) }}">Bracket</a>{% endif %}
+      {% if current_user.is_authenticated and current_user.has_permission('tournaments.manage') %}
         {% if can_view_player_decks %}<a class="btn ghost" href="{{ url_for('tournament_decklists', tid=t.id) }}">Player Deck Lists</a>{% endif %}
         <a class="btn ghost" href="{{ url_for('tournament_logs', tid=t.id) }}">Logs</a>
         <a class="btn ghost" href="{{ url_for('tournament_players', tid=t.id) }}">Manage Players</a>
       {% endif %}
-      {% if t.format == 'Draft' and is_player and not (current_user.is_authenticated and current_user.has_permission('tournaments.manage')) %}<a class="btn ghost" href="{{ url_for('draft_seating', tid=t.id) }}">Draft Seating</a>{% endif %}
     </div>
   </section>
 </section>

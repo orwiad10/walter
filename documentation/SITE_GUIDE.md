@@ -44,7 +44,7 @@ Lists the leagues in which the current user participates and links to league sta
 ## 3. Tournament player pages
 
 ### Tournament overview — `/t/<id>`
-The event hub. It shows format, structure, state, players, current round, join status, and organizer controls when authorized. Players can request to join; staff can add or replace players, manage rounds, and complete the event.
+The event hub. It shows format, structure, state, players, current round, join status, and organizer controls when authorized. Operational actions such as pairing, setting rounds, and draft seating appear under **Tournament Controls**. The separate **Information and Management** panel provides Print, Standings, Bracket (for cut events), Player Deck Lists, Logs, and Manage Players; permission-controlled actions remain visible only to authorized staff. Players can request to join, and staff can add or replace players, manage rounds, and complete the event.
 
 ### Join link and QR code — `/t/<id>/join-link`, `/t/<id>/join-qr.png`
 The shareable registration page displays an event pass/link and a scannable PNG QR code. Organizers can distribute either to players. The QR endpoint is an image resource rather than an HTML page.
