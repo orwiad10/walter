@@ -6867,14 +6867,19 @@ def create_app():
         log_tournament(tid, f'restart_timer_{timer}', 'success')
         return redirect(url_for('view_tournament', tid=tid))
 
-    @app.route('/t/<int:tid>/draft-seating')
+    @app.route('/t/<int:tid>/draft-seating', methods=['GET', 'POST'])
     @login_required
     def draft_seating(tid):
         t = db.session.get(Tournament, tid)
         if not t or t.format != 'Draft':
             abort(404)
-        tables = draft_seating_tables(t, db.session)
+        rebalance = request.method == 'POST'
+        if rebalance:
+            require_permission('tournaments.manage')
+        tables = draft_seating_tables(t, db.session, rebalance=rebalance)
         db.session.commit()
+        if rebalance:
+            flash('Draft pods redistributed.', 'success')
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -6897,6 +6902,7 @@ def create_app():
             timer_type = 'deck'
             timer_remaining = t.deck_timer_remaining
         return render_template('tournament/draft_seating.html', t=t, tables=tables,
+                               has_low_count_pod=bool(tables and len(tables[-1]) < 4 and len(tables) > 1),
                                timer_end=timer_end, timer_type=timer_type,
                                timer_remaining=timer_remaining, server_now=datetime.utcnow())
 
