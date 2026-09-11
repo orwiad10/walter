@@ -1,5 +1,6 @@
 import json
 import random
+import re
 from itertools import product
 
 from sqlalchemy import select
@@ -1113,6 +1114,38 @@ def test_player_join_qr_only_visible_to_tournament_managers(client, session):
         assert response.status_code == 200
         html = response.get_data(as_text=True)
         assert 'Player Join QR' in html
+
+
+def test_tournament_information_and_management_actions_are_in_separate_box(client, session):
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    manager = User(email='information-manager@example.com', name='Information Manager', role=manager_role)
+    manager.set_password('secret')
+    tournament = Tournament(name='Information Panel Event', format='Constructed', cut='top8')
+    session.add_all([manager, tournament])
+    session.commit()
+
+    with client:
+        assert client.post('/login', data={'email': manager.email, 'password': 'secret'}).status_code == 302
+        response = client.get(f'/t/{tournament.id}')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    tournament_controls = re.search(
+        r'<section[^>]+aria-label="Tournament actions".*?</section>', html, re.DOTALL
+    ).group()
+    information_controls = re.search(
+        r'<section[^>]+aria-label="Information and management actions".*?</section>', html, re.DOTALL
+    ).group()
+
+    assert html.index('Tournament Controls') < html.index('Information and Management')
+    assert '<h3>Information and Management</h3>' in information_controls
+    assert '<p>' not in information_controls
+    for label in ('Print', 'Standings', 'Bracket', 'Player Deck Lists', 'Logs', 'Manage Players'):
+        assert label in information_controls
+        assert label not in tournament_controls
+    for label in ('Pair Next Round', 'Set Rounds'):
+        assert label in tournament_controls
+        assert label not in information_controls
 
 
 def test_home_active_count_matches_active_tournament_page_for_legacy_completed_tournaments(session, client):
