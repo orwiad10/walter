@@ -7473,10 +7473,26 @@ def create_app():
                         m.player1.dropped = True
                         dropped_ids.append(m.player1.user_id)
             db.session.commit()
-            flash("Result submitted.", "success")
             log_tournament(t.id, 'report', 'success')
             for uid in dropped_ids:
                 log_tournament(t.id, 'drop', 'success', f'user_id={uid}')
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                if t.format.lower() == 'commander':
+                    result_summary = 'Draw' if m.result.is_draw else 'Placings: ' + ', '.join(
+                        str(place) for place in (
+                            m.result.p1_place, m.result.p2_place,
+                            m.result.p3_place, m.result.p4_place,
+                        ) if place
+                    )
+                else:
+                    result_summary = f'{m.result.player1_wins}-{m.result.player2_wins} (Draws {m.result.draws})'
+                return jsonify({
+                    'saved': True,
+                    'match_id': m.id,
+                    'result_summary': result_summary,
+                    'dropped_user_ids': dropped_ids,
+                })
+            flash("Result submitted.", "success")
             return redirect(url_for('view_round', tid=m.round.tournament_id, rid=m.round_id))
         return render_template('match/report.html', m=m, t=t)
 

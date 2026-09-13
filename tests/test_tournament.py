@@ -33,6 +33,7 @@ def test_my_tournaments_query_uses_mysql_portable_null_ordering():
     compiled = str(statement.compile(dialect=mysql.dialect()))
 
     assert 'NULLS LAST' not in compiled
+    assert 'tournament.start_time IS NULL' in compiled
 
 
 def test_round_page_limits_players_and_offers_opt_in_inline_reporting(client, session):
@@ -71,8 +72,57 @@ def test_round_page_limits_players_and_offers_opt_in_inline_reporting(client, se
     assert 'Round Player 0' in player_page and 'Round Player 1' in player_page
     assert 'Round Player 2' not in player_page and 'Round Player 3' not in player_page
     assert all(player.name in manager_page for player in players)
-    assert manager_page.count('class="inline-match-report"') == 2
-    assert 'tournament.start_time IS NULL' in compiled
+    assert manager_page.count('class="inline-result-form"') == 2
+    assert 'name="p1_wins"' in manager_page
+    assert 'name="p2_wins"' in manager_page
+    assert 'name="draws"' in manager_page
+    assert manager_page.count('name="drop_p1"') == 2
+    assert manager_page.count('name="drop_p2"') == 2
+    assert "event.preventDefault()" in manager_page
+
+
+def test_inline_reporting_saves_json_and_can_drop_any_player(client, session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    first = User(email='inline-first@example.com', name='Inline First', role=user_role)
+    second = User(email='inline-second@example.com', name='Inline Second', role=user_role)
+    manager = User(email='inline-manager@example.com', name='Inline Manager', role=manager_role,
+                   inline_match_reporting=True)
+    for user in (first, second, manager):
+        user.set_password('secret')
+    tournament = Tournament(name='Inline Event', format='Constructed')
+    session.add_all([first, second, manager, tournament])
+    session.flush()
+    first_entry = TournamentPlayer(tournament=tournament, user=first)
+    second_entry = TournamentPlayer(tournament=tournament, user=second)
+    session.add_all([first_entry, second_entry])
+    round_one = Round(tournament=tournament, number=1)
+    session.add(round_one)
+    session.flush()
+    match = Match(round=round_one, player1=first_entry, player2=second_entry, table_number=1)
+    session.add(match)
+    session.commit()
+
+    with client:
+        client.post('/login', data={'email': manager.email, 'password': 'secret'})
+        response = client.post(
+            f'/match/{match.id}',
+            data={'p1_wins': '2', 'p2_wins': '1', 'draws': '1', 'drop_p2': '1'},
+            headers={'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        )
+
+    assert response.status_code == 200
+    assert response.json == {
+        'saved': True,
+        'match_id': match.id,
+        'result_summary': '2-1 (Draws 1)',
+        'dropped_user_ids': [second.id],
+    }
+    session.refresh(match)
+    session.refresh(second_entry)
+    assert match.completed is True
+    assert (match.result.player1_wins, match.result.player2_wins, match.result.draws) == (2, 1, 1)
+    assert second_entry.dropped is True
 
 
 def test_tournament_create_pairing_standings(session):

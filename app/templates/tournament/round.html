@@ -26,24 +26,6 @@
     <tr>
       <td>{{ m.table_number }}</td>
       <td>
-        {% if inline_reporting and not locked and m.player2_id %}
-        <details class="inline-match-report">
-          <summary>{{ 'Edit report' if m.completed else 'Report result' }}</summary>
-          <form method="post" action="{{ url_for('report_match', mid=m.id) }}" class="stacked-form">
-            {% if t.format == 'Commander' %}
-              <label><input type="checkbox" name="is_draw" value="1"> Draw</label>
-              {% for player_number, player in [(1, m.player1), (2, m.player2), (3, m.player3), (4, m.player4)] if player %}
-              <label>{{ player.user.name }} place <input type="number" name="p{{ player_number }}_place" min="1" max="4" value="{{ m.result|attr('p' ~ player_number ~ '_place') if m.result else player_number }}"></label>
-              {% endfor %}
-            {% else %}
-              <label>{{ m.player1.user.name }} wins <input type="number" name="p1_wins" min="0" value="{{ m.result.player1_wins if m.result else 0 }}"></label>
-              <label>{{ m.player2.user.name }} wins <input type="number" name="p2_wins" min="0" value="{{ m.result.player2_wins if m.result else 0 }}"></label>
-              <label>Draws <input type="number" name="draws" min="0" value="{{ m.result.draws if m.result else 0 }}"></label>
-            {% endif %}
-            <button class="btn" type="submit">Save Result</button>
-          </form>
-        </details>
-        {% endif %}
         {% if t.format == 'Commander' %}
           {{ m.player1.user.name }}{% if m.player2_id %}, {{ m.player2.user.name }}{% endif %}{% if m.player3_id %}, {{ m.player3.user.name }}{% endif %}{% if m.player4_id %}, {{ m.player4.user.name }}{% endif %}
         {% else %}
@@ -55,6 +37,28 @@
         {% endif %}
       </td>
       <td>
+        {% if inline_reporting and not locked and m.player2_id %}
+          <form method="post" action="{{ url_for('report_match', mid=m.id) }}" class="inline-result-form" data-inline-result-form>
+            {% if t.format == 'Commander' %}
+              <label class="inline-result-field"><span>Draw</span><input type="checkbox" name="is_draw" value="1"{% if m.result and m.result.is_draw %} checked{% endif %}></label>
+              {% for player_number, player in [(1, m.player1), (2, m.player2), (3, m.player3), (4, m.player4)] if player %}
+              <label class="inline-result-field"><span>{{ player.user.name }} place</span><input type="number" name="p{{ player_number }}_place" min="1" max="4" value="{{ m.result|attr('p' ~ player_number ~ '_place') if m.result else player_number }}"></label>
+              <label class="inline-drop"><input type="checkbox" name="drop_p{{ player_number }}" value="1"> Drop {{ player.user.name }}</label>
+              {% endfor %}
+            {% else %}
+              <label class="inline-result-field"><span>Win</span><input aria-label="{{ m.player1.user.name }} wins" type="number" name="p1_wins" min="0" required value="{{ m.result.player1_wins if m.result else 0 }}"></label>
+              <label class="inline-result-field"><span>Loss</span><input aria-label="{{ m.player2.user.name }} wins" type="number" name="p2_wins" min="0" required value="{{ m.result.player2_wins if m.result else 0 }}"></label>
+              <label class="inline-result-field"><span>Draw</span><input aria-label="Draws" type="number" name="draws" min="0" required value="{{ m.result.draws if m.result else 0 }}"></label>
+              <span class="inline-drop-group">
+                <label><input type="checkbox" name="drop_p1" value="1"> Drop {{ m.player1.user.name }}</label>
+                <label><input type="checkbox" name="drop_p2" value="1"> Drop {{ m.player2.user.name }}</label>
+              </span>
+            {% endif %}
+            <button class="btn inline-result-save" type="submit">Save</button>
+            <span class="inline-result-status" role="status" aria-live="polite"></span>
+          </form>
+          <span class="inline-result-summary" data-result-summary>
+        {% endif %}
         {% if t.format == 'Commander' %}
           {% if m.completed %}
             {% if m.result.is_draw %}Draw{% else %}Placings: {{ m.result.p1_place }}{% if m.player2_id %}, {{ m.result.p2_place }}{% endif %}{% if m.player3_id %}, {{ m.result.p3_place }}{% endif %}{% if m.player4_id %}, {{ m.result.p4_place }}{% endif %}{% endif %}
@@ -96,9 +100,45 @@
             {% endif %}
           {% endif %}
         {% endif %}
+        {% if inline_reporting and not locked and m.player2_id %}</span>{% endif %}
       </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
+{% if inline_reporting %}
+<script>
+document.querySelectorAll('[data-inline-result-form]').forEach(function(form) {
+  form.addEventListener('submit', function(event) {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    const status = form.querySelector('[role="status"]');
+    button.disabled = true;
+    status.className = 'inline-result-status';
+    status.textContent = 'Saving…';
+    fetch(form.action, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}
+    }).then(function(response) {
+      return response.json().then(function(data) {
+        if (!response.ok) throw new Error(data.error || 'Unable to save result.');
+        return data;
+      });
+    }).then(function(data) {
+      const summary = form.parentElement.querySelector('[data-result-summary]');
+      if (summary) summary.textContent = data.result_summary;
+      form.querySelectorAll('input[type="checkbox"][name^="drop_"]').forEach(function(input) { input.checked = false; });
+      status.classList.add('success');
+      status.textContent = 'Saved';
+    }).catch(function(error) {
+      status.classList.add('error');
+      status.textContent = error.message;
+    }).finally(function() {
+      button.disabled = false;
+    });
+  });
+});
+</script>
+{% endif %}
 {% endblock %}
