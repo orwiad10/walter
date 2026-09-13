@@ -1482,6 +1482,59 @@ ul.flashes {
   gap: 12px;
 }
 
+.inline-result-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.inline-result-field {
+  display: grid;
+  gap: 3px;
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.inline-result-field input[type="number"] {
+  width: 54px;
+  min-width: 54px;
+  padding: 7px 5px;
+  text-align: center;
+}
+
+.inline-drop-group {
+  display: grid;
+  gap: 3px;
+  font-size: 0.78rem;
+}
+
+.inline-drop,
+.inline-drop-group label {
+  white-space: nowrap;
+}
+
+.inline-result-save {
+  padding: 8px 13px;
+}
+
+.inline-result-status {
+  min-width: 4em;
+  align-self: center;
+  font-size: 0.82rem;
+}
+
+.inline-result-status.success { color: var(--success, #238636); }
+.inline-result-status.error { color: var(--danger, #c62828); }
+.inline-result-summary { font-size: 0.85rem; }
+
+@media (max-width: 700px) {
+  .inline-result-form { min-width: 280px; }
+}
+
 .empty-state {
   margin: 0;
   padding: 18px;

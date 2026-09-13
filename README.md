@@ -98,7 +98,7 @@ one-time key value, and set `bot_token` to the Discord bot token. The bot
 registers slash commands for listing tournaments, standings, latest-round
 pairings, connecting Walter accounts with `/connect`, and reporting pairing results. By default, the bot syncs commands globally and directly to every connected server so that all commands appear immediately after a bot restart. `/connect` links a Walter user but does not register or unlock Discord commands. Set `bot_sync_guild_commands: false` to rely only on Discord's slower global-command propagation; with that setting, the bot clears stale guild-specific copies by default to avoid duplicates. Set `bot_clear_guild_commands: false` to leave those copies in place, and set `bot_announce_ready: true` to post a ready message when `bot_channel_id` is configured. If `bot_channel_id` and `bot_poll_tournament_id` are set, it also polls for newly paired rounds and posts pairings to that channel.
 
-Administrators can inspect, override, revoke, or block Discord links from each user's management page. Site Settings also provides verbose audit logging. Round pages limit ordinary players to their own pairing, while users granted all-match reporting can opt into inline report forms from User Settings.
+Administrators can inspect, override, revoke, or block Discord links from each user's management page. Site Settings also provides verbose audit logging. Round pages limit ordinary players to their own pairing, while users granted all-match reporting can opt into per-row win/loss/draw and player-drop controls from User Settings; each inline result saves without a full-page refresh.
 
 ## Account verification and invites
 

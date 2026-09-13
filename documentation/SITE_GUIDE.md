@@ -53,7 +53,7 @@ The shareable registration page displays an event pass/link and a scannable PNG 
 Submits the current account's join request or passcode. Depending on tournament settings, entry may be immediate or remain pending for staff approval.
 
 ### Round page — `/t/<id>/round/<round-id>`
-Displays pairings by table, match completion state, and round context. Ordinary players see only the pairing containing their own account. People granted **View and report every match in a round** see the complete round and may enable expandable inline result forms under **User Settings → Round Reporting**. Staff can access repair/delete controls when separately authorized.
+Displays pairings by table, match completion state, and round context. Ordinary players see only the pairing containing their own account. People granted **View and report every match in a round** see the complete round and may enable inline result controls under **User Settings → Round Reporting**. Each eligible row then provides win, loss, and draw boxes, drop checkboxes for either player, and a **Save** button. Saving updates that match without reloading the round page. Commander rows use the equivalent placing, draw, and drop controls. Staff can access repair/delete controls when separately authorized.
 
 ### Discord administration and verbose logs
 
