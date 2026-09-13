@@ -2074,7 +2074,7 @@ def create_app():
         return (value or '').strip().lstrip('@')
 
     def tournament_payload(t):
-        return {'id': t.id, 'name': t.name, 'format': t.format, 'structure': t.structure, 'start_time': t.start_time.isoformat() if t.start_time else None, 'league_id': t.league_id, 'venue_id': t.venue_id}
+        return {'id': t.id, 'name': t.name, 'format': t.format, 'structure': t.structure, 'start_time': t.start_time.isoformat() if t.start_time else None, 'league_id': t.league_id, 'venue_id': t.venue_id, 'active': not tournament_is_complete(t)}
 
     def league_payload(league):
         return {
@@ -2508,6 +2508,17 @@ def create_app():
         _api_log('discord.authorize', 'success', _discord_authorize_log_details(user_id=user.id))
         return jsonify({'authorized': True, 'user': user_payload(user)})
 
+    @app.route('/api/v1/discord/connection')
+    def api_discord_connection():
+        require_api_permission('tournaments.manage')
+        discord_user_id = str(request.args.get('discord_user_id') or '').strip()
+        if not discord_user_id:
+            return _json_error('discord_user_id is required')
+        user = db.session.query(User).filter_by(discord_user_id=discord_user_id).first()
+        if not user or not user.discord_username or user.discord_connection_blocked:
+            return _json_error('Discord account is not connected to Walter', 403)
+        return jsonify({'connected': True, 'user': user_payload(user)})
+
     @app.route('/api/v1/discord/report-pairing', methods=['POST'], strict_slashes=False)
     def api_discord_report_pairing():
         require_api_permission('tournaments.manage')
@@ -2518,7 +2529,7 @@ def create_app():
         if not discord_user_id or tournament_id is None or table_number is None:
             return _json_error('discord_user_id, tournament_id, and table_number are required')
         user = db.session.query(User).filter_by(discord_user_id=discord_user_id).first()
-        if not user or not user.discord_username:
+        if not user or not user.discord_username or user.discord_connection_blocked:
             return _json_error('Discord account is not authorized with a Walter user that has a Discord username', 403)
         tournament = db.session.get(Tournament, int(tournament_id))
         if not tournament:
@@ -2691,7 +2702,7 @@ def create_app():
         if not discord_user_id or not league_id or not play_date_id or not cube_id:
             return _json_error('discord_user_id, league_id, play_date_id, and cube_id are required')
         user = db.session.query(User).filter_by(discord_user_id=discord_user_id).first()
-        if not user:
+        if not user or not user.discord_username or user.discord_connection_blocked:
             return _json_error('Discord account is not connected to Walter', 403)
         league = db.session.get(League, int(league_id))
         play_date = db.session.get(LeaguePlayDate, int(play_date_id))
