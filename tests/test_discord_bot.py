@@ -39,8 +39,8 @@ def test_http_error_detail_collapses_html_title():
     assert discord_bot._format_http_error_detail(exc) == '405 Method Not Allowed'
 
 
-def test_guild_command_sync_is_disabled_by_default_to_avoid_duplicates():
-    assert discord_bot.BOT_SYNC_GUILD_COMMANDS is False
+def test_guild_command_sync_is_enabled_by_default_for_immediate_updates():
+    assert discord_bot.BOT_SYNC_GUILD_COMMANDS is True
     assert discord_bot.BOT_CLEAR_GUILD_COMMANDS is True
 
 
