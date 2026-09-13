@@ -98,6 +98,8 @@ one-time key value, and set `bot_token` to the Discord bot token. The bot
 registers slash commands for listing tournaments, standings, latest-round
 pairings, connecting Walter accounts with `/connect`, and reporting pairing results. By default, the bot syncs global slash commands, clears stale guild-specific copies to avoid duplicate commands, and does not post a startup message. Set `bot_sync_guild_commands: true` only if you need immediate guild command updates, set `bot_clear_guild_commands: false` to leave existing guild-specific commands in place, and set `bot_announce_ready: true` to post a ready message when `bot_channel_id` is configured. If `bot_channel_id` and `bot_poll_tournament_id` are set, it also polls for newly paired rounds and posts pairings to that channel.
 
+Administrators can inspect, override, revoke, or block Discord links from each user's management page. Site Settings also provides verbose audit logging. Round pages limit ordinary players to their own pairing, while users granted all-match reporting can opt into inline report forms from User Settings.
+
 ## Account verification and invites
 
 Public account registration sends a one-time 6-digit verification PIN through Mailgun before creating the user account. Set these values in `config.yaml` before enabling public self-service registration:

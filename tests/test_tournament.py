@@ -33,6 +33,45 @@ def test_my_tournaments_query_uses_mysql_portable_null_ordering():
     compiled = str(statement.compile(dialect=mysql.dialect()))
 
     assert 'NULLS LAST' not in compiled
+
+
+def test_round_page_limits_players_and_offers_opt_in_inline_reporting(client, session):
+    user_role = session.query(Role).filter_by(name='user').one()
+    manager_role = session.query(Role).filter_by(name='manager').one()
+    players = [User(email=f'round-player-{i}@example.com', name=f'Round Player {i}', role=user_role)
+               for i in range(4)]
+    for player in players:
+        player.set_password('secret')
+    manager = User(email='round-manager@example.com', name='Round Manager', role=manager_role,
+                   inline_match_reporting=True)
+    manager.set_password('secret')
+    tournament = Tournament(name='Private Round', format='Constructed')
+    session.add_all([*players, manager, tournament])
+    session.flush()
+    entries = [TournamentPlayer(tournament=tournament, user=player) for player in players]
+    session.add(TournamentPlayer(tournament=tournament, user=manager))
+    session.add_all(entries)
+    session.flush()
+    round_one = Round(tournament=tournament, number=1)
+    session.add(round_one)
+    session.flush()
+    session.add_all([
+        Match(round=round_one, player1=entries[0], player2=entries[1], table_number=1),
+        Match(round=round_one, player1=entries[2], player2=entries[3], table_number=2),
+    ])
+    session.commit()
+
+    with client:
+        client.post('/login', data={'email': players[0].email, 'password': 'secret'})
+        player_page = client.get(f'/t/{tournament.id}/round/{round_one.id}').get_data(as_text=True)
+        client.get('/logout')
+        client.post('/login', data={'email': manager.email, 'password': 'secret'})
+        manager_page = client.get(f'/t/{tournament.id}/round/{round_one.id}').get_data(as_text=True)
+
+    assert 'Round Player 0' in player_page and 'Round Player 1' in player_page
+    assert 'Round Player 2' not in player_page and 'Round Player 3' not in player_page
+    assert all(player.name in manager_page for player in players)
+    assert manager_page.count('class="inline-match-report"') == 2
     assert 'tournament.start_time IS NULL' in compiled
 
 

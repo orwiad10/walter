@@ -22,10 +22,28 @@
     </tr>
   </thead>
   <tbody>
-  {% for m in r.matches|sort(attribute='table_number') %}
+  {% for m in display_matches %}
     <tr>
       <td>{{ m.table_number }}</td>
       <td>
+        {% if inline_reporting and not locked and m.player2_id %}
+        <details class="inline-match-report">
+          <summary>{{ 'Edit report' if m.completed else 'Report result' }}</summary>
+          <form method="post" action="{{ url_for('report_match', mid=m.id) }}" class="stacked-form">
+            {% if t.format == 'Commander' %}
+              <label><input type="checkbox" name="is_draw" value="1"> Draw</label>
+              {% for player_number, player in [(1, m.player1), (2, m.player2), (3, m.player3), (4, m.player4)] if player %}
+              <label>{{ player.user.name }} place <input type="number" name="p{{ player_number }}_place" min="1" max="4" value="{{ m.result|attr('p' ~ player_number ~ '_place') if m.result else player_number }}"></label>
+              {% endfor %}
+            {% else %}
+              <label>{{ m.player1.user.name }} wins <input type="number" name="p1_wins" min="0" value="{{ m.result.player1_wins if m.result else 0 }}"></label>
+              <label>{{ m.player2.user.name }} wins <input type="number" name="p2_wins" min="0" value="{{ m.result.player2_wins if m.result else 0 }}"></label>
+              <label>Draws <input type="number" name="draws" min="0" value="{{ m.result.draws if m.result else 0 }}"></label>
+            {% endif %}
+            <button class="btn" type="submit">Save Result</button>
+          </form>
+        </details>
+        {% endif %}
         {% if t.format == 'Commander' %}
           {{ m.player1.user.name }}{% if m.player2_id %}, {{ m.player2.user.name }}{% endif %}{% if m.player3_id %}, {{ m.player3.user.name }}{% endif %}{% if m.player4_id %}, {{ m.player4.user.name }}{% endif %}
         {% else %}
@@ -42,7 +60,7 @@
             {% if m.result.is_draw %}Draw{% else %}Placings: {{ m.result.p1_place }}{% if m.player2_id %}, {{ m.result.p2_place }}{% endif %}{% if m.player3_id %}, {{ m.result.p3_place }}{% endif %}{% if m.player4_id %}, {{ m.result.p4_place }}{% endif %}{% endif %}
             {% if not locked %}
               {% set ids = [m.player1.user_id, m.player2.user_id if m.player2_id else None, m.player3.user_id if m.player3_id else None, m.player4.user_id if m.player4_id else None] %}
-              {% if current_user.is_authenticated and (current_user.has_permission('tournaments.manage', 'tournament', t.id) or current_user.id in ids) %}
+              {% if current_user.is_authenticated and (current_user.has_permission('matches.report_all', 'tournament', t.id) or current_user.id in ids) %}
                 <a href="{{ url_for('report_match', mid=m.id) }}">Edit</a>
                 {% if current_user.has_permission('tournaments.manage', 'tournament', t.id) %}
                 <form method="post" action="{{ url_for('delete_match_result', mid=m.id) }}" class="inline-form" onsubmit="return confirm('Delete this report? The matchup will be kept.');"><button type="submit" class="link-button danger-link">Delete Report</button></form>
@@ -52,7 +70,7 @@
           {% else %}
             {% if not locked %}
               {% set ids = [m.player1.user_id, m.player2.user_id if m.player2_id else None, m.player3.user_id if m.player3_id else None, m.player4.user_id if m.player4_id else None] %}
-              {% if current_user.is_authenticated and (current_user.has_permission('tournaments.manage', 'tournament', t.id) or current_user.id in ids) %}
+              {% if current_user.is_authenticated and (current_user.has_permission('matches.report_all', 'tournament', t.id) or current_user.id in ids) %}
                 <a href="{{ url_for('report_match', mid=m.id) }}">Report</a>
               {% endif %}
             {% endif %}
@@ -65,7 +83,7 @@
               Win by BYE
             {% endif %}
             {% if not locked %}
-              {% if current_user.is_authenticated and (current_user.has_permission('tournaments.manage', 'tournament', t.id) or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
+              {% if current_user.is_authenticated and (current_user.has_permission('matches.report_all', 'tournament', t.id) or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
                 <a href="{{ url_for('report_match', mid=m.id) }}">Edit</a>
                 {% if current_user.has_permission('tournaments.manage', 'tournament', t.id) %}
                 <form method="post" action="{{ url_for('delete_match_result', mid=m.id) }}" class="inline-form" onsubmit="return confirm('Delete this report? The matchup will be kept.');"><button type="submit" class="link-button danger-link">Delete Report</button></form>
@@ -73,7 +91,7 @@
               {% endif %}
             {% endif %}
           {% else %}
-            {% if not locked and current_user.is_authenticated and (current_user.has_permission('tournaments.manage', 'tournament', t.id) or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
+            {% if not locked and current_user.is_authenticated and (current_user.has_permission('matches.report_all', 'tournament', t.id) or current_user.id in (m.player1.user_id, m.player2.user_id or -1)) %}
               <a href="{{ url_for('report_match', mid=m.id) }}">Report</a>
             {% endif %}
           {% endif %}

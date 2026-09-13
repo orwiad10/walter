@@ -18,6 +18,10 @@
         <option value="closed"{% if registration_mode == 'closed' %} selected{% endif %}>Closed — no public self registration</option>
       </select>
     </label>
+    <label class="checkbox-row">
+      <input type="checkbox" name="verbose_logging" value="1"{% if verbose_logging %} checked{% endif %}>
+      Enable verbose logging (adds request context to every site and tournament log entry, including Discord connections)
+    </label>
     <div class="form-actions"><button class="btn" type="submit">Save Settings</button></div>
   </form>
 </section>

@@ -482,6 +482,14 @@ def create_app():
             if 'discord_authorization_token_hash' not in columns:
                 db.session.execute(text('ALTER TABLE user ADD COLUMN discord_authorization_token_hash VARCHAR(64)'))
                 db.session.commit()
+            if 'discord_connection_blocked' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN discord_connection_blocked BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE user SET discord_connection_blocked=0 WHERE discord_connection_blocked IS NULL'))
+                db.session.commit()
+            if 'inline_match_reporting' not in columns:
+                db.session.execute(text('ALTER TABLE user ADD COLUMN inline_match_reporting BOOLEAN DEFAULT 0'))
+                db.session.execute(text('UPDATE user SET inline_match_reporting=0 WHERE inline_match_reporting IS NULL'))
+                db.session.commit()
 
         if table_names:
             BadLoginAttempt.__table__.create(bind=db.engine, checkfirst=True)
@@ -1025,6 +1033,9 @@ def create_app():
         setting.value = value
         setting.updated_by_id = current_user.id if current_user.is_authenticated else None
         return setting
+
+    def verbose_logging_enabled():
+        return str(get_site_setting('verbose_logging', 'false')).lower() in {'1', 'true', 'yes', 'on'}
 
     def registration_mode():
         mode = get_site_setting('registration_mode')
@@ -1998,6 +2009,11 @@ def create_app():
             )
             db.session.add(entry)
             db.session.commit()
+            if verbose_logging_enabled():
+                app.logger.info(
+                    'api_log method=%s path=%s status=%s duration_ms=%s api_user_id=%s ip=%s',
+                    entry.method, entry.path, entry.status_code, entry.duration_ms, entry.api_user_id, entry.ip_address,
+                )
         except Exception:
             db.session.rollback()
             app.logger.exception('Unable to write API log entry for %s %s', request.method, request.path)
@@ -2211,7 +2227,18 @@ def create_app():
                 db.session.commit()
                 flash('Settings saved.', 'success')
                 return redirect(url_for('user_settings'))
+            if action == 'reporting_display':
+                if not current_user.has_permission('matches.report_all'):
+                    abort(403)
+                current_user.inline_match_reporting = request.form.get('inline_match_reporting') == '1'
+                db.session.commit()
+                log_site('reporting_display_update', 'success', f'inline={current_user.inline_match_reporting}')
+                flash('Reporting display settings saved.', 'success')
+                return redirect(url_for('user_settings'))
             if action == 'discord_connection':
+                if current_user.discord_connection_blocked:
+                    log_site('discord_settings_update', 'failure', 'connection blocked by administrator')
+                    abort(403)
                 discord_username = _normalize_discord_username(request.form.get('discord_username'))
                 if len(discord_username) > 120:
                     discord_username = discord_username[:120]
@@ -2454,6 +2481,9 @@ def create_app():
         if not user:
             _api_log('discord.authorize', 'failure', _discord_authorize_log_details(error='invalid pass'))
             return _json_error('invalid or expired one-time pass', 403)
+        if user.discord_connection_blocked:
+            _api_log('discord.authorize', 'failure', _discord_authorize_log_details(user_id=user.id, error='connection blocked'))
+            return _json_error('This account has been blocked from connecting to Discord.', 403)
         if not user.discord_username:
             return _json_error('add your Discord username in Walter user settings before authorizing', 403)
         if user.discord_username.lower() != discord_username.lower():
@@ -3063,6 +3093,10 @@ def create_app():
         db.session.commit()
 
     def log_site(action, result, error=None):
+        if verbose_logging_enabled():
+            context = f'method={request.method}; path={request.path}; endpoint={request.endpoint}; ip={_client_ip()}'
+            error = f'{error}; {context}' if error else context
+            app.logger.info('site_log action=%s result=%s details=%s', action, result, error)
         log = SiteLog(action=action, result=result, error=error,
                       user_id=current_user.id if current_user.is_authenticated else None,
                       ip_address=_client_ip())
@@ -3090,6 +3124,10 @@ def create_app():
             )
 
     def log_tournament(tid, action, result, error=None):
+        if verbose_logging_enabled():
+            context = f'method={request.method}; path={request.path}; endpoint={request.endpoint}; ip={_client_ip()}'
+            error = f'{error}; {context}' if error else context
+            app.logger.info('tournament_log tournament_id=%s action=%s result=%s details=%s', tid, action, result, error)
         log = TournamentLog(tournament_id=tid, action=action, result=result, error=error,
                              user_id=current_user.id if current_user.is_authenticated else None)
         db.session.add(log)
@@ -5600,14 +5638,17 @@ def create_app():
                     set_site_setting('site_theme', theme)
                     current_user.color_mode = theme
                 set_site_setting('registration_mode', mode)
+                verbose_logging = request.form.get('verbose_logging') == '1'
+                set_site_setting('verbose_logging', 'true' if verbose_logging else 'false')
                 db.session.commit()
-                details = f'registration_mode={mode}' + (f'; site_theme={theme}' if theme is not None else '')
+                details = f'registration_mode={mode}; verbose_logging={verbose_logging}' + (f'; site_theme={theme}' if theme is not None else '')
                 log_site('site_settings_update', 'success', details)
                 flash('Site settings saved.', 'success')
             return redirect(url_for('site_settings'))
         return render_template(
             'admin/site_settings.html',
             registration_mode=registration_mode(),
+            verbose_logging=verbose_logging_enabled(),
         )
 
     @app.route('/admin/registration-invites', methods=['GET', 'POST'])
@@ -7281,6 +7322,16 @@ def create_app():
         next_round = db.session.query(Round).filter(Round.tournament_id==tid, Round.number>r.number).first()
         locked = bool(next_round)
         t = r.tournament
+        can_report_all = current_user.has_permission('matches.report_all', 'tournament', tid)
+        if can_report_all:
+            display_matches = sorted(r.matches, key=lambda match: match.table_number)
+        else:
+            display_matches = [match for match in r.matches if current_user.id in (
+                match.player1.user_id,
+                match.player2.user_id if match.player2_id else None,
+                match.player3.user_id if match.player3_id else None,
+                match.player4.user_id if match.player4_id else None,
+            )]
         timer_end = None
         timer_type = None
         timer_remaining = None
@@ -7304,7 +7355,9 @@ def create_app():
             timer_remaining = t.deck_timer_remaining
         return render_template('tournament/round.html', t=t, r=r, has_results=has_results,
                                locked=locked, timer_end=timer_end, timer_type=timer_type,
-                               timer_remaining=timer_remaining, server_now=datetime.utcnow())
+                               timer_remaining=timer_remaining, server_now=datetime.utcnow(),
+                               display_matches=display_matches, can_report_all=can_report_all,
+                               inline_reporting=can_report_all and current_user.inline_match_reporting)
 
     @app.route('/match/<int:mid>', methods=['GET','POST'])
     @login_required
@@ -7322,7 +7375,7 @@ def create_app():
         )
         if is_participant:
             require_permission('matches.report_self')
-        elif not current_user.has_permission('tournaments.manage', 'tournament', t.id):
+        elif not current_user.has_permission('matches.report_all', 'tournament', t.id):
             abort(403)
         next_round = db.session.query(Round).filter(Round.tournament_id==t.id, Round.number>m.round.number).first()
         if next_round:
@@ -7330,7 +7383,7 @@ def create_app():
             return redirect(url_for('view_round', tid=t.id, rid=m.round_id))
         if request.method == 'POST':
             dropped_ids = []
-            can_drop_any_player = current_user.has_permission('tournaments.manage', 'tournament', t.id)
+            can_drop_any_player = current_user.has_permission('matches.report_all', 'tournament', t.id)
 
             def player_drop_requested(field_name, tournament_player):
                 if not request.form.get(field_name):
@@ -7684,6 +7737,21 @@ def create_app():
             _set_user_name_parts(u, first_name, last_name, request.form.get('name'))
             u.notes = request.form.get('notes', '').strip() or None
             u.hidden = request.form.get('hidden') == '1'
+            if request.form.get('discord_controls_present') == '1':
+                discord_username = _normalize_discord_username(request.form.get('discord_username'))
+                u.discord_username = discord_username[:120] or None
+                discord_action = request.form.get('discord_action')
+                if discord_action == 'revoke':
+                    u.discord_user_id = None
+                    u.discord_authorization_token_hash = None
+                    log_events.append(('admin_discord_revoke', 'success', f'user_id={u.id}'))
+                blocked = request.form.get('discord_connection_blocked') == '1'
+                if blocked:
+                    u.discord_user_id = None
+                    u.discord_authorization_token_hash = None
+                if blocked != bool(u.discord_connection_blocked):
+                    log_events.append(('admin_discord_block', 'success', f'user_id={u.id}; blocked={blocked}'))
+                u.discord_connection_blocked = blocked
             role_id = request.form.get('role_id')
             if role_id:
                 role = db.session.get(Role, int(role_id))
