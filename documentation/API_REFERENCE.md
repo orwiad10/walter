@@ -124,7 +124,7 @@ Returns the current ballot: `league`, `play_date`, and `cubes`. Each cube has `i
 ### `POST /api/v1/discord/cube-polls`
 Registers or updates the Discord message mirroring a cube ballot.
 
-Required fields: `league_id`, `play_date_id`, `channel_id`, `message_id`. Discord IDs should be sent as strings.  
+Required fields: `discord_user_id`, `league_id`, `play_date_id`, `channel_id`, `message_id`. Discord IDs should be sent as strings. The Discord user must be connected and belong to the league.
 **200:** `registered: true`, a `poll` object, and `cube_vote` ballot.
 
 ### `GET /api/v1/discord/cube-polls/<message_id>`
@@ -133,9 +133,9 @@ Fetches registered poll metadata and the fresh ballot totals. **404** when unreg
 ### `POST /api/v1/discord/cube-vote`
 Mirrors a Discord reaction into a Walter vote.
 
-Required fields: `discord_user_id`, `league_id`, `play_date_id`, `cube_id`; `selected` is boolean. The Discord identity must already be connected. The cube must appear on the ballot. A user may select at most three cubes for a play date.  
+Required fields: `discord_user_id`, `league_id`, `play_date_id`, `cube_id`; `selected` is boolean. The Discord identity must already be connected and belong to the league. The cube must appear on the ballot. A user may select at most three cubes for a play date.
 **200:** refreshed ballot.  
-**403:** Discord account not connected.  
+**403:** Discord account not connected or user not in the league.
 **404:** ballot/cube mismatch.  
 **409:** selection would exceed three total votes.
 

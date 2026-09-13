@@ -35,8 +35,6 @@ BOT_API_KEY = os.environ.get('BOT_API_KEY', '').strip()
 BOT_POLL_TOURNAMENT_ID = os.environ.get('BOT_POLL_TOURNAMENT_ID', '').strip()
 BOT_POLL_INTERVAL_SECONDS = int(os.environ.get('BOT_POLL_INTERVAL_SECONDS', '30') or 30)
 BOT_ANNOUNCE_READY = os.environ.get('BOT_ANNOUNCE_READY', 'false').strip().lower() not in {'0', 'false', 'no', 'off'}
-BOT_SYNC_GUILD_COMMANDS = os.environ.get('BOT_SYNC_GUILD_COMMANDS', 'false').strip().lower() not in {'0', 'false', 'no', 'off'}
-BOT_CLEAR_GUILD_COMMANDS = os.environ.get('BOT_CLEAR_GUILD_COMMANDS', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
 CUBE_POLL_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
 
 
@@ -143,28 +141,35 @@ class WalterApiClient:
         except error.URLError as exc:
             raise WalterApiError(f'Could not reach Walter API: {exc.reason}') from exc
 
-    async def tournaments(self) -> dict[str, Any]:
-        return await self.get_json('/api/v1/tournaments')
+    @staticmethod
+    def _discord_query(path: str, discord_user_id: int | None) -> str:
+        if discord_user_id is None:
+            return path
+        separator = '&' if '?' in path else '?'
+        return f'{path}{separator}discord_user_id={parse.quote(str(discord_user_id))}'
+
+    async def tournaments(self, discord_user_id: int | None = None) -> dict[str, Any]:
+        return await self.get_json(self._discord_query('/api/v1/tournaments', discord_user_id))
 
     async def discord_connection(self, discord_user_id: int) -> dict[str, Any]:
         return await self.get_json(
             f'/api/v1/discord/connection?discord_user_id={parse.quote(str(discord_user_id))}'
         )
 
-    async def leagues(self) -> dict[str, Any]:
-        return await self.get_json('/api/v1/leagues')
+    async def leagues(self, discord_user_id: int | None = None) -> dict[str, Any]:
+        return await self.get_json(self._discord_query('/api/v1/leagues', discord_user_id))
 
-    async def league_standings(self, league_id: int) -> dict[str, Any]:
-        return await self.get_json(f'/api/v1/leagues/{league_id}/standings')
+    async def league_standings(self, league_id: int, discord_user_id: int | None = None) -> dict[str, Any]:
+        return await self.get_json(self._discord_query(f'/api/v1/leagues/{league_id}/standings', discord_user_id))
 
-    async def league_play_dates(self, league_id: int) -> dict[str, Any]:
-        return await self.get_json(f'/api/v1/leagues/{league_id}/play-dates')
+    async def league_play_dates(self, league_id: int, discord_user_id: int | None = None) -> dict[str, Any]:
+        return await self.get_json(self._discord_query(f'/api/v1/leagues/{league_id}/play-dates', discord_user_id))
 
-    async def standings(self, tournament_id: int) -> dict[str, Any]:
-        return await self.get_json(f'/api/v1/tournaments/{tournament_id}/standings')
+    async def standings(self, tournament_id: int, discord_user_id: int | None = None) -> dict[str, Any]:
+        return await self.get_json(self._discord_query(f'/api/v1/tournaments/{tournament_id}/standings', discord_user_id))
 
-    async def latest_round(self, tournament_id: int) -> dict[str, Any]:
-        return await self.get_json(f'/api/v1/tournaments/{tournament_id}/rounds/latest')
+    async def latest_round(self, tournament_id: int, discord_user_id: int | None = None) -> dict[str, Any]:
+        return await self.get_json(self._discord_query(f'/api/v1/tournaments/{tournament_id}/rounds/latest', discord_user_id))
 
     async def authorize_discord_user(
         self,
@@ -213,11 +218,21 @@ class WalterApiClient:
             'draws': draws,
         })
 
-    async def cube_vote_poll(self, league_id: int, play_date_id: int) -> dict[str, Any]:
-        return await self.get_json(f'/api/v1/leagues/{league_id}/cube-votes/{play_date_id}')
+    async def cube_vote_poll(self, league_id: int, play_date_id: int, discord_user_id: int | None = None) -> dict[str, Any]:
+        return await self.get_json(self._discord_query(
+            f'/api/v1/leagues/{league_id}/cube-votes/{play_date_id}', discord_user_id
+        ))
 
-    async def register_cube_poll(self, league_id: int, play_date_id: int, channel_id: int, message_id: int) -> dict[str, Any]:
+    async def register_cube_poll(
+        self,
+        discord_user_id: int,
+        league_id: int,
+        play_date_id: int,
+        channel_id: int,
+        message_id: int,
+    ) -> dict[str, Any]:
         return await self.post_json('/api/v1/discord/cube-polls', {
+            'discord_user_id': str(discord_user_id),
             'league_id': league_id,
             'play_date_id': play_date_id,
             'channel_id': str(channel_id),
@@ -367,7 +382,7 @@ class WalterBot(discord.Client):
         self.api = WalterApiClient(BOT_API_BASE_URL, BOT_API_KEY)
         self._last_announced_round: int | None = None
         self._ready_announced = False
-        self._guild_commands_synced = False
+        self._guild_commands_cleared = False
         self._cube_polls: dict[int, dict[str, Any]] = {}
 
     async def setup_hook(self):
@@ -387,28 +402,14 @@ class WalterBot(discord.Client):
         print(f'Connected to {len(self.guilds)} Discord server(s).')
         print(f'Walter API: {BOT_API_BASE_URL}')
 
-        if not self._guild_commands_synced:
-            if BOT_SYNC_GUILD_COMMANDS:
-                await self._sync_guild_commands()
-            elif BOT_CLEAR_GUILD_COMMANDS:
-                await self._clear_guild_commands()
+        if not self._guild_commands_cleared:
+            await self._clear_guild_commands()
 
         if BOT_CHANNEL_ID and BOT_ANNOUNCE_READY and not self._ready_announced:
             channel = await self._get_messageable_channel(BOT_CHANNEL_ID)
             if channel is not None:
                 await channel.send('Walter bot is online. Use `/tournaments`, `/leagues`, `/standings`, `/league_standings`, `/pairings`, or `/connect` to get started.')
                 self._ready_announced = True
-
-    async def _sync_guild_commands(self):
-        command_names = ', '.join(registered_command_names(self.tree))
-        for guild in self.guilds:
-            try:
-                self.tree.copy_global_to(guild=guild)
-                synced_commands = await self.tree.sync(guild=guild)
-                print(f'Synced {len(synced_commands)} slash command(s) to guild {guild.id}: {command_names}')
-            except discord.DiscordException as exc:
-                print(f'Could not sync slash commands to guild {guild.id}: {exc}')
-        self._guild_commands_synced = True
 
     async def _clear_guild_commands(self):
         for guild in self.guilds:
@@ -418,7 +419,7 @@ class WalterBot(discord.Client):
                 print(f'Cleared guild-specific slash commands for guild {guild.id}; using global commands only.')
             except discord.DiscordException as exc:
                 print(f'Could not clear guild slash commands for guild {guild.id}: {exc}')
-        self._guild_commands_synced = True
+        self._guild_commands_cleared = True
 
     async def _get_messageable_channel(self, channel_id: str) -> discord.abc.Messageable | None:
         try:
@@ -528,19 +529,6 @@ class WalterBot(discord.Client):
 bot = WalterBot()
 
 
-async def _require_connected_discord_user(interaction: discord.Interaction) -> bool:
-    """Reject bot commands when the invoking Discord account is no longer linked."""
-    try:
-        await bot.api.discord_connection(interaction.user.id)
-        return True
-    except WalterApiError as exc:
-        await interaction.followup.send(
-            f'{exc}\nUse `/connect` with a current one-time pass to connect your account.',
-            ephemeral=True,
-        )
-        return False
-
-
 def format_tournaments(payload: dict[str, Any]) -> str:
     active = [tournament for tournament in (payload.get('tournaments') or []) if tournament.get('active', True)]
     lines = ['**Active Walter tournaments**']
@@ -554,10 +542,8 @@ def format_tournaments(payload: dict[str, Any]) -> str:
 @bot.tree.command(name='tournaments', description='List Walter tournaments.')
 async def tournaments(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
-        await interaction.followup.send(format_tournaments(await bot.api.tournaments()), ephemeral=True)
+        await interaction.followup.send(format_tournaments(await bot.api.tournaments(interaction.user.id)), ephemeral=True)
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 
@@ -565,10 +551,8 @@ async def tournaments(interaction: discord.Interaction):
 @bot.tree.command(name='leagues', description='List Walter leagues.')
 async def leagues(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
-        payload = await bot.api.leagues()
+        payload = await bot.api.leagues(interaction.user.id)
         leagues_payload = payload.get('leagues') or []
         lines = ['**Walter leagues**']
         for league in leagues_payload[:25]:
@@ -583,11 +567,9 @@ async def leagues(interaction: discord.Interaction):
 @app_commands.describe(league_id='Walter cube league ID')
 async def league_play_dates(interaction: discord.Interaction, league_id: int):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
         await interaction.followup.send(
-            format_league_play_dates(await bot.api.league_play_dates(league_id)),
+            format_league_play_dates(await bot.api.league_play_dates(league_id, interaction.user.id)),
             ephemeral=True,
         )
     except WalterApiError as exc:
@@ -598,10 +580,8 @@ async def league_play_dates(interaction: discord.Interaction, league_id: int):
 @app_commands.describe(league_id='Walter league ID')
 async def league_standings(interaction: discord.Interaction, league_id: int):
     await interaction.response.defer(thinking=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
-        await interaction.followup.send(format_league_standings(await bot.api.league_standings(league_id)))
+        await interaction.followup.send(format_league_standings(await bot.api.league_standings(league_id, interaction.user.id)))
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 
@@ -610,10 +590,8 @@ async def league_standings(interaction: discord.Interaction, league_id: int):
 @app_commands.describe(tournament_id='Walter tournament ID')
 async def standings(interaction: discord.Interaction, tournament_id: int):
     await interaction.response.defer(thinking=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
-        await interaction.followup.send(format_standings(await bot.api.standings(tournament_id)))
+        await interaction.followup.send(format_standings(await bot.api.standings(tournament_id, interaction.user.id)))
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 
@@ -622,10 +600,8 @@ async def standings(interaction: discord.Interaction, tournament_id: int):
 @app_commands.describe(tournament_id='Walter tournament ID')
 async def pairings(interaction: discord.Interaction, tournament_id: int):
     await interaction.response.defer(thinking=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
-        await interaction.followup.send(format_pairings(await bot.api.latest_round(tournament_id)))
+        await interaction.followup.send(format_pairings(await bot.api.latest_round(tournament_id, interaction.user.id)))
     except WalterApiError as exc:
         await interaction.followup.send(str(exc), ephemeral=True)
 
@@ -668,8 +644,6 @@ async def report_pairing(
     draws: int = 0,
 ):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
         payload = await bot.api.report_pairing(
             interaction.user.id,
@@ -696,10 +670,8 @@ async def report_pairing(
 )
 async def cube_poll(interaction: discord.Interaction, league_id: int, play_date_id: int):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    if not await _require_connected_discord_user(interaction):
-        return
     try:
-        payload = await bot.api.cube_vote_poll(league_id, play_date_id)
+        payload = await bot.api.cube_vote_poll(league_id, play_date_id, interaction.user.id)
         cubes = (payload.get('cubes') or [])[:len(CUBE_POLL_EMOJIS)]
         if not cubes:
             await interaction.followup.send('That cube vote does not have any cubes to poll.', ephemeral=True)
@@ -713,7 +685,9 @@ async def cube_poll(interaction: discord.Interaction, league_id: int, play_date_
             await interaction.followup.send(f'Posted the poll, but could not pin it: {exc}', ephemeral=True)
         else:
             await interaction.followup.send('Posted and pinned the cube vote poll.', ephemeral=True)
-        poll_payload = await bot.api.register_cube_poll(league_id, play_date_id, message.channel.id, message.id)
+        poll_payload = await bot.api.register_cube_poll(
+            interaction.user.id, league_id, play_date_id, message.channel.id, message.id
+        )
         poll_payload['cube_vote'] = payload
         bot._cache_cube_poll_metadata(poll_payload, message)
         bot.loop.create_task(bot._poll_cube_vote_updates(message.id))

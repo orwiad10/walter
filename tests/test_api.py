@@ -262,6 +262,9 @@ def test_api_key_can_list_cube_league_play_dates_for_discord_poll(client, sessio
 
 def test_api_key_can_fetch_registered_discord_cube_poll(client, session):
     token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    poll_author = User(email='poll-author@example.com', name='Poll Author', role=user_role,
+                       discord_username='pollauthor', discord_user_id='555')
     league = League(name='API Cube Poll Lookup', is_cube_league=True)
     cube = LeagueCube(
         league=league,
@@ -269,14 +272,18 @@ def test_api_key_can_fetch_registered_discord_cube_poll(client, session):
         title='Lookup Cube',
     )
     play_date = LeaguePlayDate(league=league, play_date=date(2026, 7, 1), is_active=True)
-    session.add_all([league, cube, play_date])
+    session.add_all([poll_author, league, cube, play_date])
     session.flush()
-    session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+    session.add_all([
+        LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id),
+        LeaguePlayer(league_id=league.id, user_id=poll_author.id),
+    ])
     session.commit()
 
     register_response = client.post(
         '/api/v1/discord/cube-polls',
         json={
+            'discord_user_id': '555',
             'league_id': league.id,
             'play_date_id': play_date.id,
             'channel_id': '12345',
@@ -503,6 +510,48 @@ def test_discord_connection_check_rejects_revoked_and_blocked_users(client, sess
     blocked_response = client.get('/api/v1/discord/connection?discord_user_id=222', headers=headers)
     assert revoked_response.status_code == 403
     assert blocked_response.status_code == 403
+
+
+def test_discord_read_requires_connected_user_on_server(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    connected = User(email='discord-reader@example.com', name='Reader', role=user_role,
+                     discord_username='reader', discord_user_id='333')
+    session.add(connected)
+    session.commit()
+    headers = {'Authorization': f'Bearer {token}'}
+
+    allowed = client.get('/api/v1/tournaments?discord_user_id=333', headers=headers)
+    denied = client.get('/api/v1/tournaments?discord_user_id=not-connected', headers=headers)
+
+    assert allowed.status_code == 200
+    assert denied.status_code == 403
+    assert denied.get_json()['error'] == 'Discord account is not connected to Walter'
+
+
+def test_discord_cube_vote_requires_league_membership(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    outsider = User(email='discord-outsider@example.com', name='Outsider', role=user_role,
+                    discord_username='outsider', discord_user_id='444')
+    league = League(name='Members Only Cube', is_cube_league=True)
+    cube = LeagueCube(league=league, cube_cobra_url='https://cubecobra.com/cube/member', title='Member Cube')
+    play_date = LeaguePlayDate(league=league, play_date=date(2026, 7, 1), is_active=True)
+    session.add_all([outsider, league, cube, play_date])
+    session.flush()
+    session.add(LeaguePlayDateCube(play_date_id=play_date.id, cube_id=cube.id))
+    session.commit()
+
+    response = client.post('/api/v1/discord/cube-vote', json={
+        'discord_user_id': '444',
+        'league_id': league.id,
+        'play_date_id': play_date.id,
+        'cube_id': cube.id,
+        'selected': True,
+    }, headers={'Authorization': f'Bearer {token}'})
+
+    assert response.status_code == 403
+    assert response.get_json()['error'] == 'only a member of this league can vote from Discord'
 
 
 def test_discord_report_pairing_requires_authorized_participant(client, session):
