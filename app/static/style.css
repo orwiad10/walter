@@ -1490,6 +1490,33 @@ ul.flashes {
   margin-bottom: 6px;
 }
 
+[data-head-to-head-form] {
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+}
+
+.inline-player-result,
+.inline-player-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inline-player-name {
+  min-width: max-content;
+}
+
+.inline-versus {
+  color: var(--muted-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+[data-head-to-head-form] .inline-drop-group {
+  margin-left: auto;
+}
+
 .inline-result-field {
   display: grid;
   gap: 3px;
