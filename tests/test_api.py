@@ -558,9 +558,17 @@ def test_discord_settings_show_pass_prominently_and_disable_password_managers(cl
             },
         )
 
-    html = response.get_data(as_text=True)
-    assert response.status_code == 200
+        generated_pass_hash = user.discord_authorization_token_hash
+        pass_response = client.get(response.headers['Location'])
+        refreshed_response = client.get('/settings')
+        session.refresh(user)
+
+    html = pass_response.get_data(as_text=True)
+    assert response.status_code == 303
+    assert pass_response.status_code == 200
     assert 'Current Discord username: <strong>waltersettings</strong>' in html
     assert 'class="one-time-discord-pass"' in html
     assert 'autocomplete="off"' in html
     assert 'data-lpignore="true"' in html
+    assert 'class="one-time-discord-pass"' not in refreshed_response.get_data(as_text=True)
+    assert user.discord_authorization_token_hash == generated_pass_hash

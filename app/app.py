@@ -2217,6 +2217,10 @@ def create_app():
         require_permission('accounts.manage_self')
         new_api_key = None
         new_discord_pass = None
+        if request.method == 'GET':
+            pending_discord_pass = session.pop('new_discord_pass', None)
+            if pending_discord_pass and pending_discord_pass.get('user_id') == current_user.id:
+                new_discord_pass = pending_discord_pass.get('pass')
         if request.method == 'POST':
             action = request.form.get('action')
             if action == 'appearance':
@@ -2252,6 +2256,12 @@ def create_app():
                     flash('Discord settings saved.', 'success')
                 db.session.commit()
                 log_site('discord_settings_update', 'success', f'user_id={current_user.id}')
+                if new_discord_pass:
+                    session['new_discord_pass'] = {
+                        'user_id': current_user.id,
+                        'pass': new_discord_pass,
+                    }
+                    return redirect(url_for('user_settings'), code=303)
             if action == 'api_key':
                 if not current_user.has_permission('admin.api_keys'):
                     log_site('api_key_create', 'failure', 'missing admin.api_keys')
