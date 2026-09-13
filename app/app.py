@@ -2317,9 +2317,20 @@ def create_app():
         _api_log('users.list', 'success')
         return jsonify({'users': [user_payload(u) for u in users]})
 
+    def require_connected_discord_query_user():
+        """Validate Discord identity when a bot command supplies one."""
+        discord_user_id = str(request.args.get('discord_user_id') or '').strip()
+        if not discord_user_id:
+            return None
+        user = db.session.query(User).filter_by(discord_user_id=discord_user_id).first()
+        if not user or not user.discord_username or user.discord_connection_blocked:
+            abort(make_response(jsonify(error='Discord account is not connected to Walter'), 403))
+        return user
+
     @app.route('/api/v1/tournaments', methods=['GET', 'POST'])
     def api_tournaments():
         api_user, _ = require_api_permission('tournaments.manage')
+        require_connected_discord_query_user()
         if request.method == 'POST':
             data = request.get_json(silent=True) or {}
             name = (data.get('name') or '').strip()
@@ -2338,6 +2349,7 @@ def create_app():
     @app.route('/api/v1/leagues', methods=['GET', 'POST'])
     def api_leagues():
         api_user, _ = require_api_permission('tournaments.manage')
+        require_connected_discord_query_user()
         if request.method == 'POST':
             data = request.get_json(silent=True) or {}
             name = (data.get('name') or '').strip()
@@ -2404,6 +2416,7 @@ def create_app():
     @app.route('/api/v1/tournaments/<int:tournament_id>/standings')
     def api_tournament_standings(tournament_id):
         require_api_permission('tournaments.manage')
+        require_connected_discord_query_user()
         tournament = db.session.get(Tournament, tournament_id)
         if not tournament:
             return _json_error('not found', 404)
@@ -2434,6 +2447,7 @@ def create_app():
     @app.route('/api/v1/tournaments/<int:tournament_id>/rounds/latest')
     def api_tournament_latest_round(tournament_id):
         require_api_permission('tournaments.manage')
+        require_connected_discord_query_user()
         tournament = db.session.get(Tournament, tournament_id)
         if not tournament:
             return _json_error('not found', 404)
@@ -2573,6 +2587,7 @@ def create_app():
     @app.route('/api/v1/leagues/<int:league_id>/standings')
     def api_league_standings(league_id):
         require_api_permission('tournaments.manage')
+        require_connected_discord_query_user()
         league = db.session.get(League, league_id)
         if not league:
             return _json_error('not found', 404)
@@ -2594,6 +2609,7 @@ def create_app():
     @app.route('/api/v1/leagues/<int:league_id>/play-dates')
     def api_league_play_dates(league_id):
         require_api_permission('tournaments.manage')
+        require_connected_discord_query_user()
         league = db.session.get(League, league_id)
         if not league or not league.is_cube_league:
             return _json_error('cube league not found', 404)
@@ -2641,6 +2657,7 @@ def create_app():
     @app.route('/api/v1/leagues/<int:league_id>/cube-votes/<int:play_date_id>')
     def api_cube_vote_poll(league_id, play_date_id):
         require_api_permission('tournaments.manage')
+        require_connected_discord_query_user()
         league = db.session.get(League, league_id)
         play_date = db.session.get(LeaguePlayDate, play_date_id)
         if not league or not league.is_cube_league or not play_date or play_date.league_id != league.id:
@@ -2670,16 +2687,22 @@ def create_app():
     def api_discord_cube_poll_register():
         require_api_permission('tournaments.manage')
         data = request.get_json(silent=True) or {}
+        discord_user_id = str(data.get('discord_user_id') or '').strip()
         league_id = data.get('league_id')
         play_date_id = data.get('play_date_id')
         channel_id = str(data.get('channel_id') or '').strip()
         message_id = str(data.get('message_id') or '').strip()
-        if not league_id or not play_date_id or not channel_id or not message_id:
-            return _json_error('league_id, play_date_id, channel_id, and message_id are required')
+        if not discord_user_id or not league_id or not play_date_id or not channel_id or not message_id:
+            return _json_error('discord_user_id, league_id, play_date_id, channel_id, and message_id are required')
+        user = db.session.query(User).filter_by(discord_user_id=discord_user_id).first()
+        if not user or not user.discord_username or user.discord_connection_blocked:
+            return _json_error('Discord account is not connected to Walter', 403)
         league = db.session.get(League, int(league_id))
         play_date = db.session.get(LeaguePlayDate, int(play_date_id))
         if not league or not league.is_cube_league or not play_date or play_date.league_id != league.id:
             return _json_error('cube vote not found', 404)
+        if not db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=user.id).first():
+            return _json_error('only a member of this league can post its cube poll from Discord', 403)
         poll = db.session.query(LeagueCubeDiscordPoll).filter_by(message_id=message_id).first()
         if not poll:
             poll = LeagueCubeDiscordPoll(message_id=message_id)
@@ -2709,6 +2732,8 @@ def create_app():
         cube_id = int(cube_id)
         if not league or not league.is_cube_league or not play_date or play_date.league_id != league.id:
             return _json_error('cube vote not found', 404)
+        if not db.session.query(LeaguePlayer).filter_by(league_id=league.id, user_id=user.id).first():
+            return _json_error('only a member of this league can vote from Discord', 403)
         if cube_id not in {link.cube_id for link in play_date.available_cubes}:
             return _json_error('cube is not on this ballot', 404)
         vote = db.session.query(LeagueCubeVote).filter_by(play_date_id=play_date.id, cube_id=cube_id, user_id=user.id).first()

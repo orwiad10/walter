@@ -93,7 +93,7 @@ Posts a Discord mirror of a Walter cube vote in the current channel, adds one re
 
 **Typical use:** `/cube_poll league_id:7 play_date_id:19`
 
-React to select a cube; remove the reaction to deselect it. The bot mirrors changes to Walter and refreshes totals. Only connected Discord accounts can vote, the cube must still be on that date's ballot, and Walter permits no more than three selected cubes per user/date. The bot recognizes at most the first set of cubes for which it has configured reaction emojis. It requires permission to send messages, add reactions, read reaction events/history, and pin/manage messages if pinning is desired. Failure to pin does not discard a successfully posted poll.
+React to select a cube; remove the reaction to deselect it. The bot mirrors changes to Walter and refreshes totals. Only connected league members can post the poll or vote, the cube must still be on that date's ballot, and Walter permits no more than three selected cubes per user/date. The bot recognizes at most the first set of cubes for which it has configured reaction emojis. It requires permission to send messages, add reactions, read reaction events/history, and pin/manage messages if pinning is desired. Failure to pin does not discard a successfully posted poll.
 
 ## 7. Automatic pairing announcements
 
@@ -107,7 +107,7 @@ When `bot_channel_id` and `bot_poll_tournament_id` are configured, the bot perio
 
 ## 9. Troubleshooting
 
-**Command is missing:** `/connect` only links your Discord identity to a Walter user; it does not change the slash-command list. Restart the bot with the correct token/application configuration so the default guild sync can publish all nine commands immediately. If `bot_sync_guild_commands` was explicitly disabled, either wait for global synchronization or re-enable it and restart the bot.
+**Command is missing:** `/connect` only links your Discord identity to a Walter user; it does not change the slash-command list. Restart the bot with the correct token/application configuration, then allow time for Discord's global-command synchronization. The bot removes old guild-specific command copies on startup so Discord shows only one command set.
 
 **401 / invalid API key:** The bot key is missing, malformed, or revoked. Create a new administrator API key and update `bot_api_key` securely.
 
@@ -125,4 +125,4 @@ Walter administrators can override a user's Discord username, revoke a link, or 
 
 ## 10. Operator configuration checklist
 
-Set `bot_runtime_script: "discord_bot.py"`, `bot_token`, `bot_api_base_url`, and `bot_api_key`. Optional values include `bot_channel_id`, `bot_poll_tournament_id`, `bot_poll_interval_seconds`, `bot_announce_ready`, `bot_sync_guild_commands`, and `bot_clear_guild_commands`. Keep the bot token and API key outside source control, grant only required Discord permissions, and use HTTPS when the API is remote.
+Set `bot_runtime_script: "discord_bot.py"`, `bot_token`, `bot_api_base_url`, and `bot_api_key`. Optional values include `bot_channel_id`, `bot_poll_tournament_id`, `bot_poll_interval_seconds`, and `bot_announce_ready`. Keep the bot token and API key outside source control, grant only required Discord permissions, and use HTTPS when the API is remote.

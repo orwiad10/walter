@@ -39,9 +39,14 @@ def test_http_error_detail_collapses_html_title():
     assert discord_bot._format_http_error_detail(exc) == '405 Method Not Allowed'
 
 
-def test_guild_commands_are_cleared_by_default_to_prevent_duplicate_commands():
-    assert discord_bot.BOT_SYNC_GUILD_COMMANDS is False
-    assert discord_bot.BOT_CLEAR_GUILD_COMMANDS is True
+def test_discord_read_urls_include_invoking_user_for_server_authorization():
+    assert discord_bot.WalterApiClient._discord_query('/api/v1/tournaments', 123) == (
+        '/api/v1/tournaments?discord_user_id=123'
+    )
+
+
+def test_connection_is_not_a_client_side_command_visibility_gate():
+    assert not hasattr(discord_bot, '_require_connected_discord_user')
 
 
 def test_ready_announcement_is_disabled_by_default():
