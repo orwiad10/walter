@@ -39,13 +39,22 @@ def test_http_error_detail_collapses_html_title():
     assert discord_bot._format_http_error_detail(exc) == '405 Method Not Allowed'
 
 
-def test_guild_command_sync_is_enabled_by_default_for_immediate_updates():
-    assert discord_bot.BOT_SYNC_GUILD_COMMANDS is True
+def test_guild_commands_are_cleared_by_default_to_prevent_duplicate_commands():
+    assert discord_bot.BOT_SYNC_GUILD_COMMANDS is False
     assert discord_bot.BOT_CLEAR_GUILD_COMMANDS is True
 
 
 def test_ready_announcement_is_disabled_by_default():
     assert discord_bot.BOT_ANNOUNCE_READY is False
+
+
+def test_format_tournaments_only_displays_active_tournaments():
+    formatted = discord_bot.format_tournaments({'tournaments': [
+        {'id': 1, 'name': 'Current Open', 'format': 'Draft', 'active': True},
+        {'id': 2, 'name': 'Finished Open', 'format': 'Modern', 'active': False},
+    ]})
+
+    assert formatted == '**Active Walter tournaments**\n1: Current Open (Draft)'
 
 
 def test_authorize_discord_user_uses_connect_endpoint_first(monkeypatch):

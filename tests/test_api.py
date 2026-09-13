@@ -482,6 +482,29 @@ def test_discord_authorization_rejects_admin_blocked_user(client, session):
     assert player.discord_user_id is None
 
 
+def test_discord_connection_check_rejects_revoked_and_blocked_users(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    connected = User(email='discord-connected@example.com', name='Connected', role=user_role,
+                     discord_username='connected', discord_user_id='111')
+    blocked = User(email='discord-command-blocked@example.com', name='Blocked', role=user_role,
+                   discord_username='blocked', discord_user_id='222', discord_connection_blocked=True)
+    session.add_all([connected, blocked])
+    session.commit()
+    headers = {'Authorization': f'Bearer {token}'}
+
+    response = client.get('/api/v1/discord/connection?discord_user_id=111', headers=headers)
+    assert response.status_code == 200
+    assert response.get_json()['connected'] is True
+
+    connected.discord_user_id = None
+    session.commit()
+    revoked_response = client.get('/api/v1/discord/connection?discord_user_id=111', headers=headers)
+    blocked_response = client.get('/api/v1/discord/connection?discord_user_id=222', headers=headers)
+    assert revoked_response.status_code == 403
+    assert blocked_response.status_code == 403
+
+
 def test_discord_report_pairing_requires_authorized_participant(client, session):
     token = _admin_api_token(session)
     user_role = session.query(Role).filter_by(name='user').one()
@@ -542,7 +565,8 @@ def test_discord_report_pairing_requires_authorized_participant(client, session)
 
 def test_discord_settings_show_pass_prominently_and_disable_password_managers(client, session):
     user_role = session.query(Role).filter_by(name='user').one()
-    user = User(email='discord-settings@example.com', name='Discord Settings', role=user_role)
+    user = User(email='discord-settings@example.com', name='Discord Settings', role=user_role,
+                discord_user_id='previously-connected')
     user.set_password('secret')
     session.add(user)
     session.commit()
@@ -572,3 +596,4 @@ def test_discord_settings_show_pass_prominently_and_disable_password_managers(cl
     assert 'data-lpignore="true"' in html
     assert 'class="one-time-discord-pass"' not in refreshed_response.get_data(as_text=True)
     assert user.discord_authorization_token_hash == generated_pass_hash
+    assert user.discord_user_id is None
