@@ -71,6 +71,19 @@
       <label for="user-password-confirm">Confirm Password</label>
       <input id="user-password-confirm" type="password" name="password_confirm" placeholder="Confirm password">
     </div>
+    <fieldset>
+      <legend>Discord Bot Connection</legend>
+      <input type="hidden" name="discord_controls_present" value="1">
+      <div class="form-row">
+        <label for="user-discord-username">Discord Username</label>
+        <input id="user-discord-username" name="discord_username" maxlength="120" value="{{ user.discord_username or '' }}" placeholder="discord_username">
+      </div>
+      <p>Status: {% if user.discord_user_id %}<strong>Connected</strong> to Discord user ID <code>{{ user.discord_user_id }}</code>{% else %}Not connected{% endif %}.</p>
+      <label><input type="checkbox" name="discord_connection_blocked" value="1"{% if user.discord_connection_blocked %} checked{% endif %}> Block this user from connecting through the Discord bot</label>
+      {% if user.discord_user_id or user.discord_authorization_token_hash %}
+      <label><input type="checkbox" name="discord_action" value="revoke"> Revoke the current connection and any pending one-time pass</label>
+      {% endif %}
+    </fieldset>
     {% if can_manage_overrides %}
     <details>
       <summary>Permission Overrides</summary>

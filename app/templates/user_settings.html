@@ -7,6 +7,17 @@
   </div>
 </section>
 
+{% if current_user.has_permission('matches.report_all') %}
+<section class="panel-card">
+  <h3>Round Reporting</h3>
+  <form method="post" class="stacked-form">
+    <input type="hidden" name="action" value="reporting_display">
+    <label class="checkbox-row"><input type="checkbox" name="inline_match_reporting" value="1"{% if current_user.inline_match_reporting %} checked{% endif %}> Show inline reporting dialogs for every match on round pages</label>
+    <div class="form-actions"><button class="btn" type="submit">Save Reporting Display</button></div>
+  </form>
+</section>
+{% endif %}
+
 <section class="panel-card">
   <h3>Appearance</h3>
   <form method="post" class="stacked-form">
@@ -23,6 +34,7 @@
 
 <section class="panel-card">
   <h3>Discord Bot Connection</h3>
+  {% if current_user.discord_connection_blocked %}<p class="flash error"><strong>An administrator has blocked this account from connecting through the Discord bot.</strong></p>{% endif %}
   <p class="muted">Add your Discord username, then generate a one-time pass and use it with <strong>/connect</strong> in Discord before reporting tournament pairings with the bot.</p>
   {% if new_discord_pass %}
     <div class="flash success">
@@ -30,7 +42,7 @@
       <code class="one-time-discord-pass">{{ new_discord_pass }}</code>
     </div>
   {% endif %}
-  <form method="post" class="stacked-form">
+  <form method="post" class="stacked-form"{% if current_user.discord_connection_blocked %} aria-disabled="true"{% endif %}>
     <input type="hidden" name="action" value="discord_connection">
     <p class="muted">Current Discord username: <strong>{{ current_user.discord_username or 'Not set' }}</strong></p>
     <label>Discord username
@@ -45,8 +57,8 @@
       {% endif %}
     </p>
     <div class="form-actions">
-      <button class="btn" type="submit">Save Discord Username</button>
-      <button class="btn btn-secondary" type="submit" name="generate_discord_pass" value="1">Generate One-Time Pass</button>
+      <button class="btn" type="submit"{% if current_user.discord_connection_blocked %} disabled{% endif %}>Save Discord Username</button>
+      <button class="btn btn-secondary" type="submit" name="generate_discord_pass" value="1"{% if current_user.discord_connection_blocked %} disabled{% endif %}>Generate One-Time Pass</button>
     </div>
   </form>
 </section>

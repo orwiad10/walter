@@ -462,6 +462,26 @@ def test_discord_authorization_requires_username_and_one_time_pass(client, sessi
     assert player.discord_authorization_token_hash is None
 
 
+def test_discord_authorization_rejects_admin_blocked_user(client, session):
+    token = _admin_api_token(session)
+    user_role = session.query(Role).filter_by(name='user').one()
+    player = User(email='discord-blocked@example.com', name='Discord Blocked', role=user_role,
+                  discord_username='blockeduser', discord_connection_blocked=True)
+    player.set_discord_authorization_token('blocked-pass')
+    session.add(player)
+    session.commit()
+
+    response = client.post('/connect', json={
+        'discord_user_id': '998877', 'discord_username': 'blockeduser',
+        'one_time_pass': 'blocked-pass',
+    }, headers={'Authorization': f'Bearer {token}'})
+
+    assert response.status_code == 403
+    assert response.get_json()['error'] == 'This account has been blocked from connecting to Discord.'
+    session.refresh(player)
+    assert player.discord_user_id is None
+
+
 def test_discord_report_pairing_requires_authorized_participant(client, session):
     token = _admin_api_token(session)
     user_role = session.query(Role).filter_by(name='user').one()

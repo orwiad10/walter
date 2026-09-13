@@ -76,6 +76,7 @@ PERMISSION_GROUPS = {
     },
     'matches': {
         'report_self': 'Report your own match and drop yourself',
+        'report_all': 'View and report every match in a round',
     },
     'media': {
         'view': 'View uploaded media and permitted cube images',
@@ -148,6 +149,7 @@ for role_permissions in DEFAULT_ROLE_PERMISSIONS.values():
 for role_name in ('admin', 'manager', 'venue judge', 'event head judge'):
     DEFAULT_ROLE_PERMISSIONS[role_name]['users.search'] = True
     DEFAULT_ROLE_PERMISSIONS[role_name]['decks.view'] = True
+    DEFAULT_ROLE_PERMISSIONS[role_name]['matches.report_all'] = True
 
 
 
@@ -205,6 +207,8 @@ class User(db.Model, UserMixin):
     discord_username = db.Column(db.String(120), nullable=True)
     discord_user_id = db.Column(db.String(32), unique=True, nullable=True)
     discord_authorization_token_hash = db.Column(db.String(64), nullable=True)
+    discord_connection_blocked = db.Column(db.Boolean, nullable=False, default=False)
+    inline_match_reporting = db.Column(db.Boolean, nullable=False, default=False)
     hidden = db.Column(db.Boolean, nullable=False, default=False)
 
     @staticmethod

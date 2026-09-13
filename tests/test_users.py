@@ -733,6 +733,56 @@ def test_site_settings_save_site_theme(client, session):
     assert session.get(SiteSetting, 'site_theme').value == 'dark'
 
 
+def test_site_settings_enable_verbose_logging(client, session):
+    from app.models import SiteSetting, SiteLog
+
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    admin = User(email='verbose-admin@example.com', name='Verbose Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    session.add(admin)
+    session.commit()
+
+    with client:
+        client.post('/login', data={'email': admin.email, 'password': 'secret'})
+        response = client.post('/admin/site-settings', data={
+            'action': 'settings', 'registration_mode': 'open', 'verbose_logging': '1',
+        })
+
+    assert response.status_code == 302
+    assert session.get(SiteSetting, 'verbose_logging').value == 'true'
+    entry = session.query(SiteLog).filter_by(action='site_settings_update').order_by(SiteLog.id.desc()).first()
+    assert 'method=POST' in entry.error
+    assert 'path=/admin/site-settings' in entry.error
+
+
+def test_admin_can_override_revoke_and_block_discord_connection(client, session):
+    admin_role = session.query(Role).filter_by(name='admin').one()
+    user_role = session.query(Role).filter_by(name='user').one()
+    admin = User(email='discord-admin@example.com', name='Discord Admin', role=admin_role, is_admin=True)
+    admin.set_password('secret')
+    user = User(email='managed-discord@example.com', name='Managed Discord', role=user_role,
+                discord_username='oldname', discord_user_id='123')
+    user.set_discord_authorization_token('pending-pass')
+    session.add_all([admin, user])
+    session.commit()
+
+    with client:
+        client.post('/login', data={'email': admin.email, 'password': 'secret'})
+        response = client.post(f'/admin/users/{user.id}/update', data={
+            'email': user.email, 'first_name': 'Managed', 'last_name': 'Discord',
+            'role_id': str(user_role.id), 'discord_controls_present': '1',
+            'discord_username': '@newname', 'discord_action': 'revoke',
+            'discord_connection_blocked': '1',
+        })
+
+    assert response.status_code == 302
+    session.refresh(user)
+    assert user.discord_username == 'newname'
+    assert user.discord_user_id is None
+    assert user.discord_authorization_token_hash is None
+    assert user.discord_connection_blocked is True
+
+
 def test_invalid_site_theme_falls_back_to_light(client, session):
     from app.models import SiteSetting
 

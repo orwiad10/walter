@@ -53,7 +53,13 @@ The shareable registration page displays an event pass/link and a scannable PNG 
 Submits the current account's join request or passcode. Depending on tournament settings, entry may be immediate or remain pending for staff approval.
 
 ### Round page — `/t/<id>/round/<round-id>`
-Displays pairings by table, match completion state, and round context. Players select their match to report a result. Staff can access repair/delete controls when authorized.
+Displays pairings by table, match completion state, and round context. Ordinary players see only the pairing containing their own account. People granted **View and report every match in a round** see the complete round and may enable expandable inline result forms under **User Settings → Round Reporting**. Staff can access repair/delete controls when separately authorized.
+
+### Discord administration and verbose logs
+
+The admin user detail page shows the saved Discord username and whether the bot has connected a Discord user ID. An administrator may override the username, revoke an active connection or pending one-time pass, and block future bot connections. Blocking also revokes existing Discord credentials; unblocking does not reconnect the account automatically.
+
+Administrators can enable **Verbose logging** under **Site Settings**. When enabled, every site and tournament audit item gains request method, path, endpoint, and client IP context, API log writes are also emitted to the application logger, and Discord connection attempts retain their Discord identity fields and outcome. Secrets such as one-time passes and authorization headers are not added to these audit details.
 
 ### Match report — `/match/<match-id>`
 Reports or edits the selected table result. Two-player events record wins and draws; Commander/multiplayer events record placements and draw state. Walter prevents invalid or late changes based on tournament state and permissions.

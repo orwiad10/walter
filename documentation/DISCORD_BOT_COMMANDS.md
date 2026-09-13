@@ -117,6 +117,8 @@ When `bot_channel_id` and `bot_poll_tournament_id` are configured, the bot perio
 
 **409:** The operation conflicts with current state, commonly a duplicate Discord connection, cube vote limit, or result report after the next round was paired.
 
+Walter administrators can override a user's Discord username, revoke a link, or block the account from `/connect`. A blocked account receives a 403 response and must be unblocked and issued a new one-time pass before connecting. Site-level verbose logging adds request context and expanded connection diagnostics without logging the pass itself.
+
 **Poll reactions do nothing:** Connect with `/connect`; verify reaction event intents/permissions, that the reaction is one created by the bot, and that the cube remains on the ballot.
 
 **Ready announcement absent:** It is disabled by default. Configure `bot_channel_id` and set `bot_announce_ready: true` only if wanted.

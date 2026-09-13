@@ -146,6 +146,8 @@ Permission: `tournaments.manage`. Connects a Discord account to a Walter account
 
 Required: `discord_user_id`, `discord_username`, `one_time_pass`. Optional: `discord_display_name`, `discord_global_name`. JSON and form values are accepted. Leading `@` is normalized. The configured Walter Discord username must match case-insensitively.
 
+Accounts blocked from Discord connection by an administrator receive **403**. Administrative revocation invalidates both an active Discord link and any pending one-time pass.
+
 **200:** `{"authorized": true, "user": User}`.  
 **400:** required field missing.  
 **403:** invalid/expired pass, missing Walter username, or mismatch.  
