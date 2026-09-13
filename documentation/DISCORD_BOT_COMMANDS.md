@@ -107,7 +107,7 @@ When `bot_channel_id` and `bot_poll_tournament_id` are configured, the bot perio
 
 ## 9. Troubleshooting
 
-**Command is missing:** Wait for global synchronization, restart with correct token/application configuration, or enable guild syncing temporarily for immediate development updates. Avoid keeping both stale guild copies and global commands, which can appear duplicated.
+**Command is missing:** `/connect` only links your Discord identity to a Walter user; it does not change the slash-command list. Restart the bot with the correct token/application configuration so the default guild sync can publish all nine commands immediately. If `bot_sync_guild_commands` was explicitly disabled, either wait for global synchronization or re-enable it and restart the bot.
 
 **401 / invalid API key:** The bot key is missing, malformed, or revoked. Create a new administrator API key and update `bot_api_key` securely.
 
