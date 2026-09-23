@@ -2036,6 +2036,29 @@ ul.flashes {
   overflow-x: auto;
 }
 
+.log-table-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.log-table {
+  table-layout: fixed;
+}
+
+.log-table th,
+.log-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.log-table th:nth-child(1) { width: 8%; }
+.log-table th:nth-child(2) { width: 7%; }
+.log-table th:nth-child(3) { width: 12%; }
+.log-table th:nth-child(4) { width: 17%; }
+.log-table th:nth-child(5) { width: 10%; }
+.log-table th:nth-child(6) { width: 46%; }
+
 .venue-management-table {
   table-layout: fixed;
   min-width: 900px;

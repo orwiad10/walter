@@ -1,17 +1,23 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>Site Logs</h2>
-<table>
-  <tr><th>Time</th><th>User</th><th>Client IP</th><th>Action</th><th>Result</th><th>Error</th></tr>
-  {% for l in logs %}
-  <tr>
-    <td>{{ l.timestamp }}</td>
-    <td>{{ l.user.name if l.user else '' }}</td>
-    <td>{{ l.ip_address or '' }}</td>
-    <td>{{ l.action }}</td>
-    <td>{{ l.result }}</td>
-    <td>{{ l.error or '' }}</td>
-  </tr>
-  {% endfor %}
-</table>
+<div class="log-table-container">
+  <table class="log-table">
+    <thead>
+      <tr><th>Time</th><th>User</th><th>Client IP</th><th>Action</th><th>Result</th><th>Error</th></tr>
+    </thead>
+    <tbody>
+      {% for l in logs %}
+      <tr>
+        <td>{{ l.timestamp }}</td>
+        <td>{{ l.user.name if l.user else '' }}</td>
+        <td>{{ l.ip_address or '' }}</td>
+        <td>{{ l.action }}</td>
+        <td>{{ l.result }}</td>
+        <td>{{ l.error or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}
