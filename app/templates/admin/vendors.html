@@ -18,8 +18,7 @@
     <input name="name" placeholder="Vendor name" required>
     <input name="website" type="url" placeholder="Website">
     <input name="booth_number" placeholder="Booth number">
-    <select name="venue_id">
-      <option value="">No venue</option>
+    <select name="venue_ids" multiple aria-label="Venues">
       {% for venue in venues %}<option value="{{ venue.id }}">{{ venue.name }}</option>{% endfor %}
     </select>
     <textarea name="services_provided" rows="2" placeholder="Services provided"></textarea>
@@ -43,7 +42,7 @@
         </td>
         <td>{% if can_manage_venues %}<input form="vendor-form-{{ vendor.id }}" name="website" type="url" value="{{ vendor.website or '' }}">{% elif vendor.website %}<a href="{{ vendor.website }}" target="_blank" rel="noopener">Website</a>{% else %}-{% endif %}</td>
         <td>{% if can_manage_venues %}<input form="vendor-form-{{ vendor.id }}" name="booth_number" value="{{ vendor.booth_number or '' }}">{% else %}{{ vendor.booth_number or '-' }}{% endif %}</td>
-        <td>{% if can_manage_venues %}<select form="vendor-form-{{ vendor.id }}" name="venue_id"><option value="">No venue</option>{% for venue in venues %}<option value="{{ venue.id }}"{% if vendor.venue_id == venue.id %} selected{% endif %}>{{ venue.name }}</option>{% endfor %}</select>{% else %}{{ vendor.venue.name if vendor.venue else 'No venue' }}{% endif %}</td>
+        <td>{% if can_manage_venues %}<select form="vendor-form-{{ vendor.id }}" name="venue_ids" multiple aria-label="Venues for {{ vendor.name }}">{% for venue in venues %}<option value="{{ venue.id }}"{% if venue in vendor.venues %} selected{% endif %}>{{ venue.name }}</option>{% endfor %}</select>{% else %}{{ vendor.venues|map(attribute='name')|join(', ') or 'No venue' }}{% endif %}</td>
         <td>{% if can_manage_venues %}<textarea form="vendor-form-{{ vendor.id }}" name="services_provided" rows="2">{{ vendor.services_provided or '' }}</textarea>{% else %}{{ vendor.services_provided or '-' }}{% endif %}</td>
         {% if can_manage_venues %}<td><button form="vendor-form-{{ vendor.id }}" class="btn" type="submit">Save</button></td>{% endif %}
       </tr>

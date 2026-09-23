@@ -52,24 +52,6 @@
           </div>
         </td>{% if can_manage_venues %}<td><button form="venue-form-{{ venue.id }}" class="btn" type="submit">Save</button></td>{% endif %}
       </tr>
-      <tr>
-        <td colspan="{{ 6 if can_manage_venues else 5 }}">
-          <div class="venue-assets-grid">
-            <div>
-              <h4>Artists</h4>
-              {% if venue.artists %}
-              <table class="table compact-table"><tbody>{% for artist in venue.artists %}<tr><td>{{ artist.name }}</td><td>{{ artist.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
-              {% else %}<p class="empty-state compact-empty">No artists.</p>{% endif %}
-            </div>
-            <div>
-              <h4>Vendors</h4>
-              {% if venue.vendors %}
-              <table class="table compact-table"><tbody>{% for vendor in venue.vendors %}<tr><td>{{ vendor.name }}</td><td>{{ vendor.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
-              {% else %}<p class="empty-state compact-empty">No vendors.</p>{% endif %}
-            </div>
-          </div>
-        </td>
-      </tr>
       {% endfor %}
     </tbody>
   </table></div>

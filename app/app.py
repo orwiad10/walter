@@ -451,6 +451,8 @@ def create_app():
             Venue,
             Vendor,
             ArtistProfile,
+            vendor_venues,
+            artist_venues,
             ApiKey,
             ApiLog,
             SiteLog,
@@ -532,6 +534,25 @@ def create_app():
             Venue.__table__.create(bind=db.engine, checkfirst=True)
             Vendor.__table__.create(bind=db.engine, checkfirst=True)
             ArtistProfile.__table__.create(bind=db.engine, checkfirst=True)
+            vendor_venues.create(bind=db.engine, checkfirst=True)
+            artist_venues.create(bind=db.engine, checkfirst=True)
+            # Preserve the single venue links used by older installations.
+            current_tables = inspect(db.engine).get_table_names()
+            if 'vendor' in current_tables and 'venue_id' in {c['name'] for c in inspect(db.engine).get_columns('vendor')}:
+                db.session.execute(text(
+                    'INSERT INTO vendor_venue (vendor_id, venue_id) '
+                    'SELECT vendor.id, vendor.venue_id FROM vendor '
+                    'LEFT JOIN vendor_venue ON vendor_venue.vendor_id = vendor.id AND vendor_venue.venue_id = vendor.venue_id '
+                    'WHERE vendor.venue_id IS NOT NULL AND vendor_venue.vendor_id IS NULL'
+                ))
+            if 'artist_profile' in current_tables and 'venue_id' in {c['name'] for c in inspect(db.engine).get_columns('artist_profile')}:
+                db.session.execute(text(
+                    'INSERT INTO artist_venue (artist_id, venue_id) '
+                    'SELECT artist_profile.id, artist_profile.venue_id FROM artist_profile '
+                    'LEFT JOIN artist_venue ON artist_venue.artist_id = artist_profile.id AND artist_venue.venue_id = artist_profile.venue_id '
+                    'WHERE artist_profile.venue_id IS NOT NULL AND artist_venue.artist_id IS NULL'
+                ))
+            db.session.commit()
             ApiKey.__table__.create(bind=db.engine, checkfirst=True)
 
             logs_engine = db.engines['logs']
@@ -3635,7 +3656,7 @@ def create_app():
             'vendors': [
                 {
                     'id': vendor.id,
-                    'venue_id': vendor.venue_id,
+                    'venue_ids': [venue.id for venue in vendor.venues],
                     'name': vendor.name,
                     'website': vendor.website,
                     'booth_number': vendor.booth_number,
@@ -3647,7 +3668,7 @@ def create_app():
             'artists': [
                 {
                     'id': artist.id,
-                    'venue_id': artist.venue_id,
+                    'venue_ids': [venue.id for venue in artist.venues],
                     'name': artist.name,
                     'website': artist.website,
                     'booth_number': artist.booth_number,
@@ -3990,7 +4011,10 @@ def create_app():
                 db.session.add(vendor)
             if overwrite or is_new:
                 vendor.name = name
-                vendor.venue = venue_map.get(item.get('venue_id'))
+                venue_ids = item.get('venue_ids')
+                if venue_ids is None:
+                    venue_ids = [item.get('venue_id')] if item.get('venue_id') is not None else []
+                vendor.venues = [venue_map[venue_id] for venue_id in venue_ids if venue_id in venue_map]
                 vendor.website = item.get('website')
                 vendor.booth_number = item.get('booth_number')
                 vendor.services_provided = item.get('services_provided')
@@ -4009,7 +4033,10 @@ def create_app():
                 db.session.add(artist)
             if overwrite or is_new:
                 artist.name = name
-                artist.venue = venue_map.get(item.get('venue_id'))
+                venue_ids = item.get('venue_ids')
+                if venue_ids is None:
+                    venue_ids = [item.get('venue_id')] if item.get('venue_id') is not None else []
+                artist.venues = [venue_map[venue_id] for venue_id in venue_ids if venue_id in venue_map]
                 artist.website = item.get('website')
                 artist.booth_number = item.get('booth_number')
                 artist.services_provided = item.get('services_provided')
@@ -4840,12 +4867,28 @@ def create_app():
         flash(f'Added {count} tournament' + ('s' if count != 1 else '') + f' to {venue.name}.', 'success')
         return redirect(url_for('venue_detail', venue_id=venue.id))
 
-    def booth_number_conflict(venue_id, booth_number, *, vendor_id=None, artist_id=None):
+    def selected_venues():
+        venue_ids = []
+        for raw_id in request.form.getlist('venue_ids'):
+            try:
+                venue_id = int(raw_id)
+            except (TypeError, ValueError):
+                abort(400)
+            if venue_id not in venue_ids:
+                venue_ids.append(venue_id)
+        venues = db.session.query(Venue).filter(Venue.id.in_(venue_ids)).all() if venue_ids else []
+        if len(venues) != len(venue_ids):
+            abort(400)
+        venue_by_id = {venue.id: venue for venue in venues}
+        return [venue_by_id[venue_id] for venue_id in venue_ids]
+
+    def booth_number_conflict(venues, booth_number, *, vendor_id=None, artist_id=None):
         booth = (booth_number or '').strip()
-        if not venue_id or not booth:
+        venue_ids = [venue.id for venue in venues]
+        if not venue_ids or not booth:
             return None
-        vendor_query = db.session.query(Vendor).filter(
-            Vendor.venue_id == venue_id,
+        vendor_query = db.session.query(Vendor).join(Vendor.venues).filter(
+            Venue.id.in_(venue_ids),
             db.func.lower(Vendor.booth_number) == booth.lower(),
         )
         if vendor_id is not None:
@@ -4853,8 +4896,8 @@ def create_app():
         vendor = vendor_query.first()
         if vendor:
             return f'Booth {booth} is already assigned to vendor {vendor.name}.'
-        artist_query = db.session.query(ArtistProfile).filter(
-            ArtistProfile.venue_id == venue_id,
+        artist_query = db.session.query(ArtistProfile).join(ArtistProfile.venues).filter(
+            Venue.id.in_(venue_ids),
             db.func.lower(ArtistProfile.booth_number) == booth.lower(),
         )
         if artist_id is not None:
@@ -4879,25 +4922,25 @@ def create_app():
             if not name:
                 flash('Vendor name is required.', 'error')
             else:
-                venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+                profile_venues = selected_venues()
                 booth_number = request.form.get('booth_number', '').strip() or None
-                conflict = booth_number_conflict(venue_id, booth_number)
+                conflict = booth_number_conflict(profile_venues, booth_number)
                 if conflict:
                     flash(conflict, 'error')
                 else:
                     vendor = Vendor(
                         name=name,
-                        venue_id=venue_id,
                         website=request.form.get('website', '').strip() or None,
                         booth_number=booth_number,
                         services_provided=request.form.get('services_provided', '').strip() or None,
                     )
+                    vendor.venues = profile_venues
                     db.session.add(vendor)
                     db.session.commit()
                     log_site('vendor_create', 'success', f'vendor_id={vendor.id}')
                     flash('Vendor created.', 'success')
                     return redirect(url_for('vendor_management'))
-        vendors = restrict_to_visible_venues(db.session.query(Vendor), Vendor).order_by(Vendor.name).all()
+        vendors = db.session.query(Vendor).order_by(Vendor.name).all()
         return render_template('admin/vendors.html', vendors=vendors, venues=venues, can_manage_venues=current_user.has_permission('venues.manage'))
 
     @app.route('/admin/venues/vendors/<int:vendor_id>/update', methods=['POST'])
@@ -4911,14 +4954,14 @@ def create_app():
         if not name:
             flash('Vendor name is required.', 'error')
         else:
-            venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+            profile_venues = selected_venues()
             booth_number = request.form.get('booth_number', '').strip() or None
-            conflict = booth_number_conflict(venue_id, booth_number, vendor_id=vendor.id)
+            conflict = booth_number_conflict(profile_venues, booth_number, vendor_id=vendor.id)
             if conflict:
                 flash(conflict, 'error')
             else:
                 vendor.name = name
-                vendor.venue_id = venue_id
+                vendor.venues = profile_venues
                 vendor.website = request.form.get('website', '').strip() or None
                 vendor.booth_number = booth_number
                 vendor.services_provided = request.form.get('services_provided', '').strip() or None
@@ -4942,25 +4985,25 @@ def create_app():
             if not name:
                 flash('Artist name is required.', 'error')
             else:
-                venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+                profile_venues = selected_venues()
                 booth_number = request.form.get('booth_number', '').strip() or None
-                conflict = booth_number_conflict(venue_id, booth_number)
+                conflict = booth_number_conflict(profile_venues, booth_number)
                 if conflict:
                     flash(conflict, 'error')
                 else:
                     artist = ArtistProfile(
                         name=name,
-                        venue_id=venue_id,
                         website=request.form.get('website', '').strip() or None,
                         booth_number=booth_number,
                         services_provided=request.form.get('services_provided', '').strip() or None,
                     )
+                    artist.venues = profile_venues
                     db.session.add(artist)
                     db.session.commit()
                     log_site('artist_create', 'success', f'artist_id={artist.id}')
                     flash('Artist profile created.', 'success')
                     return redirect(url_for('artist_management'))
-        artists = restrict_to_visible_venues(db.session.query(ArtistProfile), ArtistProfile).order_by(ArtistProfile.name).all()
+        artists = db.session.query(ArtistProfile).order_by(ArtistProfile.name).all()
         return render_template('admin/artists.html', artists=artists, venues=venues, can_manage_venues=current_user.has_permission('venues.manage'))
 
     @app.route('/admin/venues/artists/<int:artist_id>/update', methods=['POST'])
@@ -4974,14 +5017,14 @@ def create_app():
         if not name:
             flash('Artist name is required.', 'error')
         else:
-            venue_id = int(request.form['venue_id']) if request.form.get('venue_id') else None
+            profile_venues = selected_venues()
             booth_number = request.form.get('booth_number', '').strip() or None
-            conflict = booth_number_conflict(venue_id, booth_number, artist_id=artist.id)
+            conflict = booth_number_conflict(profile_venues, booth_number, artist_id=artist.id)
             if conflict:
                 flash(conflict, 'error')
             else:
                 artist.name = name
-                artist.venue_id = venue_id
+                artist.venues = profile_venues
                 artist.website = request.form.get('website', '').strip() or None
                 artist.booth_number = booth_number
                 artist.services_provided = request.form.get('services_provided', '').strip() or None
