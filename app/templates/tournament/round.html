@@ -28,28 +28,23 @@
       <td{% if inline_reporting and not locked and m.player2_id and t.format != 'Commander' %} colspan="2"{% endif %}>
         {% if inline_reporting and not locked and m.player2_id and t.format != 'Commander' %}
           <form method="post" action="{{ url_for('report_match', mid=m.id) }}" class="inline-result-form" data-inline-result-form data-head-to-head-form>
-            <span class="inline-player-result inline-player-result-left">
-              <span class="inline-player-fields">
+            <span class="inline-score-controls">
+              <span class="inline-player-result inline-player-result-left">
                 <label class="inline-result-field"><span>Win</span><input aria-label="{{ m.player1.user.name }} wins" type="number" name="p1_wins" min="0" required value="{{ m.result.player1_wins if m.result else 0 }}" data-win-input="p1"></label>
-                <label class="inline-result-field"><span>Loss</span><input aria-label="{{ m.player1.user.name }} losses" type="number" min="0" required value="{{ m.result.player2_wins if m.result else 0 }}" data-loss-input="p1"></label>
+                <strong class="inline-player-name">{{ m.player1.user.name }}</strong>
               </span>
-              <strong class="inline-player-name">{{ m.player1.user.name }}</strong>
-            </span>
-            <span class="inline-versus">vs</span>
-            <span class="inline-player-result inline-player-result-right">
-              <strong class="inline-player-name">{{ m.player2.user.name }}</strong>
-              <span class="inline-player-fields">
+              <span class="inline-versus">vs</span>
+              <span class="inline-player-result inline-player-result-right">
+                <strong class="inline-player-name">{{ m.player2.user.name }}</strong>
                 <label class="inline-result-field"><span>Win</span><input aria-label="{{ m.player2.user.name }} wins" type="number" name="p2_wins" min="0" required value="{{ m.result.player2_wins if m.result else 0 }}" data-win-input="p2"></label>
-                <label class="inline-result-field"><span>Loss</span><input aria-label="{{ m.player2.user.name }} losses" type="number" min="0" required value="{{ m.result.player1_wins if m.result else 0 }}" data-loss-input="p2"></label>
               </span>
             </span>
-            <label class="inline-result-field"><span>Draw</span><input aria-label="Draws" type="number" name="draws" min="0" required value="{{ m.result.draws if m.result else 0 }}"></label>
-            <button class="btn inline-result-save" type="submit">Save</button>
-            <span class="inline-result-status" role="status" aria-live="polite"></span>
             <span class="inline-drop-group">
               <label><input type="checkbox" name="drop_p1" value="1"> Drop {{ m.player1.user.name }}</label>
               <label><input type="checkbox" name="drop_p2" value="1"> Drop {{ m.player2.user.name }}</label>
             </span>
+            <span class="inline-result-status" role="status" aria-live="polite"></span>
+            <button class="btn inline-result-save" type="submit">Save</button>
           </form>
           <span class="inline-result-summary" data-result-summary>
             {% if m.completed %}{{ m.result.player1_wins }}-{{ m.result.player2_wins }} (Draws {{ m.result.draws }}){% endif %}
@@ -141,16 +136,6 @@
 {% if inline_reporting %}
 <script>
 document.querySelectorAll('[data-inline-result-form]').forEach(function(form) {
-  const p1Win = form.querySelector('[data-win-input="p1"]');
-  const p2Win = form.querySelector('[data-win-input="p2"]');
-  const p1Loss = form.querySelector('[data-loss-input="p1"]');
-  const p2Loss = form.querySelector('[data-loss-input="p2"]');
-  if (p1Win && p2Win && p1Loss && p2Loss) {
-    p1Win.addEventListener('input', function() { p2Loss.value = p1Win.value; });
-    p2Loss.addEventListener('input', function() { p1Win.value = p2Loss.value; });
-    p2Win.addEventListener('input', function() { p1Loss.value = p2Win.value; });
-    p1Loss.addEventListener('input', function() { p2Win.value = p1Loss.value; });
-  }
   form.addEventListener('submit', function(event) {
     event.preventDefault();
     const button = form.querySelector('button[type="submit"]');

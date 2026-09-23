@@ -75,10 +75,10 @@ def test_round_page_limits_players_and_offers_opt_in_inline_reporting(client, se
     assert manager_page.count('class="inline-result-form"') == 2
     assert 'name="p1_wins"' in manager_page
     assert 'name="p2_wins"' in manager_page
-    assert 'name="draws"' in manager_page
-    assert manager_page.count('data-loss-input="p1"') == 2
-    assert manager_page.count('data-loss-input="p2"') == 2
-    assert manager_page.count('name="draws"') == 2
+    assert manager_page.count('name="p1_wins"') == 2
+    assert manager_page.count('name="p2_wins"') == 2
+    assert 'data-loss-input' not in manager_page
+    assert 'name="draws"' not in manager_page
     assert manager_page.count('inline-result-save') == 2
     assert manager_page.count('name="drop_p1"') == 2
     assert manager_page.count('name="drop_p2"') == 2
