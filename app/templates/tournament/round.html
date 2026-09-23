@@ -38,6 +38,7 @@
                 <strong class="inline-player-name">{{ m.player2.user.name }}</strong>
                 <label class="inline-result-field"><span>Win</span><input aria-label="{{ m.player2.user.name }} wins" type="number" name="p2_wins" min="0" required value="{{ m.result.player2_wins if m.result else 0 }}" data-win-input="p2"></label>
               </span>
+              <label class="inline-result-field"><span>Draw</span><input aria-label="Draws" type="number" name="draws" min="0" required value="{{ m.result.draws if m.result else 0 }}"></label>
             </span>
             <span class="inline-drop-group">
               <label><input type="checkbox" name="drop_p1" value="1"> Drop {{ m.player1.user.name }}</label>
