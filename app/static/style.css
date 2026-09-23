@@ -2099,6 +2099,61 @@ ul.flashes {
   white-space: nowrap;
 }
 
+/* Keep the ended-tournament workspace readable without requiring a wide table. */
+.ended-tournaments-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.ended-tournaments-table th:nth-child(1) { width: 23%; }
+.ended-tournaments-table th:nth-child(2) { width: 12%; }
+.ended-tournaments-table th:nth-child(3) { width: 10%; }
+.ended-tournaments-table th:nth-child(4) { width: 21%; }
+.ended-tournaments-table th:nth-child(5) { width: 15%; }
+.ended-tournaments-table th:nth-child(6) { width: 19%; }
+
+.ended-tournaments-table th,
+.ended-tournaments-table td {
+  overflow-wrap: anywhere;
+}
+
+.ended-tournaments-table th {
+  padding-inline: 0.5rem;
+}
+
+.ended-tournaments-table .table-filters input {
+  min-width: 0;
+}
+
+.ended-tournament-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.ended-tournament-actions .btn {
+  padding-inline: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .ended-tournaments-table th,
+  .ended-tournaments-table td {
+    padding-inline: 0.4rem;
+  }
+
+  .ended-tournaments-table th:nth-child(1) { width: 24%; }
+  .ended-tournaments-table th:nth-child(2) { width: 11%; }
+  .ended-tournaments-table th:nth-child(3) { width: 9%; }
+  .ended-tournaments-table th:nth-child(4) { width: 20%; }
+  .ended-tournaments-table th:nth-child(5) { width: 13%; }
+  .ended-tournaments-table th:nth-child(6) { width: 23%; }
+
+  .ended-tournaments-table .table-filters input {
+    padding-inline: 0.5rem;
+  }
+}
+
 /* Bulk player registration alignment */
 .bulk-register-grid {
   align-items: start;

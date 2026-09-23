@@ -9,7 +9,7 @@
 <section class="panel-card">
   {% if tournaments %}
   <div class="responsive-table">
-  <table class="table compact-table filterable-table" id="ended-tournaments-table">
+  <table class="table compact-table filterable-table ended-tournaments-table" id="ended-tournaments-table">
     <thead>
       <tr>
         <th><button class="table-sort" type="button" data-column="0">Name <span aria-hidden="true"></span></button></th>
@@ -20,11 +20,11 @@
         <th>Actions</th>
       </tr>
       <tr class="table-filters">
-        <th><input type="search" data-column="0" aria-label="Filter by name" placeholder="Filter name"></th>
-        <th><input type="search" data-column="1" aria-label="Filter by format" placeholder="Filter format"></th>
-        <th><input type="search" data-column="2" aria-label="Filter by player count" placeholder="Filter players"></th>
-        <th><input type="search" data-column="3" aria-label="Filter by end date" placeholder="Filter ended"></th>
-        <th><input type="search" data-column="4" aria-label="Filter by venue" placeholder="Filter venue"></th>
+        <th><input type="search" data-column="0" aria-label="Filter by name" placeholder="Search"></th>
+        <th><input type="search" data-column="1" aria-label="Filter by format" placeholder="Format"></th>
+        <th><input type="search" data-column="2" aria-label="Filter by player count" placeholder="Count"></th>
+        <th><input type="search" data-column="3" aria-label="Filter by end date" placeholder="Date"></th>
+        <th><input type="search" data-column="4" aria-label="Filter by venue" placeholder="Search"></th>
         <th><button class="btn ghost clear-table-filters" type="button">Clear filters</button></th>
       </tr>
     </thead>
@@ -33,8 +33,10 @@
       <tr>
         <td>{{ t.name }}</td><td>{{ t.format }}</td><td data-sort-value="{{ player_counts[t.id] }}">{{ player_counts[t.id] }}</td><td data-sort-value="{{ t.ended_at.isoformat() }}">{{ t.ended_at }}</td><td>{{ t.venue.name if t.venue else 'No venue' }}</td>
         <td>
-          <a class="btn ghost" href="{{ url_for('view_tournament', tid=t.id) }}">Open</a>
-          <form method="post" action="{{ url_for('reopen_tournament', tid=t.id) }}" class="inline-form" onsubmit="return confirm('Reopen this tournament?');"><button class="btn secondary" type="submit">Reopen</button></form>
+          <div class="ended-tournament-actions">
+            <a class="btn ghost" href="{{ url_for('view_tournament', tid=t.id) }}">Open</a>
+            <form method="post" action="{{ url_for('reopen_tournament', tid=t.id) }}" class="inline-form" onsubmit="return confirm('Reopen this tournament?');"><button class="btn secondary" type="submit">Reopen</button></form>
+          </div>
         </td>
       </tr>
       {% endfor %}
