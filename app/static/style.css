@@ -1491,9 +1491,10 @@ ul.flashes {
 }
 
 [data-head-to-head-form] {
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
-  justify-content: center;
+  width: 100%;
   overflow-x: auto;
   white-space: nowrap;
 }
@@ -1507,9 +1508,14 @@ ul.flashes {
 }
 
 .inline-score-controls {
-  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(6, max-content);
   justify-content: center;
   min-width: max-content;
+}
+
+[data-head-to-head-form] .inline-player-result {
+  display: contents;
 }
 
 .inline-player-name {
