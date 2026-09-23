@@ -783,6 +783,17 @@ def test_tournament_manager_can_bulk_add_tournament_to_venue(client, session):
     assert page.status_code == 200
     assert 'Bulk Add Tournaments' in html
     assert f'name="tournament_ids" value="{tournament.id}"' in html
+    assert html.count('<details class="panel-card venue-collapsible">') == 5
+    assert '<details class="panel-card venue-collapsible" open' not in html
+    assert 'Venue Assets' not in html
+    section_titles = [
+        'Venue Details',
+        'Amenities',
+        f'Tournaments at {venue.name}',
+        'Venue Staff',
+        'Bulk Add Tournaments',
+    ]
+    assert [html.index(title) for title in section_titles] == sorted(html.index(title) for title in section_titles)
     assert response.status_code == 302
     assert response.location == f'/admin/venues/{venue.id}'
     session.expire_all()
