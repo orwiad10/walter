@@ -739,28 +739,46 @@ class Venue(db.Model):
     created_at = db.Column(db.DateTime, default=utc_now)
 
 
+vendor_venues = db.Table(
+    'vendor_venue',
+    db.Column('vendor_id', db.Integer, db.ForeignKey('vendor.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('venue_id', db.Integer, db.ForeignKey('venue.id', ondelete='CASCADE'), primary_key=True),
+)
+
+
+artist_venues = db.Table(
+    'artist_venue',
+    db.Column('artist_id', db.Integer, db.ForeignKey('artist_profile.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('venue_id', db.Integer, db.ForeignKey('venue.id', ondelete='CASCADE'), primary_key=True),
+)
+
+
 class Vendor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    venue_id = db.Column(db.Integer, db.ForeignKey('venue.id'), nullable=True)
     name = db.Column(db.String(200), nullable=False)
     website = db.Column(db.Text, nullable=True)
     booth_number = db.Column(db.String(50), nullable=True)
     services_provided = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
-    venue = db.relationship('Venue', backref=db.backref('vendors', cascade='all, delete-orphan'))
+    venues = db.relationship(
+        'Venue', secondary=vendor_venues,
+        backref=db.backref('vendors', lazy=True),
+    )
 
 
 class ArtistProfile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    venue_id = db.Column(db.Integer, db.ForeignKey('venue.id'), nullable=True)
     name = db.Column(db.String(200), nullable=False)
     website = db.Column(db.Text, nullable=True)
     booth_number = db.Column(db.String(50), nullable=True)
     services_provided = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
-    venue = db.relationship('Venue', backref=db.backref('artists', cascade='all, delete-orphan'))
+    venues = db.relationship(
+        'Venue', secondary=artist_venues,
+        backref=db.backref('artists', lazy=True),
+    )
 
 class ApiLog(db.Model):
     __bind_key__ = 'logs'
