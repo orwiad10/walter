@@ -45,7 +45,12 @@
         </td>
         <td>{% if can_manage_venues %}<textarea form="venue-form-{{ venue.id }}" name="address" rows="2">{{ venue.address or '' }}</textarea>{% else %}{{ venue.address or '-' }}{% endif %}</td>
         <td>{% if can_manage_venues %}<textarea form="venue-form-{{ venue.id }}" name="notes" rows="2">{{ venue.notes or '' }}</textarea>{% else %}{{ venue.notes or '-' }}{% endif %}</td>
-        <td><a class="btn secondary" href="{{ url_for('venue_detail', venue_id=venue.id) }}">Open Venue</a></td>{% if can_manage_venues %}<td><button form="venue-form-{{ venue.id }}" class="btn" type="submit">Save</button></td>{% endif %}
+        <td>
+          <div class="venue-workspace-actions">
+            <a class="btn secondary" href="{{ url_for('venue_detail', venue_id=venue.id) }}">Open Venue</a>
+            {% if can_manage_venues %}<a class="btn secondary" href="{{ url_for('lost_and_found', venue_id=venue.id) }}">Lost &amp; Found</a>{% endif %}
+          </div>
+        </td>{% if can_manage_venues %}<td><button form="venue-form-{{ venue.id }}" class="btn" type="submit">Save</button></td>{% endif %}
       </tr>
       <tr>
         <td colspan="{{ 6 if can_manage_venues else 5 }}">
@@ -61,12 +66,6 @@
               {% if venue.vendors %}
               <table class="table compact-table"><tbody>{% for vendor in venue.vendors %}<tr><td>{{ vendor.name }}</td><td>{{ vendor.booth_number or '-' }}</td></tr>{% endfor %}</tbody></table>
               {% else %}<p class="empty-state compact-empty">No vendors.</p>{% endif %}
-            </div>
-            <div>
-              <h4>Tournaments</h4>
-              {% if venue.tournaments %}
-              <table class="table compact-table"><tbody>{% for tournament in venue.tournaments %}<tr><td><a href="{{ url_for('view_tournament', tid=tournament.id) }}">{{ tournament.name }}</a></td><td>{{ tournament.start_time or '-' }}</td></tr>{% endfor %}</tbody></table>{% if can_manage_venues %}<div class="form-actions"><a class="btn secondary" href="{{ url_for('venue_detail', venue_id=venue.id) }}">Manage tournament list</a> <a class="btn secondary" href="{{ url_for('lost_and_found', venue_id=venue.id) }}">Lost &amp; Found</a></div>{% endif %}
-              {% else %}<p class="empty-state compact-empty">No tournaments.</p>{% endif %}
             </div>
           </div>
         </td>

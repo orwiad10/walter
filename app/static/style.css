@@ -2057,6 +2057,45 @@ ul.flashes {
   white-space: normal;
 }
 
+.venue-workspace-actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.filterable-table {
+  min-width: 760px;
+}
+
+.table-sort {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: inherit;
+  padding: 0;
+}
+
+.table-sort:hover,
+.table-sort:focus-visible {
+  color: var(--accent);
+}
+
+.table-filters input {
+  min-width: 110px;
+  width: 100%;
+}
+
+.table-filters th {
+  padding-top: 0.5rem;
+  vertical-align: middle;
+}
+
+.clear-table-filters {
+  white-space: nowrap;
+}
+
 /* Bulk player registration alignment */
 .bulk-register-grid {
   align-items: start;

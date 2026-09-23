@@ -8,12 +8,30 @@
 </section>
 <section class="panel-card">
   {% if tournaments %}
-  <table class="table compact-table">
-    <thead><tr><th>Name</th><th>Format</th><th>Players</th><th>Ended</th><th></th></tr></thead>
+  <div class="responsive-table">
+  <table class="table compact-table filterable-table" id="ended-tournaments-table">
+    <thead>
+      <tr>
+        <th><button class="table-sort" type="button" data-column="0">Name <span aria-hidden="true"></span></button></th>
+        <th><button class="table-sort" type="button" data-column="1">Format <span aria-hidden="true"></span></button></th>
+        <th><button class="table-sort" type="button" data-column="2" data-type="number">Players <span aria-hidden="true"></span></button></th>
+        <th><button class="table-sort" type="button" data-column="3" data-type="date">Ended <span aria-hidden="true"></span></button></th>
+        <th><button class="table-sort" type="button" data-column="4">Venue <span aria-hidden="true"></span></button></th>
+        <th>Actions</th>
+      </tr>
+      <tr class="table-filters">
+        <th><input type="search" data-column="0" aria-label="Filter by name" placeholder="Filter name"></th>
+        <th><input type="search" data-column="1" aria-label="Filter by format" placeholder="Filter format"></th>
+        <th><input type="search" data-column="2" aria-label="Filter by player count" placeholder="Filter players"></th>
+        <th><input type="search" data-column="3" aria-label="Filter by end date" placeholder="Filter ended"></th>
+        <th><input type="search" data-column="4" aria-label="Filter by venue" placeholder="Filter venue"></th>
+        <th><button class="btn ghost clear-table-filters" type="button">Clear filters</button></th>
+      </tr>
+    </thead>
     <tbody>
       {% for t in tournaments %}
       <tr>
-        <td>{{ t.name }}</td><td>{{ t.format }}</td><td>{{ player_counts[t.id] }}</td><td>{{ t.ended_at }}</td>
+        <td>{{ t.name }}</td><td>{{ t.format }}</td><td data-sort-value="{{ player_counts[t.id] }}">{{ player_counts[t.id] }}</td><td data-sort-value="{{ t.ended_at.isoformat() }}">{{ t.ended_at }}</td><td>{{ t.venue.name if t.venue else 'No venue' }}</td>
         <td>
           <a class="btn ghost" href="{{ url_for('view_tournament', tid=t.id) }}">Open</a>
           <form method="post" action="{{ url_for('reopen_tournament', tid=t.id) }}" class="inline-form" onsubmit="return confirm('Reopen this tournament?');"><button class="btn secondary" type="submit">Reopen</button></form>
@@ -22,6 +40,64 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
+  <p class="empty-state hidden" id="ended-tournaments-no-results">No tournaments match these filters.</p>
   {% else %}<p class="empty-state">No ended tournaments yet.</p>{% endif %}
 </section>
+<script>
+(function () {
+  const table = document.getElementById('ended-tournaments-table');
+  if (!table) return;
+  const body = table.tBodies[0];
+  const rows = Array.from(body.rows);
+  const filters = Array.from(table.querySelectorAll('.table-filters input'));
+  const noResults = document.getElementById('ended-tournaments-no-results');
+
+  function applyFilters() {
+    let visible = 0;
+    rows.forEach(function (row) {
+      const matches = filters.every(function (input) {
+        return row.cells[Number(input.dataset.column)].textContent.toLowerCase().includes(input.value.trim().toLowerCase());
+      });
+      row.hidden = !matches;
+      if (matches) visible += 1;
+    });
+    noResults.classList.toggle('hidden', visible !== 0);
+  }
+
+  filters.forEach(function (input) { input.addEventListener('input', applyFilters); });
+  table.querySelector('.clear-table-filters').addEventListener('click', function () {
+    filters.forEach(function (input) { input.value = ''; });
+    applyFilters();
+  });
+
+  table.querySelectorAll('.table-sort').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const column = Number(button.dataset.column);
+      const direction = button.dataset.direction === 'asc' ? 'desc' : 'asc';
+      table.querySelectorAll('.table-sort').forEach(function (other) {
+        other.removeAttribute('data-direction');
+        other.setAttribute('aria-sort', 'none');
+        other.querySelector('span').textContent = '';
+      });
+      button.dataset.direction = direction;
+      button.setAttribute('aria-sort', direction === 'asc' ? 'ascending' : 'descending');
+      button.querySelector('span').textContent = direction === 'asc' ? '▲' : '▼';
+      rows.sort(function (a, b) {
+        let left = a.cells[column].dataset.sortValue || a.cells[column].textContent.trim();
+        let right = b.cells[column].dataset.sortValue || b.cells[column].textContent.trim();
+        if (button.dataset.type === 'number') {
+          left = Number(left); right = Number(right);
+          return direction === 'asc' ? left - right : right - left;
+        }
+        if (button.dataset.type === 'date') {
+          left = Date.parse(left); right = Date.parse(right);
+          return direction === 'asc' ? left - right : right - left;
+        }
+        return (direction === 'asc' ? 1 : -1) * left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+      }).forEach(function (row) { body.appendChild(row); });
+    });
+  });
+}());
+</script>
 {% endblock %}
