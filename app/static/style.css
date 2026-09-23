@@ -1391,17 +1391,20 @@ ul.flashes {
   margin-bottom: 18px;
 }
 
-.league-collapsible > summary.section-heading {
+.league-collapsible > summary.section-heading,
+.venue-collapsible > summary.section-heading {
   cursor: pointer;
   margin-bottom: 0;
   list-style-position: outside;
 }
 
-.league-collapsible[open] > summary.section-heading {
+.league-collapsible[open] > summary.section-heading,
+.venue-collapsible[open] > summary.section-heading {
   margin-bottom: 18px;
 }
 
-.league-collapsible > summary.section-heading::marker {
+.league-collapsible > summary.section-heading::marker,
+.venue-collapsible > summary.section-heading::marker {
   color: var(--brand-accent);
 }
 
